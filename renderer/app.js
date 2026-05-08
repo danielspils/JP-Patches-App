@@ -1,255 +1,54 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
-// Discrete parameter value tables (mirrors jx3p/patch.py)
+// State
 // ═══════════════════════════════════════════════════════════════
 
-const DISCRETE = {
-  dco1_range:    ["16'", "8'", "4'"],
-  dco1_waveform: ["saw", "pulse", "square"],
-  dco2_range:    ["16'", "8'", "4'"],
-  dco2_waveform: ["saw", "pulse", "square", "noise"],
-  dco2_crossmod: ["off", "sync", "metal"],
-  lfo_waveform:  ["sine", "square", "random", "fast random"],
-};
-
-// ═══════════════════════════════════════════════════════════════
-// App state
-// ═══════════════════════════════════════════════════════════════
-
-let patches  = null;   // { banks: [[16 patches], [16 patches]] }
-let library  = null;   // { version, names: { 'C1': 'Warm Pad', ... } }
-let selBank  = 'C';    // 'C' | 'D' | 'L'
-let selSlot  = 0;      // 0-15
+let patches  = null;
+let library  = null;
+let selBank  = 'C';
+let selSlot  = 0;
 let saveTimer = null;
-
-// Map from param name → updater function: (value) => void
-const updaters = {};
+let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════
 
-function bankIndex(bank) { return bank === 'D' ? 1 : 0; }
+const slotKey = (b, s) => `${b}${s + 1}`;
 
-function slotKey(bank, slot) { return `${bank}${slot + 1}`; }
-
-function patchName(bank, slot) {
-  const key = slotKey(bank, slot);
-  return (library && library.names && library.names[key]) || null;
+function patchName(b, s) {
+  return (library && library.names && library.names[slotKey(b, s)]) || null;
 }
 
-function displayName(bank, slot) {
-  return patchName(bank, slot) || `${bank}${slot + 1}`;
-}
-
-function currentPatch() {
-  if (!patches || selBank === 'L') return null;
-  return patches.banks[bankIndex(selBank)][selSlot];
+function displayLabel(b, s) {
+  const nm = patchName(b, s);
+  return nm ? `${slotKey(b, s)}: ${nm}` : `${slotKey(b, s)}`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Knob SVG generation
+// SVG: locate the patch-name text element and update it
 // ═══════════════════════════════════════════════════════════════
 
-let _uid = 0;
-
-function paramToAngle(param, value) {
-  const steps = DISCRETE[param];
-  if (steps) {
-    const idx = steps.indexOf(value);
-    if (idx < 0) return -135;
-    return steps.length < 2 ? 0 : -135 + (idx / (steps.length - 1)) * 270;
+function findSvgPatchNameEl(svgEl) {
+  // The locked SVG draws the patch name at x=922 y=74, font-size=13, bold.
+  // Walk all <text> nodes and pick the one whose initial content matches the
+  // patch-slot pattern ("C5: …"). This avoids depending on coordinate values
+  // that may shift if the SVG is regenerated.
+  const texts = svgEl.querySelectorAll('text');
+  for (const t of texts) {
+    if (/^[CD]\d+:/.test(t.textContent.trim())) return t;
   }
-  const v = Math.max(0, Math.min(255, typeof value === 'number' ? value : 0));
-  return -135 + (v / 255) * 270;
+  return null;
 }
 
-function makeKnobSVG(angleDeg, size = 44) {
-  const cx = size / 2, cy = size / 2;
-  const r        = size * 0.365;
-  const tickOuter = size * 0.477;
-  const tickInner = tickOuter - 3.5;
-  const indOuter  = r * 0.83;
-  const indInner  = r * 0.20;
-
-  const ticks = [];
-  for (let a = -135; a <= 135; a += 45) {
-    const rad = (a - 90) * Math.PI / 180;
-    const x1 = (cx + Math.cos(rad) * tickInner).toFixed(2);
-    const y1 = (cy + Math.sin(rad) * tickInner).toFixed(2);
-    const x2 = (cx + Math.cos(rad) * tickOuter).toFixed(2);
-    const y2 = (cy + Math.sin(rad) * tickOuter).toFixed(2);
-    const major = a === -135 || a === 0 || a === 135;
-    ticks.push(
-      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
-      `stroke="${major ? '#6a6a6a' : '#484848'}" stroke-width="${major ? 1.5 : 1}" stroke-linecap="round"/>`
-    );
-  }
-
-  const rad = (angleDeg - 90) * Math.PI / 180;
-  const ix1 = (cx + Math.cos(rad) * indInner).toFixed(2);
-  const iy1 = (cy + Math.sin(rad) * indInner).toFixed(2);
-  const ix2 = (cx + Math.cos(rad) * indOuter).toFixed(2);
-  const iy2 = (cy + Math.sin(rad) * indOuter).toFixed(2);
-
-  return (
-    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" ` +
-    `xmlns="http://www.w3.org/2000/svg">` +
-    ticks.join('') +
-    `<circle cx="${cx}" cy="${cy}" r="${(r + 1.5).toFixed(1)}" fill="rgba(0,0,0,0.35)"/>` +
-    `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="url(#knob-chrome)" stroke="#1a1a1a" stroke-width="1"/>` +
-    `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="url(#knob-vignette)"/>` +
-    `<line x1="${ix1}" y1="${iy1}" x2="${ix2}" y2="${iy2}" stroke="#f0f0f0" stroke-width="1.8" stroke-linecap="round"/>` +
-    `<circle cx="${cx}" cy="${cy}" r="2.2" fill="#1c1c1c"/>` +
-    `</svg>`
-  );
+function updateSvgPatchName() {
+  if (!svgPatchNameEl) return;
+  svgPatchNameEl.textContent = displayLabel(selBank, selSlot);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Control builders
-// ═══════════════════════════════════════════════════════════════
-
-function makeKnob(label, param) {
-  const wrap = document.createElement('div');
-  wrap.className = 'ctrl';
-  wrap.dataset.param = param;
-
-  const svgWrap = document.createElement('div');
-  const lbl = document.createElement('div');
-  lbl.className = 'ctrl-label';
-  lbl.textContent = label;
-
-  wrap.appendChild(svgWrap);
-  wrap.appendChild(lbl);
-
-  updaters[param] = (val) => {
-    svgWrap.innerHTML = makeKnobSVG(paramToAngle(param, val));
-  };
-  updaters[param](0);   // initial render (angle = min)
-  return wrap;
-}
-
-function makeSwitch(label, param) {
-  const wrap = document.createElement('div');
-  wrap.className = 'sw-ctrl';
-
-  const btn = document.createElement('div');
-  btn.className = 'sw-btn';
-
-  const led = document.createElement('span');
-  led.className = 'led red-led';
-  btn.appendChild(led);
-
-  const lbl = document.createElement('div');
-  lbl.className = 'sw-label';
-  lbl.textContent = label;
-
-  wrap.appendChild(btn);
-  wrap.appendChild(lbl);
-
-  updaters[param] = (val) => {
-    btn.classList.toggle('on', Boolean(val));
-  };
-  updaters[param](false);
-  return wrap;
-}
-
-function makeToggle(label, param, options, displayLabels) {
-  const labels = displayLabels || options.map(o => String(o));
-  const wrap = document.createElement('div');
-  wrap.className = 'toggle-ctrl';
-
-  const group = document.createElement('div');
-  group.className = 'toggle-group';
-
-  const btns = options.map((opt, i) => {
-    const b = document.createElement('div');
-    b.className = 'toggle-opt';
-    b.textContent = labels[i];
-    group.appendChild(b);
-    return b;
-  });
-
-  const lbl = document.createElement('div');
-  lbl.className = 'toggle-label';
-  lbl.textContent = label;
-
-  wrap.appendChild(group);
-  wrap.appendChild(lbl);
-
-  updaters[param] = (val) => {
-    btns.forEach((b, i) => b.classList.toggle('active', options[i] === val));
-  };
-  updaters[param](options[0]);
-  return wrap;
-}
-
-function makeSep() {
-  const s = document.createElement('div');
-  s.style.cssText = 'width:1px;background:#333;align-self:stretch;margin:0 2px;flex-shrink:0';
-  return s;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Build PG-200 sections
-// ═══════════════════════════════════════════════════════════════
-
-function buildSections() {
-  const dco1 = document.getElementById('body-dco1');
-  dco1.appendChild(makeKnob("Range",    'dco1_range'));
-  dco1.appendChild(makeKnob("Waveform", 'dco1_waveform'));
-  dco1.appendChild(makeSep());
-  dco1.appendChild(makeSwitch("LFO",    'dco1_fmod_lfo'));
-  dco1.appendChild(makeSwitch("ENV",    'dco1_fmod_env'));
-
-  const dco2 = document.getElementById('body-dco2');
-  dco2.appendChild(makeKnob("Range",     'dco2_range'));
-  dco2.appendChild(makeKnob("Waveform",  'dco2_waveform'));
-  dco2.appendChild(makeKnob("Cross Mod", 'dco2_crossmod'));
-  dco2.appendChild(makeKnob("Tune",      'dco2_tune'));
-  dco2.appendChild(makeKnob("Fine Tune", 'dco2_fine_tune'));
-  dco2.appendChild(makeSep());
-  dco2.appendChild(makeSwitch("LFO",     'dco2_fmod_lfo'));
-  dco2.appendChild(makeSwitch("ENV",     'dco2_fmod_env'));
-
-  const dcomod = document.getElementById('body-dcomod');
-  dcomod.appendChild(makeKnob("LFO Amt",  'dco_lfo_amount'));
-  dcomod.appendChild(makeKnob("ENV Amt",  'dco_env_amount'));
-  dcomod.appendChild(makeSep());
-  dcomod.appendChild(makeToggle("ENV Pol", 'dco_env_polarity', ["neg", "pos"]));
-
-  const vcf = document.getElementById('body-vcf');
-  vcf.appendChild(makeKnob("Src Mix",    'vcf_mix'));
-  vcf.appendChild(makeKnob("HPF",        'vcf_hpf'));
-  vcf.appendChild(makeKnob("Cutoff",     'vcf_cutoff'));
-  vcf.appendChild(makeKnob("Resonance",  'vcf_resonance'));
-  vcf.appendChild(makeKnob("LFO Mod",   'vcf_lfo_mod'));
-  vcf.appendChild(makeKnob("ENV Mod",   'vcf_env_mod'));
-  vcf.appendChild(makeKnob("Pitch Flw", 'vcf_pitch_follow'));
-  vcf.appendChild(makeSep());
-  vcf.appendChild(makeToggle("ENV Pol",  'vcf_env_polarity', ["neg", "pos"]));
-
-  const vca = document.getElementById('body-vca');
-  vca.appendChild(makeToggle("Mode",    'vca_mode',  ["gate", "env"]));
-  vca.appendChild(makeKnob("Level",     'vca_level'));
-  vca.appendChild(makeSep());
-  vca.appendChild(makeToggle("Chorus",  'chorus',    [false, true], ["Off", "On"]));
-
-  const lfo = document.getElementById('body-lfo');
-  lfo.appendChild(makeKnob("Waveform", 'lfo_waveform'));
-  lfo.appendChild(makeKnob("Delay",    'lfo_delay'));
-  lfo.appendChild(makeKnob("Rate",     'lfo_rate'));
-
-  const env = document.getElementById('body-env');
-  env.appendChild(makeKnob("Attack",   'env_attack'));
-  env.appendChild(makeKnob("Decay",    'env_decay'));
-  env.appendChild(makeKnob("Sustain",  'env_sustain'));
-  env.appendChild(makeKnob("Release",  'env_release'));
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Patch list rendering
+// Patch list
 // ═══════════════════════════════════════════════════════════════
 
 function renderPatchList() {
@@ -270,173 +69,79 @@ function renderPatchList() {
 
     const item = document.createElement('div');
     item.className = 'patch-item' + (slot === selSlot ? ' selected' : '');
-    item.dataset.slot = slot;
 
     const num = document.createElement('span');
     num.className = 'patch-number';
-    num.textContent = key;
+    num.textContent = key + ':';
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'patch-name-span' + (name ? '' : ' unnamed');
-    nameSpan.textContent = name || `click to name`;
-    nameSpan.dataset.slot = slot;
+    const nm = document.createElement('span');
+    nm.className = 'patch-name-span' + (name ? '' : ' unnamed');
+    nm.textContent = name || 'click to name';
 
-    const nameInput = document.createElement('input');
-    nameInput.className = 'patch-name-edit';
-    nameInput.type = 'text';
-    nameInput.maxLength = 28;
-    nameInput.spellcheck = false;
-    nameInput.autocomplete = 'off';
+    const inp = document.createElement('input');
+    inp.className = 'patch-name-edit';
+    inp.type = 'text';
+    inp.maxLength = 28;
+    inp.spellcheck = false;
+    inp.autocomplete = 'off';
 
     item.appendChild(num);
-    item.appendChild(nameSpan);
-    item.appendChild(nameInput);
+    item.appendChild(nm);
+    item.appendChild(inp);
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
-      if (e.target === nameSpan && slot === selSlot) {
-        startNameEdit(slot, nameSpan, nameInput);
+      if (e.target === nm && slot === selSlot) {
+        startNameEdit(slot, nm, inp);
         return;
       }
       selectPatch(slot);
     });
 
-    nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter')  commitName(slot, nameSpan, nameInput);
-      if (e.key === 'Escape') cancelEdit(nameSpan, nameInput);
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter')  commitListEdit(slot, nm, inp);
+      if (e.key === 'Escape') cancelListEdit(nm, inp);
     });
-    nameInput.addEventListener('blur', () => commitName(slot, nameSpan, nameInput));
+    inp.addEventListener('blur', () => commitListEdit(slot, nm, inp));
   }
 }
 
 function selectPatch(slot) {
   selSlot = slot;
   renderPatchList();
-  updatePG200();
-  updateTopBar();
+  updateSvgPatchName();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PG-200 display update
+// Name editing (left list only)
 // ═══════════════════════════════════════════════════════════════
 
-function updatePG200() {
-  const patch = currentPatch();
-  if (!patch) return;
-  Object.entries(updaters).forEach(([param, fn]) => {
-    if (param in patch) fn(patch[param]);
-  });
+function startNameEdit(slot, nm, inp) {
+  const cur = patchName(selBank, slot) || '';
+  nm.style.display  = 'none';
+  inp.style.display = 'block';
+  inp.value = cur;
+  inp.focus();
+  inp.select();
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Top-bar patch name
-// ═══════════════════════════════════════════════════════════════
-
-function updateTopBar() {
-  if (selBank === 'L') return;
-  const key  = slotKey(selBank, selSlot);
-  const name = patchName(selBank, selSlot);
-  const display = document.getElementById('patch-name-display-text');
-
-  if (name) {
-    display.textContent = `${key}: ${name}`;
-    display.classList.remove('placeholder');
-  } else {
-    display.textContent = `${key}: click to name`;
-    display.classList.add('placeholder');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Name editing
-// ═══════════════════════════════════════════════════════════════
-
-function startNameEdit(slot, nameSpan, nameInput) {
-  const existing = patchName(selBank, slot) || '';
-  nameSpan.style.display   = 'none';
-  nameInput.style.display  = 'block';
-  nameInput.value          = existing;
-  nameInput.focus();
-  nameInput.select();
-}
-
-function commitName(slot, nameSpan, nameInput) {
-  if (nameInput.style.display === 'none') return;
-  const val = nameInput.value.trim();
+function commitListEdit(slot, nm, inp) {
+  if (inp.style.display !== 'block') return;
+  const val = inp.value.trim();
   const key = slotKey(selBank, slot);
-  if (val) {
-    library.names[key] = val;
-  } else {
-    delete library.names[key];
-  }
-  nameInput.style.display = 'none';
-  nameSpan.style.display  = '';
+  if (val) library.names[key] = val;
+  else     delete library.names[key];
+  inp.style.display = 'none';
+  nm.style.display  = '';
   saveLibraryDebounced();
   renderPatchList();
-  updateTopBar();
+  updateSvgPatchName();
 }
 
-function cancelEdit(nameSpan, nameInput) {
-  nameInput.style.display = 'none';
-  nameSpan.style.display  = '';
+function cancelListEdit(nm, inp) {
+  inp.style.display = 'none';
+  nm.style.display  = '';
 }
-
-// Top-bar parallelogram click → edit current patch name
-function setupTopBarEdit() {
-  const pill  = document.getElementById('patch-name-pill');
-  const input = document.getElementById('patch-name-input');
-  const disp  = document.getElementById('patch-name-display-text');
-
-  pill.addEventListener('click', () => {
-    if (selBank === 'L') return;
-    if (input.style.display === 'block') return;
-    const existing = patchName(selBank, selSlot) || '';
-    disp.style.display  = 'none';
-    input.style.display = 'block';
-    input.value         = existing;
-    input.focus();
-    input.select();
-  });
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === 'Escape') {
-      if (e.key === 'Enter') {
-        const val = input.value.trim();
-        const key = slotKey(selBank, selSlot);
-        if (val) {
-          library.names[key] = val;
-        } else {
-          delete library.names[key];
-        }
-        saveLibraryDebounced();
-      }
-      input.style.display = 'none';
-      disp.style.display  = '';
-      renderPatchList();
-      updateTopBar();
-    }
-  });
-
-  input.addEventListener('blur', () => {
-    if (input.style.display !== 'block') return;
-    const val = input.value.trim();
-    const key = slotKey(selBank, selSlot);
-    if (val) {
-      library.names[key] = val;
-    } else {
-      delete library.names[key];
-    }
-    input.style.display = 'none';
-    disp.style.display  = '';
-    saveLibraryDebounced();
-    renderPatchList();
-    updateTopBar();
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Library persistence
-// ═══════════════════════════════════════════════════════════════
 
 function saveLibraryDebounced() {
   clearTimeout(saveTimer);
@@ -444,7 +149,86 @@ function saveLibraryDebounced() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tab switching
+// Tape Memory: Save / Load
+// ═══════════════════════════════════════════════════════════════
+
+function buildExportData() {
+  const out = { banks: { C: [], D: [] }, library: [] };
+  ['C', 'D'].forEach((bank) => {
+    const bankIdx = bank === 'D' ? 1 : 0;
+    for (let slot = 0; slot < 16; slot++) {
+      const params = (patches && patches.banks && patches.banks[bankIdx])
+        ? patches.banks[bankIdx][slot] || {}
+        : {};
+      out.banks[bank].push({
+        slot: slot + 1,
+        name: patchName(bank, slot) || null,
+        params,
+      });
+    }
+  });
+  return out;
+}
+
+function applyImportData(data) {
+  if (!data || !data.banks) throw new Error('invalid file: missing "banks"');
+  ['C', 'D'].forEach((bank) => {
+    const bankIdx = bank === 'D' ? 1 : 0;
+    const arr = data.banks[bank];
+    if (!Array.isArray(arr)) return;
+    arr.forEach((entry) => {
+      if (!entry || typeof entry.slot !== 'number') return;
+      const slot = entry.slot - 1;
+      if (slot < 0 || slot >= 16) return;
+      const key = slotKey(bank, slot);
+      if (entry.name) library.names[key] = entry.name;
+      else            delete library.names[key];
+      if (entry.params && patches && patches.banks && patches.banks[bankIdx]) {
+        patches.banks[bankIdx][slot] = entry.params;
+      }
+    });
+  });
+}
+
+async function handleTapeSave() {
+  const result = await window.api.tapeSave(buildExportData());
+  if (result && result.saved) {
+    console.log('Saved patch library to', result.path);
+  }
+}
+
+async function handleTapeLoad() {
+  const result = await window.api.tapeLoad();
+  if (!result || !result.loaded) {
+    if (result && result.error) console.error('Load error:', result.error);
+    return;
+  }
+  try {
+    applyImportData(result.data);
+    saveLibraryDebounced();
+    renderPatchList();
+    updateSvgPatchName();
+    console.log('Loaded patch library from', result.path);
+  } catch (err) {
+    console.error('Failed to apply loaded data:', err.message);
+  }
+}
+
+// Locate the SVG button rects by their unique x,y attribute combination
+// (Save at x=814 y=240, Load at x=940 y=240) and wire click handlers.
+function wireTapeButtons(svgEl) {
+  const saveRect = svgEl.querySelector('rect[x="814"][y="328"][width="58"]');
+  const loadRect = svgEl.querySelector('rect[x="940"][y="328"][width="58"]');
+
+  [[saveRect, handleTapeSave], [loadRect, handleTapeLoad]].forEach(([r, fn]) => {
+    if (!r) return;
+    r.style.cursor = 'pointer';
+    r.addEventListener('click', fn);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tabs
 // ═══════════════════════════════════════════════════════════════
 
 function setupTabs() {
@@ -455,8 +239,7 @@ function setupTabs() {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       renderPatchList();
-      updatePG200();
-      updateTopBar();
+      if (selBank !== 'L') updateSvgPatchName();
     });
   });
 }
@@ -471,13 +254,22 @@ async function init() {
 
   if (!patches) {
     document.getElementById('patch-list').innerHTML =
-      '<div class="library-placeholder">Could not load patches.json from Desktop.<br>Please check the file is in place.</div>';
+      '<div class="library-placeholder">Could not load patches.json from Desktop.</div>';
     return;
   }
 
-  buildSections();
+  // Inject the locked panel SVG
+  const svgText = await window.api.loadPanelSvg();
+  const host = document.getElementById('panel-host');
+  host.innerHTML = svgText;
+  const svgEl = host.querySelector('svg');
+  if (svgEl) {
+    svgPatchNameEl = findSvgPatchNameEl(svgEl);
+    wireTapeButtons(svgEl);
+  }
+
   setupTabs();
-  setupTopBarEdit();
+  renderPatchList();
   selectPatch(0);
 }
 

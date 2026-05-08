@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const PATCHES_PATH = path.join(os.homedir(), 'Desktop', 'patches.json');
+const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
+const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
 
 function getLibraryPath() {
   return path.join(app.getPath('userData'), 'library.json');
@@ -11,11 +12,12 @@ function getLibraryPath() {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1650,
-    height: 860,
-    minWidth: 1400,
-    minHeight: 760,
-    backgroundColor: '#1c1c1c',
+    width: 1140,
+    height: 710,
+    minWidth: 1140,
+    minHeight: 710,
+    resizable: false,
+    backgroundColor: '#0a0a0a',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -27,32 +29,46 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 ipcMain.handle('load-patches', () => {
-  try {
-    return JSON.parse(fs.readFileSync(PATCHES_PATH, 'utf8'));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(fs.readFileSync(PATCHES_PATH, 'utf8')); } catch { return null; }
 });
-
 ipcMain.handle('load-library', () => {
-  try {
-    return JSON.parse(fs.readFileSync(getLibraryPath(), 'utf8'));
-  } catch {
-    return { version: '1.0', names: {} };
-  }
+  try { return JSON.parse(fs.readFileSync(getLibraryPath(), 'utf8')); }
+  catch { return { version: '1.0', names: {} }; }
 });
-
 ipcMain.handle('save-library', (_e, data) => {
   fs.writeFileSync(getLibraryPath(), JSON.stringify(data, null, 2), 'utf8');
   return true;
+});
+ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
+
+ipcMain.handle('tape-save', async (e, data) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Save Patch Library',
+    defaultPath: 'patches-library.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { saved: false };
+  fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf8');
+  return { saved: true, path: result.filePath };
+});
+
+ipcMain.handle('tape-load', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Load Patch Library',
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { loaded: false };
+  try {
+    const txt = fs.readFileSync(result.filePaths[0], 'utf8');
+    return { loaded: true, data: JSON.parse(txt), path: result.filePaths[0] };
+  } catch (err) {
+    return { loaded: false, error: err.message };
+  }
 });
