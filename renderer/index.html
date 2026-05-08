@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">
+  <title>JP Patches</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Shared SVG gradient defs (referenced by all knob SVGs) -->
+<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true">
+  <defs>
+    <radialGradient id="knob-chrome" cx="36%" cy="30%" r="68%">
+      <stop offset="0%"   stop-color="#c4c4c4"/>
+      <stop offset="30%"  stop-color="#909090"/>
+      <stop offset="70%"  stop-color="#505050"/>
+      <stop offset="100%" stop-color="#282828"/>
+    </radialGradient>
+    <radialGradient id="knob-vignette" cx="50%" cy="50%" r="50%">
+      <stop offset="60%"  stop-color="transparent"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.55)"/>
+    </radialGradient>
+  </defs>
+</svg>
+
+<div id="app">
+
+  <!-- ══ LEFT PANEL ══════════════════════════════════════════════════════════ -->
+  <aside id="left-panel">
+    <div id="tabs">
+      <button class="tab active" data-bank="C">Bank C</button>
+      <button class="tab"        data-bank="D">Bank D</button>
+      <button class="tab"        data-bank="L">Library</button>
+    </div>
+    <div id="patch-list"></div>
+  </aside>
+
+  <!-- ══ RIGHT PANEL ═════════════════════════════════════════════════════════ -->
+  <main id="right-panel">
+
+    <!-- Top bar: logo + patch name -->
+    <div id="top-bar">
+      <div id="instrument-label">
+        <span>Roland</span>
+        <span class="model">JX-3P</span>
+        <span class="sub">Patch Manager</span>
+      </div>
+      <div id="brand-area">
+        <div id="logo">JP Patches</div>
+        <div id="patch-name-row">
+          <span id="patch-name-label-text">Patch Name</span>
+          <div id="patch-name-pill">
+            <span id="patch-name-display-text"></span>
+            <input id="patch-name-input" type="text" maxlength="28" spellcheck="false" autocomplete="off">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PG-200 body -->
+    <div id="pg200-body">
+
+      <!-- ── Top row ──────────────────────────────────────────────────────── -->
+      <div class="pg-row" id="top-row">
+
+        <section class="pg-section" id="sec-dco1">
+          <div class="section-header">DCO-1</div>
+          <div class="section-body" id="body-dco1"></div>
+        </section>
+
+        <section class="pg-section" id="sec-dco2">
+          <div class="section-header">DCO-2</div>
+          <div class="section-body" id="body-dco2"></div>
+        </section>
+
+        <section class="pg-section" id="sec-dcomod">
+          <div class="section-header">DCO Mod</div>
+          <div class="section-body" id="body-dcomod"></div>
+        </section>
+
+        <section class="pg-section" id="sec-vcf">
+          <div class="section-header">VCF</div>
+          <div class="section-body" id="body-vcf"></div>
+        </section>
+
+        <section class="pg-section" id="sec-vca">
+          <div class="section-header">VCA</div>
+          <div class="section-body" id="body-vca"></div>
+        </section>
+
+      </div><!-- /top-row -->
+
+      <!-- ── Bottom row ───────────────────────────────────────────────────── -->
+      <div class="pg-row" id="bottom-row">
+
+        <section class="pg-section" id="sec-lfo">
+          <div class="section-header">LFO</div>
+          <div class="section-body" id="body-lfo"></div>
+        </section>
+
+        <section class="pg-section" id="sec-env">
+          <div class="section-header">Envelope</div>
+          <div class="section-body" id="body-env"></div>
+        </section>
+
+        <div class="row-spacer"></div>
+
+        <!-- Tape Memory -->
+        <section class="pg-section" id="sec-tape">
+          <div class="section-header">Tape Memory</div>
+          <div class="section-body" id="body-tape">
+            <div class="tape-row">
+              <button class="hw-btn">
+                <span class="led red-led"></span>
+                <span class="hw-btn-label">Save</span>
+              </button>
+              <button class="hw-btn">
+                <span class="led green-led"></span>
+                <span class="hw-btn-label">Load</span>
+              </button>
+            </div>
+            <div class="tape-row">
+              <button class="hw-btn">
+                <span class="hw-btn-label">Manual</span>
+              </button>
+              <button class="hw-btn">
+                <span class="hw-btn-label">Write</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /bottom-row -->
+
+    </div><!-- /pg200-body -->
+  </main><!-- /right-panel -->
+
+</div><!-- /app -->
+
+<script src="app.js"></script>
+</body>
+</html>

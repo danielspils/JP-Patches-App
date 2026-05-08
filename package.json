@@ -1,0 +1,12 @@
+{
+  "name": "jp-patches",
+  "version": "0.1.0",
+  "description": "Roland JX-3P patch manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}
