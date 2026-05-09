@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+
+const JX3P_REPO = path.join(os.homedir(), 'JP-Patches');
 
 const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
 const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
@@ -60,14 +65,27 @@ ipcMain.handle('tape-save', async (e, data) => {
 ipcMain.handle('tape-load', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const result = await dialog.showOpenDialog(win, {
-    title: 'Load Patch Library',
+    title: 'Load Patch Library or Tape Dump',
     properties: ['openFile'],
-    filters: [{ name: 'JSON', extensions: ['json'] }],
+    filters: [
+      { name: 'JX-3P files',    extensions: ['wav', 'json'] },
+      { name: 'WAV tape dump',  extensions: ['wav'] },
+      { name: 'JSON library',   extensions: ['json'] },
+    ],
   });
   if (result.canceled || !result.filePaths.length) return { loaded: false };
+  const filePath = result.filePaths[0];
+  const ext = path.extname(filePath).toLowerCase();
   try {
-    const txt = fs.readFileSync(result.filePaths[0], 'utf8');
-    return { loaded: true, data: JSON.parse(txt), path: result.filePaths[0] };
+    if (ext === '.wav') {
+      const outputPath = '/tmp/jp_patches_import.json';
+      const cmd = `uv run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
+      await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+      const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+      return { loaded: true, kind: 'wav', data, path: filePath };
+    }
+    const txt = fs.readFileSync(filePath, 'utf8');
+    return { loaded: true, kind: 'json', data: JSON.parse(txt), path: filePath };
   } catch (err) {
     return { loaded: false, error: err.message };
   }

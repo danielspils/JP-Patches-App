@@ -1,6 +1,53 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
+// Discrete parameter tables (mirrors jx3p/patch.py)
+// ═══════════════════════════════════════════════════════════════
+
+const DISCRETE = {
+  dco1_range:    ["16'", "8'", "4'"],
+  dco1_waveform: ["saw", "pulse", "square"],
+  dco2_range:    ["16'", "8'", "4'"],
+  dco2_waveform: ["saw", "pulse", "square", "noise"],
+  dco2_crossmod: ["off", "sync", "metal"],
+  lfo_waveform:  ["sine", "square", "random", "fast random"],
+};
+
+// Knob registry: maps a SVG locator → patch param.
+// `gTranslate` matches `<g transform="translate(X,Y)">` (line lives at local 0,0).
+// `circleCx/Cy` matches a top-row knob body whose indicator line is the next sibling.
+const KNOB_REGISTRY = [
+  // DCO-1 + DCO-2 (top row, parent group <g transform="translate(0,24)">)
+  { circleCx: 70,  circleCy: 84,  param: 'dco1_range' },
+  { circleCx: 70,  circleCy: 196, param: 'dco1_waveform' },
+  { circleCx: 218, circleCy: 84,  param: 'dco2_range' },
+  { circleCx: 368, circleCy: 84,  param: 'dco2_tune' },
+  { circleCx: 218, circleCy: 196, param: 'dco2_waveform' },
+  { circleCx: 368, circleCy: 196, param: 'dco2_fine_tune' },
+  { circleCx: 218, circleCy: 295, param: 'dco2_crossmod' },
+  // DCO mod (wrapped in own translate groups)
+  { gTranslate: '65,390',  param: 'dco_lfo_amount' },
+  { gTranslate: '218,390', param: 'dco_env_amount' },
+  // VCF / VCA (wrapped, parent group <g transform="translate(430,24)">)
+  { gTranslate: '55,58',   param: 'vcf_mix' },
+  { gTranslate: '140,58',  param: 'vcf_hpf' },
+  { gTranslate: '55,166',  param: 'vcf_cutoff' },
+  { gTranslate: '140,166', param: 'vcf_resonance' },
+  { gTranslate: '261,166', param: 'vca_level' },
+  { gTranslate: '55,274',  param: 'vcf_lfo_mod' },
+  { gTranslate: '140,274', param: 'vcf_env_mod' },
+  { gTranslate: '55,386',  param: 'vcf_pitch_follow' },
+  // Bottom row LFO + Envelope
+  { circleCx: 55,  circleCy: 545, param: 'lfo_waveform' },
+  { gTranslate: '165,545', param: 'lfo_delay' },
+  { gTranslate: '300,545', param: 'lfo_rate' },
+  { gTranslate: '420,545', param: 'env_attack' },
+  { gTranslate: '490,545', param: 'env_decay' },
+  { gTranslate: '560,545', param: 'env_sustain' },
+  { gTranslate: '630,545', param: 'env_release' },
+];
+
+// ═══════════════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════════════
 
@@ -26,6 +73,12 @@ function displayLabel(b, s) {
   return nm ? `${slotKey(b, s)}: ${nm}` : `${slotKey(b, s)}`;
 }
 
+function currentPatch() {
+  if (!patches || !Array.isArray(patches.banks) || selBank === 'L') return null;
+  const bankIdx = selBank === 'D' ? 1 : 0;
+  return patches.banks[bankIdx] && patches.banks[bankIdx][selSlot] || null;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // SVG: locate the patch-name text element and update it
 // ═══════════════════════════════════════════════════════════════
@@ -45,6 +98,74 @@ function findSvgPatchNameEl(svgEl) {
 function updateSvgPatchName() {
   if (!svgPatchNameEl) return;
   svgPatchNameEl.textContent = displayLabel(selBank, selSlot);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SVG knob tagging + rotation
+// ═══════════════════════════════════════════════════════════════
+
+function paramToAngle(param, value) {
+  const steps = DISCRETE[param];
+  if (steps) {
+    const idx = steps.indexOf(value);
+    if (idx < 0) return -140;
+    return steps.length < 2 ? 0 : -140 + (idx / (steps.length - 1)) * 280;
+  }
+  const v = Math.max(0, Math.min(255, typeof value === 'number' ? value : 0));
+  return -140 + (v / 255) * 280;
+}
+
+// Walk the SVG, tag each indicator <line> with data-param and the
+// knob center, and normalise endpoints to "straight up at 12 noon"
+// so that a CSS-style rotate transform maps cleanly to value angle.
+function tagKnobs(svg) {
+  KNOB_REGISTRY.forEach(({ circleCx, circleCy, gTranslate, param }) => {
+    let line = null;
+    let cx, cy;
+    if (gTranslate !== undefined) {
+      const g = svg.querySelector(`g[transform="translate(${gTranslate})"]`);
+      if (!g) return;
+      // Indicator line is the only line[stroke="#ddd"] inside the group.
+      line = g.querySelector('line[stroke="#ddd"]');
+      cx = 0; cy = 0;
+    } else {
+      const circle = svg.querySelector(`circle[cx="${circleCx}"][cy="${circleCy}"]`);
+      if (!circle) return;
+      let s = circle.nextElementSibling;
+      while (s && !(s.tagName.toLowerCase() === 'line' && s.getAttribute('stroke') === '#ddd')) {
+        s = s.nextElementSibling;
+      }
+      line = s;
+      cx = circleCx; cy = circleCy;
+    }
+    if (!line) return;
+    // Normalise endpoints: keep their distances from (cx,cy), point straight up.
+    const x1 = parseFloat(line.getAttribute('x1'));
+    const y1 = parseFloat(line.getAttribute('y1'));
+    const x2 = parseFloat(line.getAttribute('x2'));
+    const y2 = parseFloat(line.getAttribute('y2'));
+    const r1 = Math.hypot(x1 - cx, y1 - cy);
+    const r2 = Math.hypot(x2 - cx, y2 - cy);
+    line.setAttribute('x1', cx);
+    line.setAttribute('y1', (cy - r1).toFixed(2));
+    line.setAttribute('x2', cx);
+    line.setAttribute('y2', (cy - r2).toFixed(2));
+    line.dataset.param = param;
+    line.dataset.cx = String(cx);
+    line.dataset.cy = String(cy);
+  });
+}
+
+function updateKnobs(patch) {
+  if (!patch) return;
+  document.querySelectorAll('line[data-param]').forEach((line) => {
+    const param = line.dataset.param;
+    if (!(param in patch)) return;
+    const angle = paramToAngle(param, patch[param]);
+    const cx = line.dataset.cx;
+    const cy = line.dataset.cy;
+    line.setAttribute('transform', `rotate(${angle.toFixed(1)} ${cx} ${cy})`);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -110,6 +231,7 @@ function selectPatch(slot) {
   selSlot = slot;
   renderPatchList();
   updateSvgPatchName();
+  updateKnobs(currentPatch());
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -190,6 +312,16 @@ function applyImportData(data) {
   });
 }
 
+// jx3p output: { format_version, banks: [[16 patches], [16 patches]] }
+// (no slot keys, no name field — just the parameter object per slot).
+// Replace the in-memory patch params; existing user names are preserved.
+function applyWavData(data) {
+  if (!data || !Array.isArray(data.banks) || data.banks.length < 2) {
+    throw new Error('invalid jx3p output: expected banks: [[...], [...]]');
+  }
+  patches = data;
+}
+
 async function handleTapeSave() {
   const result = await window.api.tapeSave(buildExportData());
   if (result && result.saved) {
@@ -204,11 +336,13 @@ async function handleTapeLoad() {
     return;
   }
   try {
-    applyImportData(result.data);
+    if (result.kind === 'wav') applyWavData(result.data);
+    else                       applyImportData(result.data);
     saveLibraryDebounced();
     renderPatchList();
     updateSvgPatchName();
-    console.log('Loaded patch library from', result.path);
+    updateKnobs(currentPatch());
+    console.log(`Loaded ${result.kind} from`, result.path);
   } catch (err) {
     console.error('Failed to apply loaded data:', err.message);
   }
@@ -239,7 +373,10 @@ function setupTabs() {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       renderPatchList();
-      if (selBank !== 'L') updateSvgPatchName();
+      if (selBank !== 'L') {
+        updateSvgPatchName();
+        updateKnobs(currentPatch());
+      }
     });
   });
 }
@@ -265,6 +402,7 @@ async function init() {
   const svgEl = host.querySelector('svg');
   if (svgEl) {
     svgPatchNameEl = findSvgPatchNameEl(svgEl);
+    tagKnobs(svgEl);
     wireTapeButtons(svgEl);
   }
 
