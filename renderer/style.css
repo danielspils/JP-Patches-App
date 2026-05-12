@@ -27,7 +27,7 @@ body {
   -webkit-user-select: none;
 }
 
-#app { display: flex; height: 100vh; overflow: hidden; }
+#app { display: flex; height: 100vh; overflow: hidden; background: var(--bg-right); }
 
 /* ════════════════════════════
    LEFT PANEL
@@ -39,6 +39,9 @@ body {
   max-width: 370px;
   flex-shrink: 0;
   flex-grow: 0;
+  align-self: flex-start;
+  /* Match SVG bottom edge: drag-bar (30px) + SVG height (aspect 1050:620) */
+  height: calc(30px + (100vw - 370px) * 620 / 1050);
   background: var(--bg-left);
   border-right: 1px solid var(--border-dim);
   display: flex;
@@ -82,10 +85,11 @@ body {
 .patch-item {
   display: flex;
   align-items: center;
-  padding: 8px 16px;
+  padding: 4px 16px;
   cursor: pointer;
   gap: 6px;
   font-size: 13px;
+  line-height: 1.2;
 }
 .patch-item:hover    { background: #1c1c1c; }
 .patch-item.selected { background: var(--green-sel-bg); }
