@@ -80,9 +80,9 @@ const SWITCH_REGISTRY = [
   { type: 'tri-enum',   param: 'vca_mode', vals: ['env', 'gate'],
     bodySel: 'rect[x="248"][y="35"]' },
   { type: 'tri-binary', param: 'chorus',            bodySel: 'rect[x="248"][y="363"]' },
-  { type: 'duo-enum',   param: 'dco_env_polarity', vals: ['pos', 'neg'],
-    bodySel: 'rect[x="369"][y="370"]' },
-  { type: 'duo-enum',   param: 'vcf_env_polarity', vals: ['pos', 'neg'],
+  { type: 'tri-enum',   param: 'dco_env_polarity', vals: ['pos', 'neg'],
+    bodySel: 'rect[x="367"][y="370"]' },
+  { type: 'tri-enum',   param: 'vcf_env_polarity', vals: ['pos', 'neg'],
     bodySel: 'rect[x="126"][y="358"]' },
 ];
 
@@ -90,8 +90,8 @@ const SWITCH_REGISTRY = [
 // `id` is the internal identifier; `bodySel` finds the button rect; LED rect
 // is the next-sibling small <rect> after the body.
 const BUTTON_REGISTRY = [
-  { id: 'save',   color: '#cc2222', bodySel: 'rect[x="814"][y="328"][width="58"]' },
-  { id: 'load',   color: '#44aa44', bodySel: 'rect[x="940"][y="328"][width="58"]' },
+  { id: 'save',   color: '#cc2222', bodySel: 'rect[x="814"][y="358"][width="58"]' },
+  { id: 'load',   color: '#44aa44', bodySel: 'rect[x="940"][y="358"][width="58"]' },
   { id: 'manual', color: '#cc2222', bodySel: 'rect[x="690"][y="516"][width="58"]' },
   { id: 'write',  color: '#44aa44', bodySel: 'rect[x="768"][y="516"][width="58"]' },
 ];
@@ -224,7 +224,7 @@ function tagKnobs(svg) {
     overlay.dataset.param = param;
     overlay.dataset.cx = String(cx);
     overlay.dataset.cy = String(cy);
-    overlay.style.cursor = 'ns-resize';
+    overlay.style.cursor = SNAP_ANGLES[param] ? 'pointer' : 'ns-resize';
     parent.appendChild(overlay);
   });
 }
@@ -282,6 +282,12 @@ function tagSwitches(svg) {
     segs.forEach((seg, i) => {
       seg.id = `sw-${spec.param}-${i}`;
       seg.style.transition = 'fill 0.15s ease-out';
+      // Make each segment a click target too, so the entire visible switch
+      // (not just the thin border) responds to clicks.
+      seg.dataset.control = 'switch';
+      seg.dataset.param = spec.param;
+      seg.dataset.switchType = spec.type;
+      seg.style.cursor = 'pointer';
     });
   });
 }
@@ -400,9 +406,9 @@ function setupInteraction(svg) {
   let downBtnInside = true;
 
   function applyDragAngle(clientY) {
-    // Drag up (negative dy) = clockwise (positive angle). 1px per 1°.
+    // Drag up (negative dy) = clockwise (positive angle). 2° per 1px (140px = full range).
     const dy = clientY - dragState.startY;
-    const angle = Math.max(-140, Math.min(140, dragState.startAngle - dy));
+    const angle = Math.max(-140, Math.min(140, dragState.startAngle - dy * 2));
     dragState.line.setAttribute(
       'transform',
       `rotate(${angle.toFixed(1)} ${dragState.cx} ${dragState.cy})`,
