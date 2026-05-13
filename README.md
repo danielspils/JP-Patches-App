@@ -6,7 +6,7 @@ Free, open-source macOS librarian app for the Roland JX-3P synthesizer.
 >
 > Today it can import patches from a JX-3P tape dump and edit them via a PG-200-style panel. Tape dump save and a patch library are next. MIDI integration comes once I install the Series Circuits kit.
 >
-> If you've got a JX-3P and want to try it, I'd love your feedback.
+> If you've got a JX-3P and want to try it, I'd welcome your feedback.
 >
 > — Daniel
 
