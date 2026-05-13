@@ -2,6 +2,14 @@
 
 Free, open-source macOS librarian app for the Roland JX-3P synthesizer.
 
+> JP Patches is the first app I've ever written (aka "vibe coded"). I've owned my JX-3P since it was released in 1983 and have always wanted a way to save and trade sounds with other JX-3P enthusiasts. This app is designed to work with the tape dump functionality built into every JX-3P, and eventually with the Series Circuits MIDI upgrade kit.
+>
+> Today it can import patches from a JX-3P tape dump and edit them via a PG-200-style panel. Tape dump save and a patch library are next. MIDI integration comes once I install the Series Circuits kit.
+>
+> If you've got a JX-3P and want to try it, I'd love your feedback.
+>
+> — Daniel
+
 ## Status
 
 **v1 in development** — tape dump workflow only. MIDI integration planned for v2.
