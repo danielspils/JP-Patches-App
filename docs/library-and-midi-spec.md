@@ -175,7 +175,29 @@ Tab shows:
 
 ---
 
+## Name conflict conventions
+
+### C/D patch names
+Allow duplicates. Patch identity is the slot (C1, D13, etc.), not the name. Hardware-synth convention. No suffix, no warning.
+
+### Library collection names
+On user rename to an existing name → prompt user to choose a different name. Don't auto-suffix, don't offer to overwrite. Modal:
+
+> A collection named **'[name]'** already exists. Choose a different name.
+>
+> **[text input] [Cancel] [Save]**
+
+### Library file collisions (date-stamped defaults)
+On save with default name `YYYY-MM-DD` when a file with that name already exists → auto-suffix the filename: `YYYY-MM-DD_2.json`, `_3.json`, etc. The display name stays `"2026-05-13"`; the suffix is filename-only and invisible to the user.
+
+### Loading a library collection
+Load is **total replace**: all 32 patch parameter sets AND all 32 patch names get overwritten with the collection's contents. No per-patch collisions to resolve. The existing "save current first" modal in §2.4 covers the only safety case.
+
+---
+
 # Phase 3 — MIDI integration
+
+> **Deferred to v2** — requires Series Circuits MIDI Upgrade Kit installed on the JX-3P.
 
 Triggered by Daniel installing the **Series Circuits JX-3P MIDI Upgrade Kit**, which adds CC-based parameter control to the JX-3P.
 
@@ -428,8 +450,10 @@ Once MIDI is online, the four hardware buttons take on real meaning:
 
 ## Sequencing
 
-1. **Phase 2 (Library tab) first** — foundational for C/D bank lifecycle. Write/Manual in Phase 3 needs to know how patches save.
-2. **Phase 3 (MIDI) second** — once collections exist as a storage model, MIDI Write becomes "push current edit slots", and Manual becomes "capture into current edit slot".
+**v1** = Phase 1 (done) + tape dump save (verify/complete) + Phase 2 (Library tab)
+**v2** = Phase 3 (MIDI integration), after Series Circuits kit is installed
+
+v1 ships as a usable tape-dump-only librarian for the JX-3P community before any MIDI work begins.
 
 ## Open decisions (resolve before each phase)
 
