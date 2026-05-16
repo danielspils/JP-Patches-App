@@ -440,6 +440,40 @@ Once MIDI is online, the four hardware buttons take on real meaning:
 
 ---
 
+# Phase 4 — Distribution (v3)
+
+> **Deferred to v3** — after MIDI integration is stable.
+
+## Goal
+
+Package the app as a downloadable `.dmg` that JX-3P owners can install without cloning a repo, running `npm`, or using a terminal.
+
+## Approach
+
+Use `electron-builder` (npm package, industry standard). Adds a build script that produces:
+- `JP Patches.app` — macOS application bundle (drag-and-drop into Applications)
+- `JP Patches-X.Y.Z.dmg` — disk image for distribution
+- (Optionally) auto-update support
+
+## Required work
+
+1. Add `electron-builder` as a dev dependency
+2. Add `"build"` configuration to `package.json` (app id, name, icon, etc.)
+3. Create an app icon (`.icns` format, 1024×1024 source)
+4. Bundle any required runtime dependencies (Python toolkit if vendored, `uv` if not pre-installed on user machines — this is the hard part)
+5. Code-sign the app with an Apple Developer ID ($99/year) to avoid the "unidentified developer" warning macOS shows by default
+6. Notarize through Apple's notarization service so Gatekeeper doesn't block
+7. Set up GitHub Releases to host the `.dmg` downloads
+8. Optional: auto-update via `electron-updater` so users get fixes automatically
+
+## Open questions
+
+- **Code signing**: pay for Apple Developer Program, or release as unsigned (users must right-click → Open the first time)?
+- **Python runtime**: bundle `uv` + the toolkit, or require users to install `uv` separately? Bundling adds complexity but makes the install one-click.
+- **Auto-update**: nice to have, adds infrastructure complexity. Likely skip for v3, revisit for v4.
+
+---
+
 ## Constraints to honor
 
 - **No TypeScript.** Plain JS only.
@@ -452,8 +486,9 @@ Once MIDI is online, the four hardware buttons take on real meaning:
 
 **v1** = Phase 1 (done) + tape dump save (verify/complete) + Phase 2 (Library tab)
 **v2** = Phase 3 (MIDI integration), after Series Circuits kit is installed
+**v3** = Phase 4 (Distribution), after MIDI is stable
 
-v1 ships as a usable tape-dump-only librarian for the JX-3P community before any MIDI work begins.
+v1 ships as a usable tape-dump-only librarian for the JX-3P community before any MIDI work begins. Dev friends can clone and run from source during v1 and v2; community-friendly `.dmg` downloads arrive with v3.
 
 ## Open decisions (resolve before each phase)
 
