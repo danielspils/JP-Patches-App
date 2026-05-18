@@ -33,22 +33,22 @@ const SNAP_CYCLE = {
   lfo_waveform: ['sine', 'square', 'random'],
 };
 
-// Knob registry: maps a SVG locator → patch param.
-// `gTranslate` matches `<g transform="translate(X,Y)">` (line lives at local 0,0).
-// `circleCx/Cy` matches a top-row knob body whose indicator line is the next sibling.
+// Knob registry: maps an SVG locator → patch param.
+// Every knob lives inside <g transform="translate(X,Y)"><g class="knob">…</g></g>.
+// The outer translate places the knob; the inner g rotates around (0,0).
 const KNOB_REGISTRY = [
-  // DCO-1 + DCO-2 (top row, parent group <g transform="translate(0,24)">)
-  { circleCx: 70,  circleCy: 84,  param: 'dco1_range' },
-  { circleCx: 70,  circleCy: 196, param: 'dco1_waveform' },
-  { circleCx: 218, circleCy: 84,  param: 'dco2_range' },
-  { circleCx: 368, circleCy: 84,  param: 'dco2_tune' },
-  { circleCx: 218, circleCy: 196, param: 'dco2_waveform' },
-  { circleCx: 368, circleCy: 196, param: 'dco2_fine_tune' },
-  { circleCx: 218, circleCy: 295, param: 'dco2_crossmod' },
-  // DCO mod (wrapped in own translate groups)
+  // DCO-1 + DCO-2 (parent group <g transform="translate(0,24)">)
+  { gTranslate: '70,84',   param: 'dco1_range' },
+  { gTranslate: '70,196',  param: 'dco1_waveform' },
+  { gTranslate: '218,84',  param: 'dco2_range' },
+  { gTranslate: '368,84',  param: 'dco2_tune' },
+  { gTranslate: '218,196', param: 'dco2_waveform' },
+  { gTranslate: '368,196', param: 'dco2_fine_tune' },
+  { gTranslate: '218,295', param: 'dco2_crossmod' },
+  // DCO mod
   { gTranslate: '65,390',  param: 'dco_lfo_amount' },
   { gTranslate: '218,390', param: 'dco_env_amount' },
-  // VCF / VCA (wrapped, parent group <g transform="translate(430,24)">)
+  // VCF / VCA (parent group <g transform="translate(430,24)">)
   { gTranslate: '55,58',   param: 'vcf_mix' },
   { gTranslate: '140,58',  param: 'vcf_hpf' },
   { gTranslate: '55,166',  param: 'vcf_cutoff' },
@@ -58,9 +58,9 @@ const KNOB_REGISTRY = [
   { gTranslate: '140,274', param: 'vcf_env_mod' },
   { gTranslate: '55,386',  param: 'vcf_pitch_follow' },
   // Bottom row LFO + Envelope
-  { circleCx: 55,  circleCy: 545, param: 'lfo_waveform' },
+  { gTranslate: '55,545',  param: 'lfo_waveform' },
   { gTranslate: '165,545', param: 'lfo_delay' },
-  { gTranslate: '300,545', param: 'lfo_rate' },
+  { gTranslate: '275,545', param: 'lfo_rate' },
   { gTranslate: '420,545', param: 'env_attack' },
   { gTranslate: '490,545', param: 'env_decay' },
   { gTranslate: '560,545', param: 'env_sustain' },
@@ -168,76 +168,43 @@ function paramToAngle(param, value) {
   return -140 + (v / 255) * 280;
 }
 
-// Walk the SVG, tag each indicator <line> with data-param and the
-// knob center, and normalise endpoints to "straight up at 12 noon"
-// so that a CSS-style rotate transform maps cleanly to value angle.
+// Walk the SVG, tag each knob's inner <g class="knob"> with data-param so
+// updateKnobs can spin it via rotate(). Indicator primitives already point
+// straight up by construction, so rotation happens around the inner g's local
+// (0,0) — the outer translate handles positioning.
 function tagKnobs(svg) {
   const SVGNS = 'http://www.w3.org/2000/svg';
-  KNOB_REGISTRY.forEach(({ circleCx, circleCy, gTranslate, param }) => {
-    let line = null, body = null, parent = null;
-    let cx, cy;
-    if (gTranslate !== undefined) {
-      const g = svg.querySelector(`g[transform="translate(${gTranslate})"]`);
-      if (!g) return;
-      line = g.querySelector('line[stroke="#ddd"]');
-      body = g.querySelector('circle[fill="#2a2a2a"]');
-      cx = 0; cy = 0;
-      parent = g;
-    } else {
-      body = svg.querySelector(`circle[cx="${circleCx}"][cy="${circleCy}"]`);
-      if (!body) return;
-      let s = body.nextElementSibling;
-      while (s && !(s.tagName.toLowerCase() === 'line' && s.getAttribute('stroke') === '#ddd')) {
-        s = s.nextElementSibling;
-      }
-      line = s;
-      cx = circleCx; cy = circleCy;
-      parent = body.parentNode;
-    }
-    if (!line || !body) return;
+  KNOB_REGISTRY.forEach(({ gTranslate, param }) => {
+    const outer = svg.querySelector(`g[transform="translate(${gTranslate})"]`);
+    if (!outer) return;
+    const inner = outer.querySelector('g.knob');
+    if (!inner) return;
 
-    // Normalise indicator endpoints: keep their distances from the centre,
-    // but point them straight up so a transform="rotate(angle)" maps cleanly.
-    const x1 = parseFloat(line.getAttribute('x1'));
-    const y1 = parseFloat(line.getAttribute('y1'));
-    const x2 = parseFloat(line.getAttribute('x2'));
-    const y2 = parseFloat(line.getAttribute('y2'));
-    const r1 = Math.hypot(x1 - cx, y1 - cy);
-    const r2 = Math.hypot(x2 - cx, y2 - cy);
-    line.setAttribute('x1', cx);
-    line.setAttribute('y1', (cy - r1).toFixed(2));
-    line.setAttribute('x2', cx);
-    line.setAttribute('y2', (cy - r2).toFixed(2));
-    line.dataset.param = param;
-    line.dataset.cx = String(cx);
-    line.dataset.cy = String(cy);
+    inner.dataset.param = param;
 
-    // Add a transparent hit-target circle slightly larger than the body, so
-    // clicks anywhere on/near the knob start a drag.
-    const bodyR = parseFloat(body.getAttribute('r')) || 18;
+    // Transparent hit-target slightly larger than the knob face, so clicks
+    // anywhere on/near the knob start a drag.
+    const face = inner.querySelector('circle');
+    const bodyR = parseFloat(face && face.getAttribute('r')) || 22;
     const overlay = document.createElementNS(SVGNS, 'circle');
-    overlay.setAttribute('cx', String(cx));
-    overlay.setAttribute('cy', String(cy));
+    overlay.setAttribute('cx', '0');
+    overlay.setAttribute('cy', '0');
     overlay.setAttribute('r', String(bodyR + 6));
     overlay.setAttribute('fill', 'transparent');
     overlay.dataset.control = 'knob';
     overlay.dataset.param = param;
-    overlay.dataset.cx = String(cx);
-    overlay.dataset.cy = String(cy);
     overlay.style.cursor = SNAP_ANGLES[param] ? 'pointer' : 'ns-resize';
-    parent.appendChild(overlay);
+    outer.appendChild(overlay);
   });
 }
 
 function updateKnobs(patch) {
   if (!patch) return;
-  document.querySelectorAll('line[data-param]').forEach((line) => {
-    const param = line.dataset.param;
+  document.querySelectorAll('g.knob[data-param]').forEach((g) => {
+    const param = g.dataset.param;
     if (!(param in patch)) return;
     const angle = paramToAngle(param, patch[param]);
-    const cx = line.dataset.cx;
-    const cy = line.dataset.cy;
-    line.setAttribute('transform', `rotate(${angle.toFixed(1)} ${cx} ${cy})`);
+    g.setAttribute('transform', `rotate(${angle.toFixed(1)})`);
   });
 }
 
@@ -409,10 +376,7 @@ function setupInteraction(svg) {
     // Drag up (negative dy) = clockwise (positive angle). 2° per 1px (140px = full range).
     const dy = clientY - dragState.startY;
     const angle = Math.max(-140, Math.min(140, dragState.startAngle - dy * 2));
-    dragState.line.setAttribute(
-      'transform',
-      `rotate(${angle.toFixed(1)} ${dragState.cx} ${dragState.cy})`,
-    );
+    dragState.knob.setAttribute('transform', `rotate(${angle.toFixed(1)})`);
     return angle;
   }
 
@@ -434,15 +398,13 @@ function setupInteraction(svg) {
         updateKnobs(patch);
       } else {
         // SMOOTH: drag up/down, 1° per 1px
-        const line = svg.querySelector(`line[data-param="${param}"]`);
-        if (!line) return;
+        const knob = svg.querySelector(`g.knob[data-param="${param}"]`);
+        if (!knob) return;
         dragState = {
-          line,
+          knob,
           param,
           startY: e.clientY,
           startAngle: paramToAngle(param, patch[param]),
-          cx: ctrl.dataset.cx,
-          cy: ctrl.dataset.cy,
         };
       }
       e.preventDefault();
