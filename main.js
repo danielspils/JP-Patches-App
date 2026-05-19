@@ -6,7 +6,16 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
-const JX3P_REPO = path.join(os.homedir(), 'JP-Patches');
+// When the app is packaged into a .dmg, vendor/jx3p and vendor/uv/uv are
+// copied into Contents/Resources/ via electron-builder extraResources. In dev
+// (npm start), fall back to the user's local clone of Bruce's tool at
+// ~/JP-Patches/ and the system `uv` on PATH.
+const JX3P_REPO = app.isPackaged
+  ? path.join(process.resourcesPath, 'jx3p')
+  : path.join(os.homedir(), 'JP-Patches');
+const UV_BIN = app.isPackaged
+  ? path.join(process.resourcesPath, 'uv', 'uv')
+  : 'uv';
 
 const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
 const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
@@ -70,7 +79,7 @@ ipcMain.handle('tape-save', async (e) => {
   try {
     if (ext === '.wav') {
       const outputPath = '/tmp/jp_patches_import.json';
-      const cmd = `uv run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
+      const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
       await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
       const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
       return { loaded: true, kind: 'wav', data, path: filePath };
@@ -97,7 +106,7 @@ ipcMain.handle('tape-load', async (e, data) => {
   const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
   try {
     fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
-    const cmd = `uv run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${dlg.filePath}"`;
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${dlg.filePath}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
     return { saved: true, path: dlg.filePath };
   } catch (err) {

@@ -3,10 +3,55 @@
   "version": "0.1.0",
   "description": "Roland JX-3P patch manager",
   "main": "main.js",
+  "author": "Daniel Spils",
+  "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "setup-vendor": "./scripts/setup-vendor.sh",
+    "dist": "npm run setup-vendor && electron-builder --mac --arm64",
+    "dist:unsigned": "npm run setup-vendor && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64"
   },
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.danielspils.jp-patches",
+    "productName": "JP Patches",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/uv/uv",
+        "to": "uv/uv"
+      },
+      {
+        "from": "vendor/jx3p",
+        "to": "jx3p"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": "arm64"
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "JP Patches ${version}"
+    }
   }
 }

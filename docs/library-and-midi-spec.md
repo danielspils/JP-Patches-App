@@ -1,7 +1,11 @@
 # JP Patches — Phase 2 & 3 Design Spec
 
-Status: design complete, not yet implemented.
-Phasing: Library tab first (Phase 2), MIDI integration second (Phase 3).
+Status:
+- Phase 1 — ✅ shipped (panel UI + patch editing).
+- Phase 2 — ✅ shipped. See **§2.0 As-shipped summary** below for the deltas
+  from the original design intent recorded in §2.1–§2.8.
+- Phase 3 — ⏳ deferred until Series Circuits MIDI kit installed.
+- Phase 4 — 🚧 in progress (distribution: `.dmg`, sign, notarize, release).
 
 ---
 
@@ -89,6 +93,33 @@ mystery:          uint8 0-15  (preserve on disk; never sent over MIDI)
 ---
 
 # Phase 2 — Library tab
+
+## 2.0 As-shipped summary
+
+What actually landed differs from the original §2.1–§2.8 design in several ways. Code is the source of truth (`renderer/app.js`); §2.1 onwards is preserved as the design-intent record.
+
+**Same as designed:**
+- Library tab is cold storage for C+D bank snapshots, separate from the active edit slots.
+- Each entry holds a full C+D pair + metadata + a user-editable display name.
+- Inline rename mirrors the C/D patch slot rename UX (click name on already-selected row).
+- Load workflow uses a confirmation modal that warns about overwriting active banks.
+
+**Different from designed:**
+- **Storage:** all entries live in `library.json` under `library.packages[]` (Tones) and `library.sequences[]` (Sequences). No separate `collections/` directory or per-entry JSON files.
+- **Default name:** `C/D banks May 18, 2026` (and `Sequence May 18, 2026` for sequences), not `YYYY-MM-DD`. Both `defaultName` and `customName` are stored side-by-side; the default is the immutable root.
+- **Subtitle:** each entry shows a relative timestamp (`3 minutes ago`, `2 days ago`) — not present in original spec.
+- **Save flow:** after save, app navigates to the Library tab with the new entry at the **top** of the list (new entries `unshift`, not append). No auto-rename mode.
+- **Load modal:** Cancel / Load only (no "Save current first…" branch — users save first via the Tones save button manually).
+- **Delete:** hover-trash icon + danger-styled confirm modal (not Delete-key).
+- **Reorder:** HTML5 drag-and-drop reorders entries (not in original spec).
+- **Sub-tabs:** Library tab has **Tones** (the spec's collections) and **Sequences** (new). Sequences pair a patch snapshot with placeholder `sequenceData` — when upstream `jx3p` gains sequencer codec support, the same entries will carry real audio data. Loading a sequence restores the paired patch into its original slot.
+- **Empty state copy:** *"No saved packages yet. Use 'save C/D banks to library' on a bank tab."* (per-sub-tab variant).
+
+**Adjacent additions** (outside §2 but landed in the same pass):
+
+- **Tape Memory section** rebuilt: white "Tape Memory" header is a `<select>` dropdown (Tape Memory / MIDI Memory) controlling `library.tapeMode`. Two columns inside (Tone / Sequencer), separated by a vertical white rule, each with Save / Load buttons. JX-3P-faithful semantics: Save = import-from-synth (`jx3p wav-to-json`), Load = export-for-synth (`jx3p json-to-wav`).
+- **Panel Write button** wired as in-app save-as / clone-to-slot: arms a destination picker, click any C/D slot, confirmation modal explains the change doesn't reach the JX-3P, slot gets a copy of the current patch params. Hardware-faithful two-step WRITE → pick-slot flow.
+- **First-run empty state:** when `~/Desktop/patches.json` is absent, the app loads normally (no fatal error) and the patch list shows *"No patches loaded yet — use* Save from JX-3P *to import the C and D banks from your synth."*
 
 ## 2.1 Concept
 
