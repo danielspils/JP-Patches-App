@@ -162,6 +162,18 @@ function patchPlaceholder(b, s) {
   return o ? `imported as ${o}` : 'click to name';
 }
 
+// Inline rename affordance: a small pencil SVG appended to a name span when
+// the item still bears its default/auto-generated name. Inherits currentColor
+// from its parent so it matches whatever placeholder/italic style is active.
+// Disappears once the user assigns a custom name (caller checks before calling).
+function appendRenamePencil(span) {
+  span.insertAdjacentHTML('beforeend',
+    ' <svg class="patch-rename-icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">' +
+      '<path d="M8.5 1.5l2 2-6 6-2.5.5.5-2.5z" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round"/>' +
+    '</svg>'
+  );
+}
+
 function displayLabel(b, s) {
   return `${slotKey(b, s)}: ${patchName(b, s) || patchPlaceholder(b, s)}`;
 }
@@ -716,16 +728,7 @@ function renderPatchList() {
     const nm = document.createElement('span');
     nm.className = 'patch-name-span' + (name ? '' : ' unnamed');
     nm.textContent = name || patchPlaceholder(selBank, slot);
-    if (!name) {
-      // Inline pencil affordance for unnamed slots. Inherits currentColor
-      // from .patch-name-span.unnamed so the icon matches the placeholder
-      // text exactly.
-      nm.insertAdjacentHTML('beforeend',
-        ' <svg class="patch-rename-icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">' +
-          '<path d="M8.5 1.5l2 2-6 6-2.5.5.5-2.5z" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round"/>' +
-        '</svg>'
-      );
-    }
+    if (!name) appendRenamePencil(nm);
 
     const inp = document.createElement('input');
     inp.className = 'patch-name-edit';
@@ -758,7 +761,7 @@ function renderPatchList() {
         commitWriteTo(selBank, slot);
         return;
       }
-      if (e.target === nm && slot === selSlot) {
+      if (nm.contains(e.target) && slot === selSlot) {
         startNameEdit(slot, nm, inp);
         return;
       }
@@ -905,6 +908,7 @@ function renderLibraryList(list) {
     const nm = document.createElement('span');
     nm.className = 'package-name-span' + (pkg.customName ? '' : ' unnamed');
     nm.textContent = pkg.customName || pkg.defaultName;
+    if (!pkg.customName) appendRenamePencil(nm);
 
     const def = document.createElement('span');
     def.className = 'package-default-name';
@@ -924,7 +928,7 @@ function renderLibraryList(list) {
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
-      if (e.target === nm && idx === selPackage) {
+      if (nm.contains(e.target) && idx === selPackage) {
         startPackageNameEdit(idx, nm, def, inp);
         return;
       }
@@ -1174,6 +1178,7 @@ function renderSequencesList(list) {
     const nm = document.createElement('span');
     nm.className = 'package-name-span' + (seq.customName ? '' : ' unnamed');
     nm.textContent = seq.customName || seq.defaultName;
+    if (!seq.customName) appendRenamePencil(nm);
 
     const def = document.createElement('span');
     def.className = 'package-default-name';
@@ -1193,7 +1198,7 @@ function renderSequencesList(list) {
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
-      if (e.target === nm && idx === selSequence) {
+      if (nm.contains(e.target) && idx === selSequence) {
         startSequenceNameEdit(idx, nm, def, inp);
         return;
       }
