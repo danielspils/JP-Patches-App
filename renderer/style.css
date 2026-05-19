@@ -314,6 +314,11 @@ body {
   color: #4a4a4a;
   font-style: italic;
 }
+.patch-rename-icon {
+  vertical-align: -1px;
+  margin-left: 4px;
+  opacity: 0.85;
+}
 .patch-item.selected .patch-name-span { color: #e8f0e4; }
 
 .patch-name-edit {

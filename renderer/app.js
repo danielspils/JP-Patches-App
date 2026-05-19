@@ -135,8 +135,9 @@ const slotKey = (b, s) => `${b}${s + 1}`;
 // library.slotMeta[bank][slotIndex] = { name, origin }.
 // `name` is the user's custom mask (nullable); `origin` is the JX-3P slot the
 // patch was imported from. Origin survives reorder and rename; only re-import
-// overwrites it. The placeholder "click to name (imported as {origin})" shows
-// through whenever there is no custom name.
+// overwrites it. The placeholder "imported as {origin}" shows through
+// whenever there is no custom name, with an adjacent pencil icon as the
+// rename affordance.
 function slotMetaArr(bank) {
   return library && library.slotMeta && library.slotMeta[bank];
 }
@@ -154,7 +155,7 @@ function patchOrigin(b, s) {
 }
 function patchPlaceholder(b, s) {
   const o = patchOrigin(b, s);
-  return o ? `click to name (imported as ${o})` : 'click to name';
+  return o ? `imported as ${o}` : 'click to name';
 }
 
 function displayLabel(b, s) {
@@ -695,6 +696,16 @@ function renderPatchList() {
     const nm = document.createElement('span');
     nm.className = 'patch-name-span' + (name ? '' : ' unnamed');
     nm.textContent = name || patchPlaceholder(selBank, slot);
+    if (!name) {
+      // Inline pencil affordance for unnamed slots. Inherits currentColor
+      // from .patch-name-span.unnamed so the icon matches the placeholder
+      // text exactly.
+      nm.insertAdjacentHTML('beforeend',
+        ' <svg class="patch-rename-icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">' +
+          '<path d="M8.5 1.5l2 2-6 6-2.5.5.5-2.5z" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round"/>' +
+        '</svg>'
+      );
+    }
 
     const inp = document.createElement('input');
     inp.className = 'patch-name-edit';
