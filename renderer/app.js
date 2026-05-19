@@ -129,13 +129,126 @@ let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
 
 const slotKey = (b, s) => `${b}${s + 1}`;
 
+// library.slotMeta[bank][slotIndex] = { name, origin }.
+// `name` is the user's custom mask (nullable); `origin` is the JX-3P slot the
+// patch was imported from. Origin survives reorder and rename; only re-import
+// overwrites it. The placeholder "click to name {origin}" shows through
+// whenever there is no custom name.
+function slotMetaArr(bank) {
+  return library && library.slotMeta && library.slotMeta[bank];
+}
+function slotMetaAt(b, s) {
+  const arr = slotMetaArr(b);
+  return (arr && arr[s]) || null;
+}
 function patchName(b, s) {
-  return (library && library.names && library.names[slotKey(b, s)]) || null;
+  const m = slotMetaAt(b, s);
+  return (m && m.name) || null;
+}
+function patchOrigin(b, s) {
+  const m = slotMetaAt(b, s);
+  return (m && m.origin) || null;
+}
+function patchPlaceholder(b, s) {
+  const o = patchOrigin(b, s);
+  return o ? `click to name ${o}` : 'click to name';
 }
 
 function displayLabel(b, s) {
-  const nm = patchName(b, s);
-  return nm ? `${slotKey(b, s)}: ${nm}` : `${slotKey(b, s)}`;
+  return `${slotKey(b, s)}: ${patchName(b, s) || patchPlaceholder(b, s)}`;
+}
+
+// Patch identity = its 32 parameters. The app keys names against this
+// fingerprint (library.history) so a name survives any roundtrip through the
+// JX-3P (which itself stores no names) as long as the params don't change.
+// JSON.stringify with sorted keys gives a stable canonical string.
+function paramsFingerprint(params) {
+  if (!params || typeof params !== 'object') return null;
+  const keys = Object.keys(params).sort();
+  if (keys.length === 0) return null;
+  const norm = keys.map((k) => [k, params[k]]);
+  return JSON.stringify(norm);
+}
+
+function paramsAt(b, s) {
+  const bankIdx = b === 'D' ? 1 : 0;
+  if (!patches || !Array.isArray(patches.banks) || !patches.banks[bankIdx]) return null;
+  return patches.banks[bankIdx][s] || null;
+}
+
+// Record the current params+name of a named slot into the history ledger so
+// the name can be restored on a future re-import. No-op for unnamed slots.
+function recordToHistory(b, s) {
+  const name = patchName(b, s);
+  if (!name) return;
+  const fp = paramsFingerprint(paramsAt(b, s));
+  if (!fp) return;
+  library.history[fp] = {
+    name,
+    origin: patchOrigin(b, s) || slotKey(b, s),
+    ts: Date.now(),
+  };
+}
+
+function recordAllNamedToHistory() {
+  ['C', 'D'].forEach((bank) => {
+    for (let s = 0; s < 16; s++) recordToHistory(bank, s);
+  });
+}
+
+// Look up a patch by fingerprint and return its remembered { name, origin },
+// or null if we haven't seen these params before.
+function lookupInHistory(params) {
+  const fp = paramsFingerprint(params);
+  if (!fp) return null;
+  return library.history[fp] || null;
+}
+
+// Ensure library.slotMeta has 16 entries per bank, each shaped { name, origin }.
+// Migrates the legacy library.names map and any legacy package snapshots.
+// Also ensures library.history (fingerprint → name/origin) exists.
+// Safe to call repeatedly.
+function ensureLibraryShape() {
+  if (!library) library = {};
+  if (!library.history || typeof library.history !== 'object') library.history = {};
+  if (!library.slotMeta || typeof library.slotMeta !== 'object') library.slotMeta = {};
+  const legacy = library.names || {};
+  ['C', 'D'].forEach((bank) => {
+    if (!Array.isArray(library.slotMeta[bank])) library.slotMeta[bank] = [];
+    const arr = library.slotMeta[bank];
+    for (let s = 0; s < 16; s++) {
+      const cur = arr[s];
+      const key = slotKey(bank, s);
+      if (!cur || typeof cur !== 'object') {
+        arr[s] = { name: legacy[key] || null, origin: key };
+      } else {
+        if (!('name' in cur)) cur.name = legacy[key] || null;
+        if (!cur.origin) cur.origin = key;
+      }
+    }
+    arr.length = 16;
+  });
+  if ('names' in library) delete library.names;
+  if (Array.isArray(library.packages)) library.packages.forEach(migratePackageShape);
+}
+
+// Old packages stored pkg.names: { slotKey: name }. Convert to pkg.slotMeta.
+function migratePackageShape(pkg) {
+  if (!pkg || typeof pkg !== 'object') return;
+  if (pkg.slotMeta && pkg.slotMeta.C && pkg.slotMeta.D) return;
+  const legacy = pkg.names || {};
+  pkg.slotMeta = pkg.slotMeta || {};
+  ['C', 'D'].forEach((bank) => {
+    if (!Array.isArray(pkg.slotMeta[bank])) pkg.slotMeta[bank] = [];
+    for (let s = 0; s < 16; s++) {
+      const key = `${bank}${s + 1}`;
+      if (!pkg.slotMeta[bank][s] || typeof pkg.slotMeta[bank][s] !== 'object') {
+        pkg.slotMeta[bank][s] = { name: legacy[key] || null, origin: key };
+      }
+    }
+    pkg.slotMeta[bank].length = 16;
+  });
+  if ('names' in pkg) delete pkg.names;
 }
 
 function currentPatch() {
@@ -528,6 +641,7 @@ function renderPatchList() {
 
     const item = document.createElement('div');
     item.className = 'patch-item' + (slot === selSlot ? ' selected' : '');
+    item.dataset.slot = String(slot);
 
     const num = document.createElement('span');
     num.className = 'patch-number';
@@ -535,7 +649,7 @@ function renderPatchList() {
 
     const nm = document.createElement('span');
     nm.className = 'patch-name-span' + (name ? '' : ' unnamed');
-    nm.textContent = name || 'click to name';
+    nm.textContent = name || patchPlaceholder(selBank, slot);
 
     const inp = document.createElement('input');
     inp.className = 'patch-name-edit';
@@ -544,9 +658,23 @@ function renderPatchList() {
     inp.spellcheck = false;
     inp.autocomplete = 'off';
 
+    const swap = document.createElement('button');
+    swap.className = 'patch-swap-btn';
+    swap.type = 'button';
+    const otherBank = selBank === 'C' ? 'D' : 'C';
+    swap.textContent = `⇄${otherBank}${slot + 1}`;
+    swap.title = `Swap with ${otherBank}${slot + 1}`;
+    swap.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (writePending) return;
+      swapAcrossBanks(slot);
+    });
+    swap.addEventListener('mousedown', (e) => e.stopPropagation());
+
     item.appendChild(num);
     item.appendChild(nm);
     item.appendChild(inp);
+    item.appendChild(swap);
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
@@ -566,6 +694,44 @@ function renderPatchList() {
       if (e.key === 'Escape') cancelListEdit(nm, inp);
     });
     inp.addEventListener('blur', () => commitListEdit(slot, nm, inp));
+
+    // Within-bank reorder via HTML5 drag-and-drop. Suppressed while the user
+    // is in write-pending mode (clicks there mean "write current patch here").
+    if (!writePending) item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+      if (writePending || e.target.closest('.patch-swap-btn, .patch-name-edit')) {
+        e.preventDefault();
+        return;
+      }
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(slot));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.drag-over').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over');
+      });
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', (e) => {
+      if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
+        item.classList.remove('drag-over');
+      }
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toIdx = slot;
+      if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
+      reorderBankSlot(selBank, fromIdx, toIdx);
+    });
   }
 
   const btn = document.createElement('button');
@@ -620,7 +786,7 @@ function handleSaveBanksToLibrary() {
     customName: '',
     savedAt: now.toISOString(),
     banks: JSON.parse(JSON.stringify(patches.banks)),
-    names: { ...(library.names || {}) },
+    slotMeta: JSON.parse(JSON.stringify(library.slotMeta || {})),
   };
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);
@@ -755,8 +921,10 @@ function handleLoadLibraryBanks() {
 }
 
 function loadPackageIntoActiveBanks(pkg) {
+  migratePackageShape(pkg);
   patches.banks = JSON.parse(JSON.stringify(pkg.banks));
-  library.names = { ...(pkg.names || {}) };
+  library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta || {}));
+  ensureLibraryShape();
   saveLibraryDebounced();
 
   // Surface the loaded banks: switch to Bank C and select the first slot.
@@ -1197,9 +1365,9 @@ function startNameEdit(slot, nm, inp) {
 function commitListEdit(slot, nm, inp) {
   if (inp.style.display !== 'block') return;
   const val = inp.value.trim();
-  const key = slotKey(selBank, slot);
-  if (val) library.names[key] = val;
-  else     delete library.names[key];
+  const arr = slotMetaArr(selBank);
+  if (arr && arr[slot]) arr[slot].name = val || null;
+  recordToHistory(selBank, slot);
   inp.style.display = 'none';
   nm.style.display  = '';
   saveLibraryDebounced();
@@ -1218,6 +1386,106 @@ function saveLibraryDebounced() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Reorder: within-bank (drag-and-drop) and cross-bank (same-slot swap)
+// ═══════════════════════════════════════════════════════════════
+
+function reorderBankSlot(bank, fromIdx, toIdx) {
+  if (fromIdx === toIdx) return;
+  if (fromIdx < 0 || fromIdx > 15 || toIdx < 0 || toIdx > 15) return;
+  const bankIdx = bank === 'D' ? 1 : 0;
+  const paramsArr = patches && patches.banks && patches.banks[bankIdx];
+  const metaArr   = slotMetaArr(bank);
+  if (!Array.isArray(paramsArr) || !Array.isArray(metaArr)) return;
+
+  const [paramsMoved] = paramsArr.splice(fromIdx, 1);
+  paramsArr.splice(toIdx, 0, paramsMoved);
+  const [metaMoved] = metaArr.splice(fromIdx, 1);
+  metaArr.splice(toIdx, 0, metaMoved);
+
+  // Keep selSlot pointing at the same patch if it was in the moved range.
+  if (bank === selBank) {
+    if (selSlot === fromIdx) selSlot = toIdx;
+    else if (fromIdx < selSlot && toIdx >= selSlot) selSlot -= 1;
+    else if (fromIdx > selSlot && toIdx <= selSlot) selSlot += 1;
+  }
+
+  // Refresh history for the named patches that just moved (origin doesn't
+  // change, but ts and any stale entries get refreshed).
+  recordToHistory(bank, fromIdx);
+  recordToHistory(bank, toIdx);
+
+  saveLibraryDebounced();
+  renderPatchList();
+  updateSvgPatchName();
+}
+
+function swapAcrossBanks(slot) {
+  if (slot < 0 || slot > 15) return;
+  const list = document.getElementById('patch-list');
+  const row = list && list.querySelector(`.patch-item[data-slot="${slot}"]`);
+  if (!row || selBank === 'L') {
+    performSwap(slot);
+    return;
+  }
+  const dir = selBank === 'C' ? 1 : -1;
+
+  // Snapshot the outgoing row's position before we mutate state.
+  const rect     = row.getBoundingClientRect();
+  const listRect = list.getBoundingClientRect();
+  const ghost = row.cloneNode(true);
+  ghost.classList.remove('selected', 'dragging', 'drag-over', 'swap-in');
+  ghost.style.position      = 'absolute';
+  ghost.style.top           = `${rect.top - listRect.top + list.scrollTop}px`;
+  ghost.style.left          = `${rect.left - listRect.left + list.scrollLeft}px`;
+  ghost.style.width         = `${rect.width}px`;
+  ghost.style.height        = `${rect.height}px`;
+  ghost.style.boxSizing     = 'border-box';
+  ghost.style.pointerEvents = 'none';
+  ghost.style.zIndex        = '2';
+  ghost.style.setProperty('--swap-dir', String(dir));
+
+  performSwap(slot);
+
+  // After re-render the new row carries the incoming patch. Float the ghost
+  // over the list and animate the two in opposite directions so they cross.
+  list.appendChild(ghost);
+  const newRow = list.querySelector(`.patch-item[data-slot="${slot}"]`);
+  if (newRow) {
+    newRow.style.setProperty('--swap-dir', String(dir));
+    newRow.classList.add('swap-in');
+    newRow.addEventListener('animationend', () => {
+      newRow.classList.remove('swap-in');
+      newRow.style.removeProperty('--swap-dir');
+    }, { once: true });
+  }
+  // Force a reflow so the starting state is committed before adding swap-out.
+  // eslint-disable-next-line no-unused-expressions
+  ghost.offsetWidth;
+  ghost.classList.add('swap-out');
+  ghost.addEventListener('animationend', () => ghost.remove(), { once: true });
+}
+
+function performSwap(slot) {
+  const cArr = patches && patches.banks && patches.banks[0];
+  const dArr = patches && patches.banks && patches.banks[1];
+  const cMeta = slotMetaArr('C');
+  const dMeta = slotMetaArr('D');
+  if (!Array.isArray(cArr) || !Array.isArray(dArr)) return;
+  if (!Array.isArray(cMeta) || !Array.isArray(dMeta)) return;
+
+  [cArr[slot],  dArr[slot]]  = [dArr[slot],  cArr[slot]];
+  [cMeta[slot], dMeta[slot]] = [dMeta[slot], cMeta[slot]];
+
+  recordToHistory('C', slot);
+  recordToHistory('D', slot);
+
+  saveLibraryDebounced();
+  renderPatchList();
+  updateSvgPatchName();
+  if (selBank !== 'L') updateAllControls(currentPatch());
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Tape Memory: Save / Load
 // ═══════════════════════════════════════════════════════════════
 
@@ -1232,6 +1500,7 @@ function buildExportData() {
       out.banks[bank].push({
         slot: slot + 1,
         name: patchName(bank, slot) || null,
+        origin: patchOrigin(bank, slot) || slotKey(bank, slot),
         params,
       });
     }
@@ -1239,8 +1508,12 @@ function buildExportData() {
   return out;
 }
 
+// JSON load — restore an app-saved tape file. Custom names and origins
+// round-trip via the file itself; for any slot the file leaves unnamed, we
+// consult library.history by param fingerprint as a fallback.
 function applyImportData(data) {
   if (!data || !data.banks) throw new Error('invalid file: missing "banks"');
+  ensureLibraryShape();
   ['C', 'D'].forEach((bank) => {
     const bankIdx = bank === 'D' ? 1 : 0;
     const arr = data.banks[bank];
@@ -1249,24 +1522,39 @@ function applyImportData(data) {
       if (!entry || typeof entry.slot !== 'number') return;
       const slot = entry.slot - 1;
       if (slot < 0 || slot >= 16) return;
-      const key = slotKey(bank, slot);
-      if (entry.name) library.names[key] = entry.name;
-      else            delete library.names[key];
+      const meta = library.slotMeta[bank][slot];
       if (entry.params && patches && patches.banks && patches.banks[bankIdx]) {
         patches.banks[bankIdx][slot] = entry.params;
       }
+      const fileName   = entry.name   || null;
+      const fileOrigin = entry.origin || null;
+      const remembered = lookupInHistory(entry.params);
+      meta.name   = fileName   || (remembered && remembered.name)   || null;
+      meta.origin = fileOrigin || (remembered && remembered.origin) || slotKey(bank, slot);
     });
   });
 }
 
-// jx3p output: { format_version, banks: [[16 patches], [16 patches]] }
-// (no slot keys, no name field — just the parameter object per slot).
-// Replace the in-memory patch params; existing user names are preserved.
+// jx3p output: { format_version, banks: [[16 patches], [16 patches]] }.
+// A WAV import is a fresh tape dump — the JX-3P stores no names. For each
+// incoming slot we look up the param fingerprint in library.history and
+// restore the prior name/origin if seen before; otherwise the slot starts
+// fresh with origin = current slot.
 function applyWavData(data) {
   if (!data || !Array.isArray(data.banks) || data.banks.length < 2) {
     throw new Error('invalid jx3p output: expected banks: [[...], [...]]');
   }
   patches = data;
+  ensureLibraryShape();
+  ['C', 'D'].forEach((bank) => {
+    const bankIdx = bank === 'D' ? 1 : 0;
+    library.slotMeta[bank].forEach((m, s) => {
+      const params = patches.banks[bankIdx] && patches.banks[bankIdx][s];
+      const remembered = lookupInHistory(params);
+      m.name   = (remembered && remembered.name)   || null;
+      m.origin = (remembered && remembered.origin) || slotKey(bank, s);
+    });
+  });
 }
 
 // Each Tape Memory button is wired through setupHwButtons → handleTape*Save/
@@ -1298,6 +1586,11 @@ async function handleToneLoad() {
     console.error('No patch data to export');
     return;
   }
+  // Snapshot every named patch's current params → name mapping into history
+  // before the data leaves the app. On a future re-import, matching params
+  // will restore the name no matter what slot they come back in.
+  recordAllNamedToHistory();
+  saveLibraryDebounced();
   const result = await window.api.tapeLoad(patches);
   if (result && result.saved) {
     console.log('Loaded (exported) tape dump WAV to', result.path);
@@ -1404,6 +1697,7 @@ function setupTabs() {
 async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
+  ensureLibraryShape();
 
   // patches may be null on first run (no ~/Desktop/patches.json yet). That's
   // not a fatal state — the empty-state in renderPatchList prompts the user

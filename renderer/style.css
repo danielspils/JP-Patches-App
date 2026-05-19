@@ -270,6 +270,7 @@ body {
   overflow-y: auto;
   min-height: 0;
   padding: 4px 0;
+  position: relative;  /* containing block for cross-bank swap ghost */
 }
 
 #bottom-actions {
@@ -325,6 +326,58 @@ body {
   padding: 2px 5px;
   outline: none;
   display: none;
+}
+
+/* Cross-bank swap icon — visible on row hover. Shifts the patch to the same
+   slot in the other bank (C ⇄ D). */
+.patch-swap-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid #2c2c2c;
+  border-radius: 3px;
+  color: #6a6a6a;
+  font-size: 10px;
+  font-family: inherit;
+  padding: 1px 5px;
+  margin-left: auto;
+  cursor: pointer;
+  line-height: 1.2;
+  display: none;
+}
+.patch-item:hover .patch-swap-btn { display: inline-block; }
+.patch-swap-btn:hover {
+  color: var(--text-bright);
+  border-color: #4a4a4a;
+  background: #1f1f1f;
+}
+.patch-item.selected .patch-swap-btn { color: #c4dec0; border-color: var(--green-sel-bdr); }
+
+/* Drag-and-drop reorder indicators. */
+.patch-item.dragging { opacity: 0.4; }
+.patch-item.drag-over {
+  box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
+}
+
+/* Cross-bank swap animation — the outgoing patch slides toward the other
+   bank's tab direction and fades; the incoming patch arrives from the same
+   side. --swap-dir is set in JS: +1 (C→D, rightward) or -1 (D→C, leftward). */
+/* Cross-bank swap animation — the outgoing row's content clones into a ghost
+   that slides toward the other bank's tab while the replacement row slides in
+   from the same direction. The two cross paths visibly in the middle.
+   --swap-dir is set in JS: +1 (C→D, rightward) or -1 (D→C, leftward). */
+.patch-item.swap-out {
+  animation: patch-swap-out 0.7s ease-in forwards;
+}
+.patch-item.swap-in {
+  animation: patch-swap-in 0.75s ease-out;
+}
+@keyframes patch-swap-out {
+  from { transform: translateX(0);                                opacity: 1; }
+  to   { transform: translateX(calc(110px * var(--swap-dir, 1))); opacity: 0; }
+}
+@keyframes patch-swap-in {
+  from { transform: translateX(calc(110px * var(--swap-dir, 1))); opacity: 0; }
+  to   { transform: translateX(0);                                opacity: 1; }
 }
 
 .write-banner {
