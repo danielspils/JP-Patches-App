@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
+
+const RELEASES_URL = 'https://github.com/danielspils/JP-Patches-App/releases';
+const REPO_URL     = 'https://github.com/danielspils/JP-Patches-App';
 
 // When the app is packaged into a .dmg, vendor/jx3p and vendor/uv/uv are
 // copied into Contents/Resources/ via electron-builder extraResources. In dev
@@ -22,6 +25,47 @@ const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
 
 function getLibraryPath() {
   return path.join(app.getPath('userData'), 'library.json');
+}
+
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        {
+          label: 'Check for Updates…',
+          click: () => shell.openExternal(RELEASES_URL),
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'JP Patches on GitHub',
+          click: () => shell.openExternal(REPO_URL),
+        },
+        {
+          label: 'Check for Updates…',
+          click: () => shell.openExternal(RELEASES_URL),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function createWindow() {
@@ -42,7 +86,10 @@ function createWindow() {
   win.loadFile('renderer/index.html');
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  buildAppMenu();
+  createWindow();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
