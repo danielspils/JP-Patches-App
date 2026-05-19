@@ -2098,7 +2098,7 @@ function setupPatchListDropZone() {
 
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
     if (!file) return;
-    const filePath = file.path;
+    const filePath = window.api.getPathForFile(file);
     if (!filePath) {
       showImportError('Could not read the dropped file path.');
       return;

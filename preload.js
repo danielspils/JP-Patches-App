@@ -1,6 +1,10 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  // Electron 32+ removed the non-standard File.path property from the renderer
+  // process. webUtils.getPathForFile is the supported replacement for getting
+  // the on-disk path of a File obtained via drag-and-drop or <input type=file>.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   loadPatches:  ()     => ipcRenderer.invoke('load-patches'),
   loadLibrary:  ()     => ipcRenderer.invoke('load-library'),
   saveLibrary:  (data) => ipcRenderer.invoke('save-library', data),
