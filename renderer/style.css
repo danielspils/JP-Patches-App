@@ -531,7 +531,7 @@ body {
    appears at the top of the library list. Slides down from above the list
    and briefly pulses green so the eye lands on the new entry. */
 .package-item.just-saved {
-  animation: package-just-saved 0.9s ease-out;
+  animation: package-just-saved 1.5s ease-out;
 }
 @keyframes package-just-saved {
   0% {
@@ -540,7 +540,7 @@ body {
     background: var(--green-sel-bg);
     box-shadow: inset 0 0 0 1px var(--green-sel-bdr);
   }
-  35% {
+  47% {
     transform: translateY(0);
     opacity: 1;
     background: var(--green-sel-bg);

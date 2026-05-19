@@ -1,6 +1,6 @@
 {
   "name": "jp-patches",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Roland JX-3P patch manager",
   "main": "main.js",
   "author": "Daniel Spils",
@@ -39,6 +39,7 @@
     ],
     "mac": {
       "category": "public.app-category.music",
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "dmg",
