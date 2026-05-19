@@ -503,6 +503,18 @@ function renderPatchList() {
 
   if (subTabs) subTabs.hidden = true;
 
+  // First-run / no-patches-loaded empty state. The user can populate this by
+  // importing a JX-3P tape dump WAV (or a previously-exported JSON) via
+  // Tape Memory > Tone > Save.
+  if (!patches || !Array.isArray(patches.banks) || !patches.banks[selBank === 'D' ? 1 : 0]) {
+    const ph = document.createElement('div');
+    ph.className = 'library-placeholder';
+    ph.innerHTML =
+      'No patches loaded yet — use <em>Save from JX-3P</em> to import the C and D banks from your synth.';
+    list.appendChild(ph);
+    return;
+  }
+
   if (writePending) {
     const banner = document.createElement('div');
     banner.className = 'write-banner';
@@ -1143,9 +1155,8 @@ function commitWriteTo(destBank, destSlot) {
   showConfirmModal({
     title: `Save this new patch to ${destKey}?`,
     body:
-      `This will not overwrite your JX-3P's internal ${destKey} patch. ` +
-      `To do so, you must click the "Load to JX-3P" button to load the ` +
-      `C/D banks with this newly saved ${destKey} patch.`,
+      `This saves the patch in the app only — your JX-3P's ${destKey} is unchanged. ` +
+      `To push the updated bank to the synth, click Load to JX-3P afterward.`,
     confirmLabel: 'Save',
     onConfirm: () => doWriteTo(destBank, destSlot),
   });
@@ -1394,11 +1405,9 @@ async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
 
-  if (!patches) {
-    document.getElementById('patch-list').innerHTML =
-      '<div class="library-placeholder">Could not load patches.json from Desktop.</div>';
-    return;
-  }
+  // patches may be null on first run (no ~/Desktop/patches.json yet). That's
+  // not a fatal state — the empty-state in renderPatchList prompts the user
+  // to import via Tape Memory > Tone > Save. Continue with normal setup.
 
   // Inject the locked panel SVG
   const svgText = await window.api.loadPanelSvg();
