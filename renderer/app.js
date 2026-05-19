@@ -118,6 +118,9 @@ let selPackage = null;     // selected index in library.packages   (Tones sub-ta
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
 let saveTimer = null;
+// Write button: when armed, the next patch-list click writes the currently
+// shown patch params into that slot (save-as / clone). Esc cancels.
+let writePending = false;
 let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
 
 // ═══════════════════════════════════════════════════════════════
@@ -455,9 +458,16 @@ function setupInteraction(svg) {
       dragState = null;
     }
     if (downBtnId) {
-      lightButton(downBtnId, false);
-      // Manual / Write are visual-only for now. Save / Load live as HTML
-      // buttons below the left panel — see setupHwButtons.
+      // Write: arm save-as mode on release; LED stays lit while awaiting
+      // destination, so don't call lightButton(false) here.
+      const ctrl = findControl(e.target);
+      const onSame = ctrl && ctrl.dataset.control === 'button' && ctrl.dataset.buttonId === downBtnId;
+      if (onSame && downBtnId === 'write') {
+        enterWriteMode();
+      } else {
+        lightButton(downBtnId, false);
+      }
+      // Manual stays visual-only (Phase 3 / MIDI work).
       downBtnId = null;
     }
   });
@@ -493,6 +503,13 @@ function renderPatchList() {
 
   if (subTabs) subTabs.hidden = true;
 
+  if (writePending) {
+    const banner = document.createElement('div');
+    banner.className = 'write-banner';
+    banner.textContent = 'Click a slot to write current patch (Esc to cancel)';
+    list.appendChild(banner);
+  }
+
   for (let slot = 0; slot < 16; slot++) {
     const key  = slotKey(selBank, slot);
     const name = patchName(selBank, slot);
@@ -521,6 +538,10 @@ function renderPatchList() {
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
+      if (writePending) {
+        commitWriteTo(selBank, slot);
+        return;
+      }
       if (e.target === nm && slot === selSlot) {
         startNameEdit(slot, nm, inp);
         return;
@@ -1091,6 +1112,64 @@ function selectPatch(slot) {
   updateAllControls(currentPatch());
 }
 
+// ── Write button: save-as / clone-to-slot ───────────────────────────────
+// Matches the JX-3P hardware's WRITE-then-pick-slot flow. The patch list
+// becomes a destination picker; clicking any slot writes the currently
+// shown patch's params into that slot. Esc cancels. App-side only — does
+// not touch the real synth (Phase 3 / MIDI concern).
+function enterWriteMode() {
+  if (selBank === 'L') return;        // no concept of "current patch" in Library
+  if (!currentPatch()) return;
+  writePending = true;
+  lightButton('write', true);
+  renderPatchList();
+}
+
+function cancelWriteMode() {
+  if (!writePending) return;
+  writePending = false;
+  lightButton('write', false);
+  renderPatchList();
+}
+
+function commitWriteTo(destBank, destSlot) {
+  if (!writePending) return;
+  const src = currentPatch();
+  if (!src || !patches || !Array.isArray(patches.banks)) {
+    cancelWriteMode();
+    return;
+  }
+  const destKey = slotKey(destBank, destSlot);
+  showConfirmModal({
+    title: `Save this new patch to ${destKey}?`,
+    body:
+      `This will not overwrite your JX-3P's internal ${destKey} patch. ` +
+      `To do so, you must click the "Load to JX-3P" button to load the ` +
+      `C/D banks with this newly saved ${destKey} patch.`,
+    confirmLabel: 'Save',
+    onConfirm: () => doWriteTo(destBank, destSlot),
+  });
+}
+
+function doWriteTo(destBank, destSlot) {
+  const src = currentPatch();
+  if (!src || !patches || !Array.isArray(patches.banks)) return;
+  const destIdx = destBank === 'D' ? 1 : 0;
+  if (!patches.banks[destIdx]) return;
+  patches.banks[destIdx][destSlot] = JSON.parse(JSON.stringify(src));
+  writePending = false;
+  lightButton('write', false);
+  // Navigate to the destination so the user sees the result.
+  selBank = destBank;
+  selSlot = destSlot;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === destBank);
+  });
+  renderPatchList();
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Name editing (left list only)
 // ═══════════════════════════════════════════════════════════════
@@ -1335,6 +1414,13 @@ async function init() {
   setupTabs();
   setupLibSubTabs();
   setupHwButtons();
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !writePending) return;
+    // If a modal is open it handles its own Esc (close → write mode stays
+    // armed so the user can pick a different slot).
+    if (document.querySelector('.modal-overlay')) return;
+    cancelWriteMode();
+  });
   renderPatchList();
   selectPatch(0);
 }
