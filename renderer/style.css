@@ -66,29 +66,83 @@ body {
 #hw-tape {
   background: var(--bg-app);
   padding: 32px 16px 14px;
-}
-
-#hw-tape-row {
   display: flex;
-  align-items: flex-end;
-  gap: 22px;
-  padding-left: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
 }
 
-#hw-tape-left {
+/* Memory mode dropdown: native <select> styled to match the white-pill
+   banner. Chevron drawn via a CSS pseudo-element on the wrapper (more
+   reliable than background-image on a <select>). Default = Tape Memory. */
+.hw-tape-header-wrap {
+  position: relative;
+  background: #ffffff;
+}
+.hw-tape-header-wrap::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-top: -2px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #1a1a1a;
+  pointer-events: none;
+}
+
+.hw-tape-header {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+  color: #1a1a1a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  text-align-last: center;
+  padding: 4px 24px;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  outline: none;
+}
+.hw-tape-header:focus-visible { outline: 2px solid var(--green-sel-bdr); outline-offset: 0; }
+
+/* Two side-by-side Tape Memory sections (Tone, Sequencer). White text on the
+   panel background; vertical white rule between them. */
+#hw-sections {
+  display: flex;
+  gap: 0;
+}
+
+.hw-section {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  padding: 0 12px;
+}
+.hw-section + .hw-section {
+  border-left: 1px solid #ffffff;
 }
 
-#hw-tape-header {
-  background: #ffffff;
-  color: #1a1a1a;
+.hw-section-header {
+  background: transparent;
+  color: #ffffff;
   font-size: 14px;
   font-weight: 500;
-  padding: 4px 28px;
-  border-radius: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.hw-section-buttons {
+  display: flex;
+  gap: 18px;
 }
 
 #hw-buttons {
@@ -97,49 +151,6 @@ body {
   justify-content: center;
 }
 
-/* Mode switch (tape / MIDI) — matches SVG tri-segment switch style.
-   Scaled to roughly match the SVG switches at the fixed 1140px window. */
-.hw-mode-section {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding-bottom: 9px;  /* align bottom with the buttons' sublabel baseline */
-}
-
-.hw-switch {
-  width: 19px;
-  height: 35px;
-  background: #111;
-  border: 1px solid #777;
-  border-radius: 2px;
-  padding: 1.5px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  cursor: pointer;
-  outline: none;
-}
-.hw-switch-seg { width: 100%; border-radius: 1px; }
-.hw-switch-seg.top { height: 12px; }
-.hw-switch-seg.mid { height: 9px; }
-.hw-switch-seg.bot { height: 6px; }
-
-.hw-switch.tape .top { background: #d0d0d0; }
-.hw-switch.tape .mid { background: #999; }
-.hw-switch.tape .bot { background: #555; }
-
-.hw-switch.midi .top { background: #555; }
-.hw-switch.midi .mid { background: #999; }
-.hw-switch.midi .bot { background: #d0d0d0; }
-
-.hw-mode-labels {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 9px;
-  color: #ccc;
-  height: 33px;
-}
 
 .hw-button-wrap {
   display: flex;
@@ -225,6 +236,34 @@ body {
 }
 .tab:hover  { color: var(--text-mid); }
 .tab.active { color: var(--text-bright); background: #233525; }
+
+#lib-sub-tabs {
+  display: flex;
+  background: #000;
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+#lib-sub-tabs[hidden] { display: none; }
+
+.lib-sub-tab {
+  flex: 1;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s;
+}
+.lib-sub-tab:hover  { color: var(--text-mid); }
+.lib-sub-tab.active {
+  color: var(--text-bright);
+  background: #1a1a1a;
+  border-bottom-color: var(--green-sel-bdr);
+}
 
 #patch-list {
   flex: 1;

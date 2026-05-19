@@ -106,7 +106,9 @@ let patches  = null;
 let library  = null;
 let selBank  = 'C';
 let selSlot  = 0;
-let selPackage = null;
+let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
+let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
+let selLibTab  = 'tones';  // 'tones' | 'sequences'
 let saveTimer = null;
 let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
 
@@ -460,14 +462,28 @@ function setupInteraction(svg) {
 function renderPatchList() {
   const list = document.getElementById('patch-list');
   const actions = document.getElementById('bottom-actions');
+  const subTabs = document.getElementById('lib-sub-tabs');
   list.innerHTML = '';
   actions.innerHTML = '';
 
   if (selBank === 'L') {
-    renderLibraryList(list);
-    renderLibraryActions(actions);
+    if (subTabs) {
+      subTabs.hidden = false;
+      subTabs.querySelectorAll('.lib-sub-tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.libtab === selLibTab);
+      });
+    }
+    if (selLibTab === 'sequences') {
+      renderSequencesList(list);
+      renderSequencesActions(actions);
+    } else {
+      renderLibraryList(list);
+      renderLibraryActions(actions);
+    }
     return;
   }
+
+  if (subTabs) subTabs.hidden = true;
 
   for (let slot = 0; slot < 16; slot++) {
     const key  = slotKey(selBank, slot);
@@ -831,6 +847,235 @@ function cancelPackageNameEdit(nm, inp) {
   nm.style.display  = '';
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Library — Sequences sub-tab
+// ═══════════════════════════════════════════════════════════════
+// Same UX as Tones (select / inline-rename / drag-reorder / hover-trash)
+// but operates on library.sequences. Each sequence carries a paired-patch
+// snapshot; loading restores the paired patch. Real sequencer audio data
+// is stored in `sequenceData` (null today; awaits upstream codec).
+
+function renderSequencesList(list) {
+  const seqs = Array.isArray(library.sequences) ? library.sequences : [];
+  if (seqs.length === 0) {
+    selSequence = null;
+    const ph = document.createElement('div');
+    ph.className = 'library-placeholder';
+    ph.textContent =
+      'No saved sequences yet.\nUse Tape Memory "Sequencer" mode + Save on a bank tab.';
+    list.appendChild(ph);
+    return;
+  }
+
+  seqs.forEach((seq, idx) => {
+    const item = document.createElement('div');
+    item.className = 'package-item' + (idx === selSequence ? ' selected' : '');
+    item.draggable = true;
+    item.dataset.idx = String(idx);
+
+    const nm = document.createElement('span');
+    nm.className = 'package-name-span' + (seq.customName ? '' : ' unnamed');
+    nm.textContent = seq.customName || seq.defaultName;
+
+    const def = document.createElement('span');
+    def.className = 'package-default-name';
+    def.textContent = relativeTime(seq.savedAt);
+
+    const inp = document.createElement('input');
+    inp.className = 'package-name-edit';
+    inp.type = 'text';
+    inp.maxLength = 60;
+    inp.spellcheck = false;
+    inp.autocomplete = 'off';
+
+    item.appendChild(nm);
+    item.appendChild(def);
+    item.appendChild(inp);
+    item.appendChild(buildSequenceTrashIcon(idx));
+    list.appendChild(item);
+
+    item.addEventListener('click', (e) => {
+      if (e.target === nm && idx === selSequence) {
+        startSequenceNameEdit(idx, nm, def, inp);
+        return;
+      }
+      selSequence = idx;
+      renderPatchList();
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter')  commitSequenceNameEdit(idx, nm, def, inp);
+      if (e.key === 'Escape') cancelSequenceNameEdit(nm, inp);
+    });
+    inp.addEventListener('blur', () => commitSequenceNameEdit(idx, nm, def, inp));
+
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(idx));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.drag-over').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over');
+      });
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', (e) => {
+      if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
+        item.classList.remove('drag-over');
+      }
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toIdx = idx;
+      item.classList.remove('drag-over');
+      if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
+      reorderSequence(fromIdx, toIdx);
+    });
+  });
+}
+
+function reorderSequence(fromIdx, toIdx) {
+  const seqs = library.sequences;
+  if (!seqs || fromIdx < 0 || fromIdx >= seqs.length) return;
+  if (toIdx   < 0 || toIdx   >= seqs.length) return;
+  const [moved] = seqs.splice(fromIdx, 1);
+  seqs.splice(toIdx, 0, moved);
+  if (selSequence !== null) {
+    if (selSequence === fromIdx) selSequence = toIdx;
+    else if (fromIdx < selSequence && toIdx >= selSequence) selSequence -= 1;
+    else if (fromIdx > selSequence && toIdx <= selSequence) selSequence += 1;
+  }
+  saveLibraryDebounced();
+  renderPatchList();
+}
+
+function buildSequenceTrashIcon(idx) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.4');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.classList.add('package-trash');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', 'M3 4h10M5.5 4V2.5h5V4M4 4l.5 9.5h7L12 4M7 7v5M9 7v5');
+  svg.appendChild(path);
+  svg.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleDeleteSequence(idx);
+  });
+  return svg;
+}
+
+function handleDeleteSequence(idx) {
+  const seq = library.sequences && library.sequences[idx];
+  if (!seq) return;
+  showConfirmModal({
+    title: 'Delete this Sequence?',
+    body: 'Are you sure you want to delete this Sequence? It can not be undone.',
+    confirmLabel: 'Delete',
+    confirmStyle: 'danger',
+    onConfirm: () => {
+      library.sequences.splice(idx, 1);
+      if (selSequence === idx) selSequence = null;
+      else if (selSequence !== null && selSequence > idx) selSequence -= 1;
+      saveLibraryDebounced();
+      renderPatchList();
+    },
+  });
+}
+
+function startSequenceNameEdit(idx, nm, def, inp) {
+  inp.value = library.sequences[idx].customName || '';
+  inp.style.display = 'block';
+  nm.style.display  = 'none';
+  inp.focus();
+  inp.select();
+}
+
+function commitSequenceNameEdit(idx, nm, def, inp) {
+  if (inp.style.display !== 'block') return;
+  const val = inp.value.trim();
+  library.sequences[idx].customName = val;
+  inp.style.display = 'none';
+  nm.style.display  = '';
+  saveLibraryDebounced();
+  renderPatchList();
+}
+
+function cancelSequenceNameEdit(nm, inp) {
+  inp.style.display = 'none';
+  nm.style.display  = '';
+}
+
+function renderSequencesActions(actions) {
+  const btn = document.createElement('button');
+  btn.className = 'save-banks-btn';
+  btn.textContent = 'load selected sequence to app';
+  btn.disabled = selSequence === null;
+  btn.addEventListener('click', handleLoadLibrarySequence);
+  actions.appendChild(btn);
+}
+
+function handleLoadLibrarySequence() {
+  if (selSequence === null) return;
+  const seq = library.sequences[selSequence];
+  if (!seq) return;
+  const pp = seq.pairedPatch || {};
+  const where = (pp.bank || 'C') + ((pp.slot || 0) + 1);
+  showConfirmModal({
+    title: 'Load this Sequence?',
+    body:
+      `Loading this Sequence will jump to the paired patch slot (${where}) and ` +
+      `apply the patch parameters captured at save time.\n\n` +
+      'Sequence audio data isn\'t yet captured by the patch tool — only the paired ' +
+      'patch is restored today.',
+    confirmLabel: 'Load',
+    onConfirm: () => loadSequenceIntoActivePatch(seq),
+  });
+}
+
+function loadSequenceIntoActivePatch(seq) {
+  const pp = seq && seq.pairedPatch;
+  if (!pp) return;
+  const bankIdx = pp.bank === 'D' ? 1 : 0;
+  if (patches && Array.isArray(patches.banks) && patches.banks[bankIdx] && pp.params) {
+    patches.banks[bankIdx][pp.slot] = JSON.parse(JSON.stringify(pp.params));
+  }
+  selBank = pp.bank === 'D' ? 'D' : 'C';
+  selSlot = typeof pp.slot === 'number' ? pp.slot : 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === selBank);
+  });
+  renderPatchList();
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
+}
+
+function setupLibSubTabs() {
+  document.querySelectorAll('.lib-sub-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const next = tab.dataset.libtab;
+      if (!next || next === selLibTab) return;
+      selLibTab = next;
+      if (next === 'tones')     selSequence = null;
+      else if (next === 'sequences') selPackage  = null;
+      renderPatchList();
+    });
+  });
+}
+
 function selectPatch(slot) {
   selSlot = slot;
   renderPatchList();
@@ -926,13 +1171,12 @@ function applyWavData(data) {
   patches = data;
 }
 
-// JX-3P SAVE = synth dumps its memory OUT as audio. The app receives it:
-// pick a WAV (decoded via wav-to-json) or a JSON, apply to in-memory banks.
-async function handleTapeSave() {
-  if (getTapeMode() === 'midi') {
-    console.warn('MIDI mode: tape import not applicable. MIDI sysex input is Phase 3.');
-    return;
-  }
+// Each Tape Memory button is wired through setupHwButtons → handleTape*Save/
+// handleTape*Load which dispatch to the per-data-type implementation below
+// after a tape-vs-MIDI mode gate.
+
+// ── Tone (patch bank) tape I/O ──────────────────────────────────────────
+async function handleToneSave() {
   const result = await window.api.tapeSave();
   if (!result || !result.loaded) {
     if (result && result.error) console.error('Save (import) error:', result.error);
@@ -951,13 +1195,7 @@ async function handleTapeSave() {
   }
 }
 
-// JX-3P LOAD = synth reads data IN from audio. The app sends it: encode
-// current banks to a WAV via json-to-wav, save to user-chosen path.
-async function handleTapeLoad() {
-  if (getTapeMode() === 'midi') {
-    console.warn('MIDI mode: tape export not applicable. MIDI sysex output is Phase 3.');
-    return;
-  }
+async function handleToneLoad() {
   if (!patches || !Array.isArray(patches.banks) || patches.banks.length < 2) {
     console.error('No patch data to export');
     return;
@@ -968,6 +1206,75 @@ async function handleTapeLoad() {
   } else if (result && result.error) {
     console.error('Load (export) error:', result.error);
   }
+}
+
+// ── Sequencer mode ─────────────────────────────────────────────────────
+// Bruce's `jx3p` tool decodes/encodes patch banks only — sequencer WAV
+// support isn't there. For now, "save" captures the currently active patch
+// as a library Sequence entry (the killer-feature pairing); the actual
+// sequence-audio data is left null until upstream codec support exists.
+// "Load" navigates the user to Library > Sequences to pick one.
+function handleSequencerSave() {
+  const patch = currentPatch();
+  if (!patch) {
+    console.warn('No active patch to pair with a sequence entry');
+    return;
+  }
+  showConfirmModal({
+    title: 'Save active patch as a Sequence entry?',
+    body:
+      'Sequence audio data isn\'t yet supported by the patch tool, so this will save ' +
+      'a Sequence entry that bookmarks the currently selected patch only. Loading the ' +
+      'entry later will restore that patch.\n\n' +
+      'When sequencer codec support is added, this same entry can carry the actual ' +
+      'sequence audio alongside the paired patch.',
+    confirmLabel: 'Save Sequence',
+    onConfirm: () => saveSequenceEntry(),
+  });
+}
+
+function saveSequenceEntry() {
+  if (!library) return;
+  const now = new Date();
+  const entry = {
+    id: now.toISOString(),
+    defaultName: sequenceDefaultName(now),
+    customName: '',
+    savedAt: now.toISOString(),
+    pairedPatch: {
+      bank: selBank === 'L' ? 'C' : selBank,
+      slot: selSlot,
+      params: JSON.parse(JSON.stringify(currentPatch() || {})),
+    },
+    sequenceData: null,
+  };
+  if (!Array.isArray(library.sequences)) library.sequences = [];
+  library.sequences.unshift(entry);
+  saveLibraryDebounced();
+
+  // Navigate to Library tab. Sub-tab handling lands when the Library
+  // Tones/Sequences UI is built; for now the sequence is persisted and the
+  // user lands on the Library list.
+  selBank = 'L';
+  selSlot = 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === 'L');
+  });
+  renderPatchList();
+}
+
+function handleSequencerLoad() {
+  selBank = 'L';
+  selSlot = 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === 'L');
+  });
+  renderPatchList();
+}
+
+function sequenceDefaultName(date) {
+  const ds = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return `Sequence ${ds}`;
 }
 
 // (wireTapeButtons replaced by setupInteraction's button delegation.)
@@ -1018,6 +1325,7 @@ async function init() {
   }
 
   setupTabs();
+  setupLibSubTabs();
   setupHwButtons();
   renderPatchList();
   selectPatch(0);
@@ -1032,33 +1340,37 @@ function setupHwButtons() {
     btn.addEventListener('mouseleave', () => btn.classList.remove('pressed'));
     btn.addEventListener('click', handler);
   };
-  wire('save', handleTapeSave);
-  wire('load', handleTapeLoad);
-  setupHwModeSwitch();
+  wire('tone-save', handleTapeToneSave);
+  wire('tone-load', handleTapeToneLoad);
+  wire('seq-save',  handleTapeSeqSave);
+  wire('seq-load',  handleTapeSeqLoad);
+  setupMemoryDropdown();
 }
+
+function midiBlocked(action) {
+  if (getTapeMode() !== 'midi') return false;
+  console.warn(`MIDI mode: ${action} not implemented (Phase 3).`);
+  return true;
+}
+
+function handleTapeToneSave() { if (!midiBlocked('Tone save (import)'))  handleToneSave(); }
+function handleTapeToneLoad() { if (!midiBlocked('Tone load (export)'))  handleToneLoad(); }
+function handleTapeSeqSave()  { if (!midiBlocked('Sequencer save'))      handleSequencerSave(); }
+function handleTapeSeqLoad()  { if (!midiBlocked('Sequencer load'))      handleSequencerLoad(); }
 
 function getTapeMode() {
   return library && library.tapeMode === 'midi' ? 'midi' : 'tape';
 }
 
-function updateHwModeSwitch() {
-  const sw = document.getElementById('hw-mode');
-  if (!sw) return;
-  const mode = getTapeMode();
-  sw.classList.toggle('tape', mode === 'tape');
-  sw.classList.toggle('midi', mode === 'midi');
-}
-
-function setupHwModeSwitch() {
-  const sw = document.getElementById('hw-mode');
-  if (!sw) return;
-  sw.addEventListener('click', () => {
+function setupMemoryDropdown() {
+  const sel = document.getElementById('hw-memory-mode');
+  if (!sel) return;
+  sel.value = getTapeMode();
+  sel.addEventListener('change', () => {
     if (!library) return;
-    library.tapeMode = getTapeMode() === 'tape' ? 'midi' : 'tape';
+    library.tapeMode = sel.value === 'midi' ? 'midi' : 'tape';
     saveLibraryDebounced();
-    updateHwModeSwitch();
   });
-  updateHwModeSwitch();
 }
 
 document.addEventListener('DOMContentLoaded', init);
