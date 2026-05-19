@@ -29,7 +29,8 @@ This file is the cold-start summary. For full design details see [`docs/library-
     ├── style.css                 dark hardware aesthetic
     ├── app.js                    all UI logic — ~700 lines
     ├── panel.svg                 locked PG-200 panel artwork (1050×620 viewBox)
-    ├── panel_locked_v5.svg       backup of the panel (identical to panel.svg)
+    ├── panel_locked_v6.svg       backup of the panel (identical to panel.svg)
+    ├── panel_locked_v5.svg       prior snapshot (pre-Phase-2-layout-pass)
     ├── panel_locked_v4.svg       prior snapshot (pre-silver-knob-pass)
     └── assets/jp-logo.png        chrome JP logo embedded in panel
 ```
@@ -79,7 +80,7 @@ App state persists at `~/Library/Application Support/jp-patches/library.json` �
 ## Conventions
 
 1. **Plain JS only.** No TypeScript, no React/Vue/Svelte. Direct DOM manipulation in `app.js`.
-2. **Don't modify `panel.svg`** unless the change is essential and unavoidable. `panel_locked_v5.svg` is the current canonical reference snapshot. The panel is meant to be visually frozen; functional changes happen in `app.js` (tagging, event handling) without touching the SVG.
+2. **Don't modify `panel.svg`** unless the change is essential and unavoidable. `panel_locked_v6.svg` is the current canonical reference snapshot. The panel is meant to be visually frozen; functional changes happen in `app.js` (tagging, event handling) without touching the SVG.
 3. **Window stays at 1140×710** (`resizable: false`). UI changes must fit. Daniel's screen is only 1147×719 — anything wider will be clipped offscreen.
 4. **CSP**: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`. Update meta tag in `index.html` if external resources or `eval`-style features become needed.
 5. **macOS-only for v1.** Code freely uses `~/`, `pkill`, etc.
