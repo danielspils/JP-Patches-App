@@ -2211,11 +2211,12 @@ async function handleTonesDropImport(filePath) {
 }
 
 function handleBankDropImport(filePath) {
+  const fileName = filePath.split(/[\\/]/).pop();
   showConfirmModal({
-    title: 'Quick check',
+    title: 'Safety First!',
     body:
-      "Before loading new C/D banks, I'll save the current C/D banks to library. Cool?",
-    confirmLabel: 'Yes',
+      `Saving the current C & D banks to the library — then loading ${fileName}`,
+    confirmLabel: 'Continue',
     onConfirm: async () => {
       snapshotCurrentBanksToLibrary();
       const result = await window.api.tapeSaveFromPath(filePath);
