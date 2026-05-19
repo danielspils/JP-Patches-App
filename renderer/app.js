@@ -117,6 +117,9 @@ let selSlot  = 0;
 let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
+// pkg.id of a freshly-saved library package that should animate into the list
+// on the next render. Cleared once the row is created.
+let pendingSaveAnimationId = null;
 let saveTimer = null;
 // Write button: when armed, the next patch-list click writes the currently
 // shown patch params into that slot (save-as / clone). Esc cancels.
@@ -793,9 +796,11 @@ function handleSaveBanksToLibrary() {
   if (selPackage !== null) selPackage += 1;  // existing selection shifts down
   saveLibraryDebounced();
 
-  // Switch to Library tab.
+  // Switch to Library tab > Tones sub-tab so the new entry is visible.
   selBank = 'L';
   selSlot = 0;
+  selLibTab = 'tones';
+  pendingSaveAnimationId = pkg.id;
   document.querySelectorAll('.tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.bank === 'L');
   });
@@ -816,6 +821,11 @@ function renderLibraryList(list) {
   packages.forEach((pkg, idx) => {
     const item = document.createElement('div');
     item.className = 'package-item' + (idx === selPackage ? ' selected' : '');
+    if (pkg.id && pkg.id === pendingSaveAnimationId) {
+      item.classList.add('just-saved');
+      pendingSaveAnimationId = null;
+      item.addEventListener('animationend', () => item.classList.remove('just-saved'), { once: true });
+    }
     item.draggable = true;
     item.dataset.idx = String(idx);
 
