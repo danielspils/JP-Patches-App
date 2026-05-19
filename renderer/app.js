@@ -2060,6 +2060,213 @@ function setupTabs() {
 // Init
 // ═══════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// Drag-and-drop WAV import
+// ═══════════════════════════════════════════════════════════════
+//
+// Dropping a .wav from the desktop onto the patch-list area imports it,
+// routed by which tab + sub-tab is currently active:
+//   - Library > Sequences  → open the Layout A save modal (paired patch,
+//                            rate slider, note)
+//   - Library > Tones      → create a new library package directly,
+//                            non-destructive (active C/D banks stay put)
+//   - Bank C / Bank D      → confirmation modal: snapshot current banks
+//                            into the library THEN import + replace
+//                            active banks. Cancel aborts both.
+
+function setupPatchListDropZone() {
+  const list = document.getElementById('patch-list');
+  if (!list) return;
+
+  const isFileDrag = (e) => e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+
+  list.addEventListener('dragover', (e) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    list.classList.add('drop-target');
+  });
+  list.addEventListener('dragleave', (e) => {
+    if (e.currentTarget === list && !list.contains(e.relatedTarget)) {
+      list.classList.remove('drop-target');
+    }
+  });
+  list.addEventListener('drop', (e) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    list.classList.remove('drop-target');
+
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    const filePath = file.path;
+    if (!filePath) {
+      showImportError('Could not read the dropped file path.');
+      return;
+    }
+    if (!filePath.toLowerCase().endsWith('.wav')) {
+      showImportError('Only .wav files can be dropped here.');
+      return;
+    }
+    routeWavDrop(filePath);
+  });
+}
+
+function routeWavDrop(filePath) {
+  if (selBank === 'L' && selLibTab === 'sequences') {
+    handleSequenceDropImport(filePath);
+  } else if (selBank === 'L' && selLibTab === 'tones') {
+    handleTonesDropImport(filePath);
+  } else if (selBank === 'C' || selBank === 'D') {
+    handleBankDropImport(filePath);
+  } else {
+    showImportError('Drop on Bank C, Bank D, or the Library > Tones/Sequences sub-tabs.');
+  }
+}
+
+async function handleSequenceDropImport(filePath) {
+  const result = await window.api.seqTapeSaveFromPath(filePath);
+  if (!result || !result.loaded) {
+    showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  // If the file decoded but every page is empty, it's probably a patch WAV.
+  const hasContent = result.data && Array.isArray(result.data.pages)
+    && result.data.pages.some((p) => Array.isArray(p));
+  if (!hasContent) {
+    showImportError('This WAV does not contain any sequencer data. Try dropping it on the Tones sub-tab if it is a patch dump.');
+    return;
+  }
+  if (!currentPatch()) {
+    showImportError('Select a patch before importing a sequence — the sequence pairs with the currently selected patch.');
+    return;
+  }
+  showSaveSequenceModal({
+    tapeData: result.data,
+    sourcePath: filePath,
+    onConfirm: ({ patchNote, sliderPercent }) => {
+      saveSequenceEntry({ tapeData: result.data, patchNote, sliderPercent });
+    },
+  });
+}
+
+async function handleTonesDropImport(filePath) {
+  const result = await window.api.tapeSaveFromPath(filePath);
+  if (!result || !result.loaded) {
+    showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  // Build a snapshot package directly from the decoded data, without touching
+  // active C/D banks. Default name uses an "Imported" prefix to distinguish
+  // these from "Saved" snapshots.
+  const banks = decodedToInMemoryBanks(result.data);
+  const slotMeta = decodedToSlotMeta(result.data);
+  if (!banks) {
+    showImportError('This WAV does not contain any patch data. Try dropping it on the Sequences sub-tab if it is a sequencer dump.');
+    return;
+  }
+  const now = new Date();
+  const pkg = {
+    id: now.toISOString(),
+    defaultName: `Imported ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+    customName: '',
+    savedAt: now.toISOString(),
+    banks,
+    slotMeta,
+  };
+  if (!Array.isArray(library.packages)) library.packages = [];
+  library.packages.unshift(pkg);
+  if (selPackage !== null) selPackage += 1;
+  pendingSaveAnimationId = pkg.id;
+  selLibTab = 'tones';
+  saveLibraryDebounced();
+  renderPatchList();
+}
+
+function handleBankDropImport(filePath) {
+  showConfirmModal({
+    title: 'Save current banks before importing?',
+    body:
+      'Importing this WAV will overwrite the active C and D banks. ' +
+      'Click Save to snapshot your current banks into the library first, ' +
+      'then import. Cancel to do nothing.',
+    confirmLabel: 'Save & Import',
+    onConfirm: async () => {
+      snapshotCurrentBanksToLibrary();
+      const result = await window.api.tapeSaveFromPath(filePath);
+      if (!result || !result.loaded) {
+        showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
+        return;
+      }
+      try {
+        applyWavData(result.data);
+        saveLibraryDebounced();
+        renderPatchList();
+        updateSvgPatchName();
+        updateAllControls(currentPatch());
+      } catch (err) {
+        showImportError(`Failed to apply imported data: ${err.message}`);
+      }
+    },
+  });
+}
+
+// Snapshot active C/D banks into library.packages without navigating away.
+// Used by the bank-tab drop flow as a safety backup before overwriting.
+function snapshotCurrentBanksToLibrary() {
+  if (!patches || !Array.isArray(patches.banks)) return;
+  const now = new Date();
+  const pkg = {
+    id: now.toISOString(),
+    defaultName: packageDefaultName(now),
+    customName: '',
+    savedAt: now.toISOString(),
+    banks: JSON.parse(JSON.stringify(patches.banks)),
+    slotMeta: JSON.parse(JSON.stringify(library.slotMeta || {})),
+  };
+  if (!Array.isArray(library.packages)) library.packages = [];
+  library.packages.unshift(pkg);
+  if (selPackage !== null) selPackage += 1;
+}
+
+// Convert decoded jx3p JSON ({banks: {C: [...], D: [...]}}) into the in-memory
+// shape used by patches.banks (2 arrays of 16 param objects). Returns null
+// if the input doesn't look like patch data.
+function decodedToInMemoryBanks(data) {
+  if (!data || !data.banks || !data.banks.C || !data.banks.D) return null;
+  const hasContent = ['C', 'D'].some((b) =>
+    data.banks[b].some((entry) => entry && entry.params && Object.keys(entry.params).length > 0)
+  );
+  if (!hasContent) return null;
+  return ['C', 'D'].map((b) =>
+    data.banks[b].slice(0, 16).map((entry) => (entry && entry.params) || {})
+  );
+}
+
+function decodedToSlotMeta(data) {
+  const meta = { C: [], D: [] };
+  ['C', 'D'].forEach((bank) => {
+    const arr = (data && data.banks && data.banks[bank]) || [];
+    for (let s = 0; s < 16; s++) {
+      const key = `${bank}${s + 1}`;
+      const entry = arr[s] || {};
+      meta[bank][s] = {
+        name: entry.name || null,
+        origin: entry.origin || key,
+      };
+    }
+  });
+  return meta;
+}
+
+function showImportError(message) {
+  showConfirmModal({
+    title: 'Import error',
+    body: message,
+    confirmLabel: 'OK',
+    onConfirm: () => {},
+  });
+}
+
 async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
@@ -2083,6 +2290,7 @@ async function init() {
   setupTabs();
   setupLibSubTabs();
   setupHwButtons();
+  setupPatchListDropZone();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !writePending) return;
     // If a modal is open it handles its own Esc (close → write mode stays

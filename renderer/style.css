@@ -272,6 +272,12 @@ body {
   padding: 4px 0;
   position: relative;  /* containing block for cross-bank swap ghost */
 }
+/* Highlight while a file is being dragged from the desktop into the list. */
+#patch-list.drop-target {
+  outline: 2px dashed var(--green-sel-bdr);
+  outline-offset: -4px;
+  background: rgba(60, 110, 70, 0.06);
+}
 
 #bottom-actions {
   flex-shrink: 0;

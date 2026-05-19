@@ -109,6 +109,23 @@ ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
 // tape-save: SAVE on the JX-3P dumps patch memory OUT of the synth as audio.
 // The app is on the receiving side: this handler imports a WAV recorded from
 // the synth (decoded via `jx3p wav-to-json`) or a previously-exported JSON.
+async function decodeTapeFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.wav') {
+    const outputPath = path.join(os.tmpdir(), `jp_patches_import_${Date.now()}.json`);
+    try {
+      const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
+      await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+      const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+      return { loaded: true, kind: 'wav', data, path: filePath };
+    } finally {
+      try { fs.unlinkSync(outputPath); } catch {}
+    }
+  }
+  const txt = fs.readFileSync(filePath, 'utf8');
+  return { loaded: true, kind: 'json', data: JSON.parse(txt), path: filePath };
+}
+
 ipcMain.handle('tape-save', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const result = await dialog.showOpenDialog(win, {
@@ -121,18 +138,18 @@ ipcMain.handle('tape-save', async (e) => {
     ],
   });
   if (result.canceled || !result.filePaths.length) return { loaded: false };
-  const filePath = result.filePaths[0];
-  const ext = path.extname(filePath).toLowerCase();
   try {
-    if (ext === '.wav') {
-      const outputPath = '/tmp/jp_patches_import.json';
-      const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
-      await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
-      const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-      return { loaded: true, kind: 'wav', data, path: filePath };
-    }
-    const txt = fs.readFileSync(filePath, 'utf8');
-    return { loaded: true, kind: 'json', data: JSON.parse(txt), path: filePath };
+    return await decodeTapeFile(result.filePaths[0]);
+  } catch (err) {
+    return { loaded: false, error: err.message };
+  }
+});
+
+// Drag-and-drop entry point: same as tape-save but takes the file path directly.
+ipcMain.handle('tape-save-from-path', async (_e, filePath) => {
+  if (!filePath) return { loaded: false, error: 'no path provided' };
+  try {
+    return await decodeTapeFile(filePath);
   } catch (err) {
     return { loaded: false, error: err.message };
   }
@@ -163,6 +180,18 @@ ipcMain.handle('tape-load', async (e, data) => {
   }
 });
 
+async function decodeSeqFile(filePath) {
+  const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
+  try {
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+    return { loaded: true, data, path: filePath };
+  } finally {
+    try { fs.unlinkSync(outputPath); } catch {}
+  }
+}
+
 // seq-tape-save: SAVE on the JX-3P writes sequencer data OUT to audio. The app
 // is on the receiving side: import a sequencer-dump WAV produced by the synth
 // and decode it via `jx3p wav-to-seq-json`.
@@ -174,17 +203,20 @@ ipcMain.handle('seq-tape-save', async (e) => {
     filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
   });
   if (result.canceled || !result.filePaths.length) return { loaded: false };
-  const filePath = result.filePaths[0];
-  const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
   try {
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
-    const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-    return { loaded: true, data, path: filePath };
+    return await decodeSeqFile(result.filePaths[0]);
   } catch (err) {
     return { loaded: false, error: err.stderr || err.message };
-  } finally {
-    try { fs.unlinkSync(outputPath); } catch {}
+  }
+});
+
+// Drag-and-drop entry point: same as seq-tape-save but takes the file path directly.
+ipcMain.handle('seq-tape-save-from-path', async (_e, filePath) => {
+  if (!filePath) return { loaded: false, error: 'no path provided' };
+  try {
+    return await decodeSeqFile(filePath);
+  } catch (err) {
+    return { loaded: false, error: err.stderr || err.message };
   }
 });
 
