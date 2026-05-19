@@ -62,6 +62,16 @@ The Library tab is your in-app cold storage. Two sub-tabs:
 
 Click the panel's **Write** button to enter "save-as" mode: a sticky banner appears at the top of the patch list (*Click a slot to write current patch — Esc to cancel*). Click any C/D slot and confirm in the modal to clone the currently shown patch into that slot. App-side only — doesn't touch the real JX-3P's stored memory. To get the edited bank onto the synth, follow up with **Tape Memory → Tone → Load (to JX-3P)**.
 
+## Custom bank builder (planned)
+
+Real-world workflow: once you've collected a handful of different C/D snapshots in the Library, you'll want to **cherry-pick patches across them** to build a new custom 32-patch collection — say, a setlist for a gig.
+
+The plan is a two-stage rollout:
+
+- **Stage 1 — Per-patch clipboard.** A small *copy* icon on each bank slot puts that patch onto a single-patch clipboard that persists across navigation. A matching *paste here* affordance on any slot drops the clipboard's patch in. Load Package A → copy a few patches → load Package B → paste them at chosen target slots → *save C/D banks to library* gives you the new mixed bank. Minimal new UI; composes naturally with the existing reorder + cross-bank swap.
+
+- **Stage 2 — Build-a-Bank modal.** If the per-patch clipboard turns out too slow for assembling whole 32-slot collections, a dedicated modal with a source-package dropdown and a 32-slot target grid lands. Drag patches from the source list into target slots, name the bank inline, save.
+
 ## Roadmap
 
 - **Phase 1** ✅ Panel UI + patch editing
