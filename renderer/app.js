@@ -135,8 +135,8 @@ const slotKey = (b, s) => `${b}${s + 1}`;
 // library.slotMeta[bank][slotIndex] = { name, origin }.
 // `name` is the user's custom mask (nullable); `origin` is the JX-3P slot the
 // patch was imported from. Origin survives reorder and rename; only re-import
-// overwrites it. The placeholder "click to name {origin}" shows through
-// whenever there is no custom name.
+// overwrites it. The placeholder "click to name (imported as {origin})" shows
+// through whenever there is no custom name.
 function slotMetaArr(bank) {
   return library && library.slotMeta && library.slotMeta[bank];
 }
@@ -154,7 +154,7 @@ function patchOrigin(b, s) {
 }
 function patchPlaceholder(b, s) {
   const o = patchOrigin(b, s);
-  return o ? `click to name ${o}` : 'click to name';
+  return o ? `click to name (imported as ${o})` : 'click to name';
 }
 
 function displayLabel(b, s) {
