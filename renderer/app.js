@@ -2184,12 +2184,10 @@ async function handleTonesDropImport(filePath) {
 
 function handleBankDropImport(filePath) {
   showConfirmModal({
-    title: 'Save current banks before importing?',
+    title: 'Quick check',
     body:
-      'Importing this WAV will overwrite the active C and D banks. ' +
-      'Click Save to snapshot your current banks into the library first, ' +
-      'then import. Cancel to do nothing.',
-    confirmLabel: 'Save & Import',
+      "Before loading new C/D banks, I'll save the current C/D banks to library. Cool?",
+    confirmLabel: 'Yes',
     onConfirm: async () => {
       snapshotCurrentBanksToLibrary();
       const result = await window.api.tapeSaveFromPath(filePath);
