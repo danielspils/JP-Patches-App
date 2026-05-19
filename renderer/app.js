@@ -114,6 +114,10 @@ let patches  = null;
 let library  = null;
 let selBank  = 'C';
 let selSlot  = 0;
+// Remembers the most recently active bank+slot so flows that need a "currently
+// selected patch" (e.g. pairing a sequence import) still work when the user is
+// looking at the Library tab — the panel still visibly shows that patch.
+let lastBankSelection = { bank: 'C', slot: 0 };
 let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
@@ -301,6 +305,22 @@ function currentPatch() {
   if (!patches || !Array.isArray(patches.banks) || selBank === 'L') return null;
   const bankIdx = selBank === 'D' ? 1 : 0;
   return patches.banks[bankIdx] && patches.banks[bankIdx][selSlot] || null;
+}
+
+// Returns the bank+slot of the patch the SVG panel is visibly showing. On a
+// bank tab, this is the current selection. On the Library tab, it's the most
+// recent bank/slot the user was on before navigating away (so flows like
+// "pair this sequence with the active patch" still make sense).
+function activeBankSelection() {
+  if (selBank === 'C' || selBank === 'D') return { bank: selBank, slot: selSlot };
+  return { bank: lastBankSelection.bank, slot: lastBankSelection.slot };
+}
+
+function activeBankPatch() {
+  const { bank, slot } = activeBankSelection();
+  if (!patches || !Array.isArray(patches.banks)) return null;
+  const bankIdx = bank === 'D' ? 1 : 0;
+  return (patches.banks[bankIdx] && patches.banks[bankIdx][slot]) || null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1506,6 +1526,9 @@ function setupLibSubTabs() {
 
 function selectPatch(slot) {
   selSlot = slot;
+  if (selBank === 'C' || selBank === 'D') {
+    lastBankSelection = { bank: selBank, slot };
+  }
   renderPatchList();
   updateSvgPatchName();
   updateAllControls(currentPatch());
@@ -1825,7 +1848,7 @@ async function handleToneLoad() {
 // library.sequences[].
 
 async function handleSequencerSave() {
-  if (!currentPatch()) {
+  if (!activeBankPatch()) {
     console.warn('No active patch to pair with a sequence entry');
     return;
   }
@@ -1861,8 +1884,8 @@ function summarizeSeqTape(data) {
 }
 
 function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
-  const bank = selBank === 'L' ? 'C' : selBank;
-  const pName = patchName(bank, selSlot);
+  const { bank, slot } = activeBankSelection();
+  const pName = patchName(bank, slot);
   const summary = summarizeSeqTape(tapeData);
 
   const overlay = document.createElement('div');
@@ -1888,8 +1911,8 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
   const ppValue = document.createElement('div');
   ppValue.className = 'seq-modal-paired';
   ppValue.textContent = pName
-    ? `${slotKey(bank, selSlot)}: ${pName}`
-    : `${slotKey(bank, selSlot)} (unnamed)`;
+    ? `${slotKey(bank, slot)}: ${pName}`
+    : `${slotKey(bank, slot)} (unnamed)`;
   ppSec.appendChild(ppLabel);
   ppSec.appendChild(ppValue);
 
@@ -1982,7 +2005,7 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
 function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = null } = {}) {
   if (!library) return;
   const now = new Date();
-  const bank = selBank === 'L' ? 'C' : selBank;
+  const { bank, slot } = activeBankSelection();
   const entry = {
     id: now.toISOString(),
     defaultName: sequenceDefaultName(now),
@@ -1995,9 +2018,9 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = nu
       patchNote: patchNote || '',
       pairedPatch: {
         bank,
-        slot:      selSlot,
-        params:    JSON.parse(JSON.stringify(currentPatch() || {})),
-        patchName: patchName(bank, selSlot),
+        slot,
+        params:    JSON.parse(JSON.stringify(activeBankPatch() || {})),
+        patchName: patchName(bank, slot),
       },
       rate: {
         sliderPercent: typeof sliderPercent === 'number' ? sliderPercent : null,
@@ -2136,7 +2159,7 @@ async function handleSequenceDropImport(filePath) {
     showImportError('This WAV does not contain any sequencer data. Try dropping it on the Tones sub-tab if it is a patch dump.');
     return;
   }
-  if (!currentPatch()) {
+  if (!activeBankPatch()) {
     showImportError('Select a patch before importing a sequence — the sequence pairs with the currently selected patch.');
     return;
   }
