@@ -41,30 +41,30 @@ const KNOB_REGISTRY = [
   { gTranslate: '70,84',   param: 'dco1_range' },
   { gTranslate: '70,196',  param: 'dco1_waveform' },
   { gTranslate: '218,84',  param: 'dco2_range' },
-  { gTranslate: '368,84',  param: 'dco2_tune' },
+  { gTranslate: '338,84',  param: 'dco2_tune' },
   { gTranslate: '218,196', param: 'dco2_waveform' },
-  { gTranslate: '368,196', param: 'dco2_fine_tune' },
+  { gTranslate: '338,196', param: 'dco2_fine_tune' },
   { gTranslate: '218,295', param: 'dco2_crossmod' },
   // DCO mod
   { gTranslate: '65,390',  param: 'dco_lfo_amount' },
   { gTranslate: '218,390', param: 'dco_env_amount' },
   // VCF / VCA (parent group <g transform="translate(430,24)">)
-  { gTranslate: '55,58',   param: 'vcf_mix' },
-  { gTranslate: '140,58',  param: 'vcf_hpf' },
-  { gTranslate: '55,166',  param: 'vcf_cutoff' },
-  { gTranslate: '140,166', param: 'vcf_resonance' },
-  { gTranslate: '261,166', param: 'vca_level' },
-  { gTranslate: '55,274',  param: 'vcf_lfo_mod' },
-  { gTranslate: '140,274', param: 'vcf_env_mod' },
-  { gTranslate: '55,386',  param: 'vcf_pitch_follow' },
+  { gTranslate: '55,84',   param: 'vcf_mix' },
+  { gTranslate: '140,84',  param: 'vcf_hpf' },
+  { gTranslate: '55,196',  param: 'vcf_cutoff' },
+  { gTranslate: '140,196', param: 'vcf_resonance' },
+  { gTranslate: '261,196', param: 'vca_level' },
+  { gTranslate: '55,295',  param: 'vcf_lfo_mod' },
+  { gTranslate: '140,295', param: 'vcf_env_mod' },
+  { gTranslate: '55,390',  param: 'vcf_pitch_follow' },
   // Bottom row LFO + Envelope
   { gTranslate: '55,545',  param: 'lfo_waveform' },
   { gTranslate: '165,545', param: 'lfo_delay' },
   { gTranslate: '275,545', param: 'lfo_rate' },
   { gTranslate: '420,545', param: 'env_attack' },
-  { gTranslate: '490,545', param: 'env_decay' },
-  { gTranslate: '560,545', param: 'env_sustain' },
-  { gTranslate: '630,545', param: 'env_release' },
+  { gTranslate: '510,545', param: 'env_decay' },
+  { gTranslate: '690,545', param: 'env_sustain' },
+  { gTranslate: '600,545', param: 'env_release' },
 ];
 
 // Switch registry. Body rect identifies each switch; segment rects (the
@@ -73,27 +73,27 @@ const KNOB_REGISTRY = [
 //   - tri-enum     : 3 segments, enum param.   vals[0]→top, vals[1]→bot
 //   - duo-enum     : 2 gold segments (top/bot), enum param. vals[0]→top
 const SWITCH_REGISTRY = [
-  { type: 'tri-binary', param: 'dco1_fmod_lfo',     bodySel: 'rect[x="30"][y="260"]' },
-  { type: 'tri-binary', param: 'dco1_fmod_env',     bodySel: 'rect[x="74"][y="260"]' },
-  { type: 'tri-binary', param: 'dco2_fmod_lfo',     bodySel: 'rect[x="346"][y="260"]' },
-  { type: 'tri-binary', param: 'dco2_fmod_env',     bodySel: 'rect[x="390"][y="260"]' },
+  { type: 'tri-binary', param: 'dco1_fmod_lfo',     bodySel: 'rect[x="26"][y="271"]' },
+  { type: 'tri-binary', param: 'dco1_fmod_env',     bodySel: 'rect[x="78"][y="271"]' },
+  { type: 'tri-binary', param: 'dco2_fmod_lfo',     bodySel: 'rect[x="299"][y="271"]' },
+  { type: 'tri-binary', param: 'dco2_fmod_env',     bodySel: 'rect[x="351"][y="271"]' },
   { type: 'tri-enum',   param: 'vca_mode', vals: ['env', 'gate'],
-    bodySel: 'rect[x="248"][y="35"]' },
-  { type: 'tri-binary', param: 'chorus',            bodySel: 'rect[x="248"][y="363"]' },
+    bodySel: 'rect[x="248"][y="61"]' },
+  { type: 'tri-binary', param: 'chorus',            bodySel: 'rect[x="248"][y="370"]' },
   { type: 'tri-enum',   param: 'dco_env_polarity', vals: ['pos', 'neg'],
-    bodySel: 'rect[x="367"][y="370"]' },
+    bodySel: 'rect[x="325"][y="370"]' },
   { type: 'tri-enum',   param: 'vcf_env_polarity', vals: ['pos', 'neg'],
-    bodySel: 'rect[x="126"][y="358"]' },
+    bodySel: 'rect[x="126"][y="370"]' },
 ];
 
 // Tape Memory + Manual/Write hardware buttons.
 // `id` is the internal identifier; `bodySel` finds the button rect; LED rect
 // is the next-sibling small <rect> after the body.
+// Save / Load were moved out of the SVG and are now HTML buttons below the
+// left panel; see setupHwButtons. Only Manual / Write remain SVG-driven.
 const BUTTON_REGISTRY = [
-  { id: 'save',   color: '#cc2222', bodySel: 'rect[x="814"][y="358"][width="58"]' },
-  { id: 'load',   color: '#44aa44', bodySel: 'rect[x="940"][y="358"][width="58"]' },
-  { id: 'manual', color: '#cc2222', bodySel: 'rect[x="690"][y="516"][width="58"]' },
-  { id: 'write',  color: '#44aa44', bodySel: 'rect[x="768"][y="516"][width="58"]' },
+  { id: 'manual', color: '#cc2222', bodySel: 'rect[x="765"][y="516"][width="58"]' },
+  { id: 'write',  color: '#cc2222', bodySel: 'rect[x="843"][y="516"][width="58"]' },
 ];
 
 const LED_OFF = '#333';
@@ -106,6 +106,7 @@ let patches  = null;
 let library  = null;
 let selBank  = 'C';
 let selSlot  = 0;
+let selPackage = null;
 let saveTimer = null;
 let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
 
@@ -149,6 +150,14 @@ function findSvgPatchNameEl(svgEl) {
 function updateSvgPatchName() {
   if (!svgPatchNameEl) return;
   svgPatchNameEl.textContent = displayLabel(selBank, selSlot);
+  // Truncate with an ellipsis if the rendered text would extend past the
+  // red parallelogram's slanted right edge at the text baseline (y=116).
+  const MAX_WIDTH = 195;
+  if (typeof svgPatchNameEl.getComputedTextLength !== 'function') return;
+  while (svgPatchNameEl.getComputedTextLength() > MAX_WIDTH &&
+         svgPatchNameEl.textContent.length > 4) {
+    svgPatchNameEl.textContent = svgPatchNameEl.textContent.slice(0, -2) + '…';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -314,9 +323,10 @@ function tagButtons(svg) {
     body.dataset.control = 'button';
     body.dataset.buttonId = spec.id;
     body.style.cursor = 'pointer';
-    // LED is the next-sibling small rect (height === 6).
+    // LED is the next-sibling rect with height=15 (silver-body LED flush
+    // at the button top edge).
     let s = body.nextElementSibling;
-    while (s && !(s.tagName.toLowerCase() === 'rect' && s.getAttribute('height') === '6')) {
+    while (s && !(s.tagName.toLowerCase() === 'rect' && s.getAttribute('height') === '15')) {
       s = s.nextElementSibling;
     }
     if (s) {
@@ -436,14 +446,8 @@ function setupInteraction(svg) {
     }
     if (downBtnId) {
       lightButton(downBtnId, false);
-      // Trigger the button's action only if mouseup happened on the same button.
-      const ctrl = findControl(e.target);
-      const onSame = ctrl && ctrl.dataset.control === 'button' && ctrl.dataset.buttonId === downBtnId;
-      if (onSame) {
-        if (downBtnId === 'save') handleTapeSave();
-        else if (downBtnId === 'load') handleTapeLoad();
-        // Manual / Write: visual-only for now.
-      }
+      // Manual / Write are visual-only for now. Save / Load live as HTML
+      // buttons below the left panel — see setupHwButtons.
       downBtnId = null;
     }
   });
@@ -455,13 +459,13 @@ function setupInteraction(svg) {
 
 function renderPatchList() {
   const list = document.getElementById('patch-list');
+  const actions = document.getElementById('bottom-actions');
   list.innerHTML = '';
+  actions.innerHTML = '';
 
   if (selBank === 'L') {
-    const ph = document.createElement('div');
-    ph.className = 'library-placeholder';
-    ph.textContent = 'Library management coming in a future version.';
-    list.appendChild(ph);
+    renderLibraryList(list);
+    renderLibraryActions(actions);
     return;
   }
 
@@ -506,6 +510,325 @@ function renderPatchList() {
     });
     inp.addEventListener('blur', () => commitListEdit(slot, nm, inp));
   }
+
+  const btn = document.createElement('button');
+  btn.className = 'save-banks-btn';
+  btn.textContent = 'save C/D banks to library';
+  btn.addEventListener('click', handleSaveBanksToLibrary);
+  actions.appendChild(btn);
+}
+
+function renderLibraryActions(actions) {
+  const btn = document.createElement('button');
+  btn.className = 'save-banks-btn';
+  btn.textContent = 'load selected library C/D banks to app';
+  btn.disabled = selPackage === null;
+  btn.addEventListener('click', handleLoadLibraryBanks);
+  actions.appendChild(btn);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Library packages (Phase 2): snapshots of C+D bank state
+// ═══════════════════════════════════════════════════════════════
+
+function packageDefaultName(date) {
+  const ds = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return `C/D banks ${ds}`;
+}
+
+function relativeTime(isoString) {
+  const ms = Date.now() - new Date(isoString).getTime();
+  if (ms < 0) return 'just now';
+  const s = Math.floor(ms / 1000);
+  if (s < 10)  return 'just now';
+  if (s < 60)  return `${s} seconds ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60)  return `${m} minute${m === 1 ? '' : 's'} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30)  return `${d} day${d === 1 ? '' : 's'} ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo} month${mo === 1 ? '' : 's'} ago`;
+  const y = Math.floor(d / 365);
+  return `${y} year${y === 1 ? '' : 's'} ago`;
+}
+
+function handleSaveBanksToLibrary() {
+  if (!patches || !Array.isArray(patches.banks)) return;
+  const now = new Date();
+  const pkg = {
+    id: now.toISOString(),
+    defaultName: packageDefaultName(now),
+    customName: '',
+    savedAt: now.toISOString(),
+    banks: JSON.parse(JSON.stringify(patches.banks)),
+    names: { ...(library.names || {}) },
+  };
+  if (!Array.isArray(library.packages)) library.packages = [];
+  library.packages.unshift(pkg);
+  if (selPackage !== null) selPackage += 1;  // existing selection shifts down
+  saveLibraryDebounced();
+
+  // Switch to Library tab.
+  selBank = 'L';
+  selSlot = 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === 'L');
+  });
+  renderPatchList();
+}
+
+function renderLibraryList(list) {
+  const packages = Array.isArray(library.packages) ? library.packages : [];
+  if (packages.length === 0) {
+    selPackage = null;
+    const ph = document.createElement('div');
+    ph.className = 'library-placeholder';
+    ph.textContent = 'No saved packages yet.\nUse "save C/D banks to library" on a bank tab.';
+    list.appendChild(ph);
+    return;
+  }
+
+  packages.forEach((pkg, idx) => {
+    const item = document.createElement('div');
+    item.className = 'package-item' + (idx === selPackage ? ' selected' : '');
+    item.draggable = true;
+    item.dataset.idx = String(idx);
+
+    const nm = document.createElement('span');
+    nm.className = 'package-name-span' + (pkg.customName ? '' : ' unnamed');
+    nm.textContent = pkg.customName || pkg.defaultName;
+
+    const def = document.createElement('span');
+    def.className = 'package-default-name';
+    def.textContent = relativeTime(pkg.savedAt);
+
+    const inp = document.createElement('input');
+    inp.className = 'package-name-edit';
+    inp.type = 'text';
+    inp.maxLength = 60;
+    inp.spellcheck = false;
+    inp.autocomplete = 'off';
+
+    item.appendChild(nm);
+    item.appendChild(def);
+    item.appendChild(inp);
+    item.appendChild(buildTrashIcon(idx));
+    list.appendChild(item);
+
+    item.addEventListener('click', (e) => {
+      if (e.target === nm && idx === selPackage) {
+        startPackageNameEdit(idx, nm, def, inp);
+        return;
+      }
+      selPackage = idx;
+      renderPatchList();
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter')  commitPackageNameEdit(idx, nm, def, inp);
+      if (e.key === 'Escape') cancelPackageNameEdit(nm, inp);
+    });
+    inp.addEventListener('blur', () => commitPackageNameEdit(idx, nm, def, inp));
+
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(idx));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      list.querySelectorAll('.drag-over').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over');
+      });
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', (e) => {
+      // Only remove the indicator when the pointer actually leaves the row,
+      // not when it crosses internal children.
+      if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
+        item.classList.remove('drag-over');
+      }
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toIdx = idx;
+      item.classList.remove('drag-over');
+      if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
+      reorderPackage(fromIdx, toIdx);
+    });
+  });
+}
+
+function reorderPackage(fromIdx, toIdx) {
+  const pkgs = library.packages;
+  if (!pkgs || fromIdx < 0 || fromIdx >= pkgs.length) return;
+  if (toIdx < 0 || toIdx >= pkgs.length) return;
+  const [moved] = pkgs.splice(fromIdx, 1);
+  pkgs.splice(toIdx, 0, moved);
+
+  // Adjust selPackage to follow the move.
+  if (selPackage !== null) {
+    if (selPackage === fromIdx) selPackage = toIdx;
+    else if (fromIdx < selPackage && toIdx >= selPackage) selPackage -= 1;
+    else if (fromIdx > selPackage && toIdx <= selPackage) selPackage += 1;
+  }
+  saveLibraryDebounced();
+  renderPatchList();
+}
+
+function handleLoadLibraryBanks() {
+  if (selPackage === null) return;
+  const pkg = library.packages[selPackage];
+  if (!pkg) return;
+  showConfirmModal({
+    title: 'Overwrite active C/D banks?',
+    body:
+      'Loading this library package will replace the C and D banks currently in the JP Patches app.\n\n' +
+      'These banks will not be loaded to a JX-3P until you click the "load to JX-3P" button.',
+    confirmLabel: 'Load',
+    onConfirm: () => loadPackageIntoActiveBanks(pkg),
+  });
+}
+
+function loadPackageIntoActiveBanks(pkg) {
+  patches.banks = JSON.parse(JSON.stringify(pkg.banks));
+  library.names = { ...(pkg.names || {}) };
+  saveLibraryDebounced();
+
+  // Surface the loaded banks: switch to Bank C and select the first slot.
+  selBank = 'C';
+  selSlot = 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === 'C');
+  });
+  renderPatchList();
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
+}
+
+// Lightweight confirmation modal.
+function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = title;
+
+  const p = document.createElement('p');
+  p.className = 'modal-body';
+  body.split('\n').forEach((line, i) => {
+    if (i > 0) p.appendChild(document.createElement('br'));
+    p.appendChild(document.createTextNode(line));
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'modal-btn modal-btn-confirm';
+  if (confirmStyle === 'danger') confirmBtn.classList.add('modal-btn-danger');
+  confirmBtn.textContent = confirmLabel;
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(confirmBtn);
+  modal.appendChild(h);
+  modal.appendChild(p);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter')  { onConfirm(); close(); }
+  };
+
+  cancelBtn.addEventListener('click', close);
+  confirmBtn.addEventListener('click', () => { onConfirm(); close(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  confirmBtn.focus();
+}
+
+function buildTrashIcon(idx) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.4');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.classList.add('package-trash');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', 'M3 4h10M5.5 4V2.5h5V4M4 4l.5 9.5h7L12 4M7 7v5M9 7v5');
+  svg.appendChild(path);
+  svg.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleDeletePackage(idx);
+  });
+  return svg;
+}
+
+function handleDeletePackage(idx) {
+  const pkg = library.packages && library.packages[idx];
+  if (!pkg) return;
+  showConfirmModal({
+    title: 'Delete this C/D bank package?',
+    body: 'Are you sure you want to delete this C/D bank? It can not be undone.',
+    confirmLabel: 'Delete',
+    confirmStyle: 'danger',
+    onConfirm: () => {
+      library.packages.splice(idx, 1);
+      if (selPackage === idx) selPackage = null;
+      else if (selPackage !== null && selPackage > idx) selPackage -= 1;
+      saveLibraryDebounced();
+      renderPatchList();
+    },
+  });
+}
+
+function startPackageNameEdit(idx, nm, def, inp) {
+  inp.value = library.packages[idx].customName || '';
+  inp.style.display = 'block';
+  nm.style.display  = 'none';
+  inp.focus();
+  inp.select();
+}
+
+function commitPackageNameEdit(idx, nm, def, inp) {
+  if (inp.style.display !== 'block') return;
+  const val = inp.value.trim();
+  library.packages[idx].customName = val;
+  inp.style.display = 'none';
+  nm.style.display  = '';
+  saveLibraryDebounced();
+  renderPatchList();
+}
+
+function cancelPackageNameEdit(nm, inp) {
+  inp.style.display = 'none';
+  nm.style.display  = '';
 }
 
 function selectPatch(slot) {
@@ -603,17 +926,16 @@ function applyWavData(data) {
   patches = data;
 }
 
+// JX-3P SAVE = synth dumps its memory OUT as audio. The app receives it:
+// pick a WAV (decoded via wav-to-json) or a JSON, apply to in-memory banks.
 async function handleTapeSave() {
-  const result = await window.api.tapeSave(buildExportData());
-  if (result && result.saved) {
-    console.log('Saved patch library to', result.path);
+  if (getTapeMode() === 'midi') {
+    console.warn('MIDI mode: tape import not applicable. MIDI sysex input is Phase 3.');
+    return;
   }
-}
-
-async function handleTapeLoad() {
-  const result = await window.api.tapeLoad();
+  const result = await window.api.tapeSave();
   if (!result || !result.loaded) {
-    if (result && result.error) console.error('Load error:', result.error);
+    if (result && result.error) console.error('Save (import) error:', result.error);
     return;
   }
   try {
@@ -623,9 +945,28 @@ async function handleTapeLoad() {
     renderPatchList();
     updateSvgPatchName();
     updateAllControls(currentPatch());
-    console.log(`Loaded ${result.kind} from`, result.path);
+    console.log(`Saved (imported) ${result.kind} from`, result.path);
   } catch (err) {
-    console.error('Failed to apply loaded data:', err.message);
+    console.error('Failed to apply imported data:', err.message);
+  }
+}
+
+// JX-3P LOAD = synth reads data IN from audio. The app sends it: encode
+// current banks to a WAV via json-to-wav, save to user-chosen path.
+async function handleTapeLoad() {
+  if (getTapeMode() === 'midi') {
+    console.warn('MIDI mode: tape export not applicable. MIDI sysex output is Phase 3.');
+    return;
+  }
+  if (!patches || !Array.isArray(patches.banks) || patches.banks.length < 2) {
+    console.error('No patch data to export');
+    return;
+  }
+  const result = await window.api.tapeLoad(patches);
+  if (result && result.saved) {
+    console.log('Loaded (exported) tape dump WAV to', result.path);
+  } else if (result && result.error) {
+    console.error('Load (export) error:', result.error);
   }
 }
 
@@ -677,8 +1018,47 @@ async function init() {
   }
 
   setupTabs();
+  setupHwButtons();
   renderPatchList();
   selectPatch(0);
+}
+
+function setupHwButtons() {
+  const wire = (id, handler) => {
+    const btn = document.getElementById(`hw-${id}`);
+    if (!btn) return;
+    btn.addEventListener('mousedown', () => btn.classList.add('pressed'));
+    btn.addEventListener('mouseup',   () => btn.classList.remove('pressed'));
+    btn.addEventListener('mouseleave', () => btn.classList.remove('pressed'));
+    btn.addEventListener('click', handler);
+  };
+  wire('save', handleTapeSave);
+  wire('load', handleTapeLoad);
+  setupHwModeSwitch();
+}
+
+function getTapeMode() {
+  return library && library.tapeMode === 'midi' ? 'midi' : 'tape';
+}
+
+function updateHwModeSwitch() {
+  const sw = document.getElementById('hw-mode');
+  if (!sw) return;
+  const mode = getTapeMode();
+  sw.classList.toggle('tape', mode === 'tape');
+  sw.classList.toggle('midi', mode === 'midi');
+}
+
+function setupHwModeSwitch() {
+  const sw = document.getElementById('hw-mode');
+  if (!sw) return;
+  sw.addEventListener('click', () => {
+    if (!library) return;
+    library.tapeMode = getTapeMode() === 'tape' ? 'midi' : 'tape';
+    saveLibraryDebounced();
+    updateHwModeSwitch();
+  });
+  updateHwModeSwitch();
 }
 
 document.addEventListener('DOMContentLoaded', init);

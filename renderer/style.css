@@ -33,20 +33,173 @@ body {
    LEFT PANEL
    ════════════════════════════ */
 
-#left-panel {
+#left-column {
   width: 370px;
   min-width: 370px;
   max-width: 370px;
   flex-shrink: 0;
   flex-grow: 0;
-  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  border-right: 1px solid var(--border-dim);
+}
+
+#left-panel {
+  width: 100%;
+  flex-shrink: 0;
+  flex-grow: 0;
   /* Match SVG bottom edge: drag-bar (30px) + SVG height (aspect 1050:620) */
   height: calc(30px + (100vw - 370px) * 620 / 1050);
   background: var(--bg-left);
-  border-right: 1px solid var(--border-dim);
   display: flex;
   flex-direction: column;
 }
+
+/* ════════════════════════════
+   HARDWARE BUTTONS — Save / Load below left panel
+   ════════════════════════════ */
+
+/* Sizes match the SVG panel buttons at the fixed 1140px window:
+   SVG 58u button → 58 * (770/1050) ≈ 43px on screen.
+   SVG 14u text   → 14 * (770/1050) ≈ 10.3px on screen. */
+#hw-tape {
+  background: var(--bg-app);
+  padding: 32px 16px 14px;
+}
+
+#hw-tape-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  padding-left: 8px;
+}
+
+#hw-tape-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+#hw-tape-header {
+  background: #ffffff;
+  color: #1a1a1a;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 4px 28px;
+  border-radius: 0;
+}
+
+#hw-buttons {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+}
+
+/* Mode switch (tape / MIDI) — matches SVG tri-segment switch style.
+   Scaled to roughly match the SVG switches at the fixed 1140px window. */
+.hw-mode-section {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-bottom: 9px;  /* align bottom with the buttons' sublabel baseline */
+}
+
+.hw-switch {
+  width: 19px;
+  height: 35px;
+  background: #111;
+  border: 1px solid #777;
+  border-radius: 2px;
+  padding: 1.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  cursor: pointer;
+  outline: none;
+}
+.hw-switch-seg { width: 100%; border-radius: 1px; }
+.hw-switch-seg.top { height: 12px; }
+.hw-switch-seg.mid { height: 9px; }
+.hw-switch-seg.bot { height: 6px; }
+
+.hw-switch.tape .top { background: #d0d0d0; }
+.hw-switch.tape .mid { background: #999; }
+.hw-switch.tape .bot { background: #555; }
+
+.hw-switch.midi .top { background: #555; }
+.hw-switch.midi .mid { background: #999; }
+.hw-switch.midi .bot { background: #d0d0d0; }
+
+.hw-mode-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #ccc;
+  height: 33px;
+}
+
+.hw-button-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hw-label {
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.hw-sublabel {
+  color: #ccc;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.hw-btn {
+  width: 43px;
+  height: 43px;
+  background: #c8c8c8;
+  border: 1px solid #555;
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  outline: none;
+}
+
+/* LED: 16x11 dark rect flush with the button's top edge (22x15 SVG units scaled). */
+.hw-btn::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 11px;
+  background: #333;
+  border-radius: 1px;
+  transition: background 0.08s;
+}
+/* Silver highlight strip at the top of the LED (channel/bevel). */
+.hw-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 3px;
+  background: #d8d8d8;
+  pointer-events: none;
+}
+
+.hw-btn.save.pressed::before { background: #cc2222; }
+.hw-btn.load.pressed::before { background: #44aa44; }
 
 #tabs {
   display: flex;
@@ -76,8 +229,16 @@ body {
 #patch-list {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
   padding: 4px 0;
 }
+
+#bottom-actions {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-dim);
+  background: var(--bg-left);
+}
+#bottom-actions:empty { display: none; }
 #patch-list::-webkit-scrollbar       { width: 4px; }
 #patch-list::-webkit-scrollbar-track { background: #0d0d0d; }
 #patch-list::-webkit-scrollbar-thumb { background: #2c2c2c; border-radius: 2px; }
@@ -133,6 +294,162 @@ body {
   font-size: 11px;
   text-align: center;
   line-height: 1.7;
+}
+
+.save-banks-btn {
+  display: block;
+  margin: 4px 12px;
+  padding: 4px 12px;
+  width: calc(100% - 24px);
+  background: #1a2a1c;
+  border: 1px solid var(--green-sel-bdr);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.save-banks-btn:hover  { background: #233525; border-color: #5d8a62; }
+.save-banks-btn:active { background: #2c4530; }
+.save-banks-btn:disabled,
+.save-banks-btn:disabled:hover {
+  background: #181818;
+  border-color: var(--border-dim);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  background: #1a1a1a;
+  border: 1px solid var(--border-dim);
+  border-radius: 5px;
+  padding: 22px 26px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+}
+.modal-title {
+  color: var(--text-bright);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.modal-body {
+  color: var(--text-mid);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 22px;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.modal-btn {
+  padding: 7px 16px;
+  background: none;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  outline: none;
+}
+.modal-btn:focus-visible { border-color: var(--green-sel-bdr); }
+.modal-btn-cancel:hover  { background: #262626; }
+.modal-btn-confirm {
+  background: #1a2a1c;
+  border-color: var(--green-sel-bdr);
+}
+.modal-btn-confirm:hover { background: #233525; border-color: #5d8a62; }
+
+.package-item {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding: 6px 36px 6px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.25;
+  gap: 1px;
+}
+
+.package-trash {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-mid);
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+.package-item:hover .package-trash { display: flex; }
+.package-trash:hover {
+  color: #e07070;
+  background: rgba(224, 112, 112, 0.12);
+}
+
+.modal-btn-danger {
+  background: #2a1717;
+  border-color: #8a4a4a;
+}
+.modal-btn-danger:hover { background: #3a1f1f; border-color: #b06060; }
+.package-item:hover    { background: #1c1c1c; }
+.package-item.selected { background: var(--green-sel-bg); }
+.package-item.dragging { opacity: 0.4; }
+.package-item.drag-over {
+  box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
+}
+
+.package-name-span {
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.package-name-span.unnamed {
+  color: var(--text-bright);
+}
+
+.package-default-name {
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.package-name-edit {
+  background: #1d2c1d;
+  border: 1px solid var(--green-sel-bdr);
+  border-radius: 2px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 2px 5px;
+  outline: none;
+  display: none;
 }
 
 /* ════════════════════════════

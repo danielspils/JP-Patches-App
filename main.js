@@ -50,22 +50,13 @@ ipcMain.handle('save-library', (_e, data) => {
 });
 ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
 
-ipcMain.handle('tape-save', async (e, data) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const result = await dialog.showSaveDialog(win, {
-    title: 'Save Patch Library',
-    defaultPath: 'patches-library.json',
-    filters: [{ name: 'JSON', extensions: ['json'] }],
-  });
-  if (result.canceled || !result.filePath) return { saved: false };
-  fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf8');
-  return { saved: true, path: result.filePath };
-});
-
-ipcMain.handle('tape-load', async (e) => {
+// tape-save: SAVE on the JX-3P dumps patch memory OUT of the synth as audio.
+// The app is on the receiving side: this handler imports a WAV recorded from
+// the synth (decoded via `jx3p wav-to-json`) or a previously-exported JSON.
+ipcMain.handle('tape-save', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const result = await dialog.showOpenDialog(win, {
-    title: 'Load Patch Library or Tape Dump',
+    title: 'Save — import tape dump from JX-3P',
     properties: ['openFile'],
     filters: [
       { name: 'JX-3P files',    extensions: ['wav', 'json'] },
@@ -88,5 +79,30 @@ ipcMain.handle('tape-load', async (e) => {
     return { loaded: true, kind: 'json', data: JSON.parse(txt), path: filePath };
   } catch (err) {
     return { loaded: false, error: err.message };
+  }
+});
+
+// tape-load: LOAD on the JX-3P reads patch data IN to the synth from audio.
+// The app is on the sending side: this handler exports a WAV the user plays
+// into the synth's CMT input, encoded via `jx3p json-to-wav`.
+ipcMain.handle('tape-load', async (e, data) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const dlg = await dialog.showSaveDialog(win, {
+    title: 'Load — export tape dump for JX-3P',
+    defaultPath: 'jp-patches-tape.wav',
+    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+  });
+  if (dlg.canceled || !dlg.filePath) return { saved: false };
+
+  const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
+  try {
+    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    const cmd = `uv run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${dlg.filePath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return { saved: true, path: dlg.filePath };
+  } catch (err) {
+    return { saved: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
   }
 });

@@ -10,15 +10,48 @@
 
 <div id="app">
 
-  <!-- LEFT PANEL -->
-  <aside id="left-panel">
-    <div id="tabs">
-      <button class="tab active" data-bank="C">Bank C</button>
-      <button class="tab"        data-bank="D">Bank D</button>
-      <button class="tab"        data-bank="L">Library</button>
+  <!-- LEFT COLUMN: panel + hardware buttons below it -->
+  <div id="left-column">
+    <aside id="left-panel">
+      <div id="tabs">
+        <button class="tab active" data-bank="C">Bank C</button>
+        <button class="tab"        data-bank="D">Bank D</button>
+        <button class="tab"        data-bank="L">Library</button>
+      </div>
+      <div id="patch-list"></div>
+      <div id="bottom-actions"></div>
+    </aside>
+    <div id="hw-tape">
+      <div id="hw-tape-row">
+        <div id="hw-tape-left">
+          <div id="hw-tape-header">Tape Memory</div>
+          <div id="hw-buttons">
+            <div class="hw-button-wrap">
+              <div class="hw-label">Save</div>
+              <button class="hw-btn save" id="hw-save"></button>
+              <div class="hw-sublabel">from JX-3P</div>
+            </div>
+            <div class="hw-button-wrap">
+              <div class="hw-label">Load</div>
+              <button class="hw-btn load" id="hw-load"></button>
+              <div class="hw-sublabel">to JX-3P</div>
+            </div>
+          </div>
+        </div>
+        <div class="hw-mode-section">
+          <button class="hw-switch" id="hw-mode" aria-label="Tape dump or MIDI mode">
+            <span class="hw-switch-seg top"></span>
+            <span class="hw-switch-seg mid"></span>
+            <span class="hw-switch-seg bot"></span>
+          </button>
+          <div class="hw-mode-labels">
+            <span>tape</span>
+            <span>midi</span>
+          </div>
+        </div>
+      </div>
     </div>
-    <div id="patch-list"></div>
-  </aside>
+  </div>
 
   <!-- RIGHT PANEL -->
   <main id="right-panel">

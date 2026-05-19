@@ -5,6 +5,6 @@ contextBridge.exposeInMainWorld('api', {
   loadLibrary:  ()     => ipcRenderer.invoke('load-library'),
   saveLibrary:  (data) => ipcRenderer.invoke('save-library', data),
   loadPanelSvg: ()     => ipcRenderer.invoke('load-panel-svg'),
-  tapeSave:     (data) => ipcRenderer.invoke('tape-save', data),
-  tapeLoad:     ()     => ipcRenderer.invoke('tape-load'),
+  tapeSave:     ()     => ipcRenderer.invoke('tape-save'),
+  tapeLoad:     (data) => ipcRenderer.invoke('tape-load', data),
 });
