@@ -63,8 +63,8 @@ const KNOB_REGISTRY = [
   { gTranslate: '275,545', param: 'lfo_rate' },
   { gTranslate: '420,545', param: 'env_attack' },
   { gTranslate: '510,545', param: 'env_decay' },
-  { gTranslate: '690,545', param: 'env_sustain' },
-  { gTranslate: '600,545', param: 'env_release' },
+  { gTranslate: '600,545', param: 'env_sustain' },
+  { gTranslate: '690,545', param: 'env_release' },
 ];
 
 // Switch registry. Body rect identifies each switch; segment rects (the
@@ -91,6 +91,14 @@ const SWITCH_REGISTRY = [
 // is the next-sibling small <rect> after the body.
 // Save / Load were moved out of the SVG and are now HTML buttons below the
 // left panel; see setupHwButtons. Only Manual / Write remain SVG-driven.
+//
+//   Manual — visual-only in v1. Phase 3 (MIDI) will send a "use current panel
+//            state" message to the synth so it overrides recalled patch memory,
+//            matching the hardware PG-200 behavior. No clean v1 analog because
+//            the app already mutates patch data directly on knob drag (the app
+//            has no separate "live panel state" distinct from the selected
+//            patch).
+//   Write  — v1 wiring pending: "save current knob positions to active slot".
 const BUTTON_REGISTRY = [
   { id: 'manual', color: '#cc2222', bodySel: 'rect[x="765"][y="516"][width="58"]' },
   { id: 'write',  color: '#cc2222', bodySel: 'rect[x="843"][y="516"][width="58"]' },
