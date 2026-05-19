@@ -162,3 +162,52 @@ ipcMain.handle('tape-load', async (e, data) => {
     try { fs.unlinkSync(tempJson); } catch {}
   }
 });
+
+// seq-tape-save: SAVE on the JX-3P writes sequencer data OUT to audio. The app
+// is on the receiving side: import a sequencer-dump WAV produced by the synth
+// and decode it via `jx3p wav-to-seq-json`.
+ipcMain.handle('seq-tape-save', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Save — import sequencer dump from JX-3P',
+    properties: ['openFile'],
+    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { loaded: false };
+  const filePath = result.filePaths[0];
+  const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
+  try {
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+    return { loaded: true, data, path: filePath };
+  } catch (err) {
+    return { loaded: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(outputPath); } catch {}
+  }
+});
+
+// seq-tape-load: LOAD on the JX-3P reads sequencer data IN from audio. The app
+// is on the sending side: export a sequence as WAV via `jx3p seq-json-to-wav`.
+ipcMain.handle('seq-tape-load', async (e, data) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const dlg = await dialog.showSaveDialog(win, {
+    title: 'Load — export sequencer dump for JX-3P',
+    defaultPath: 'jp-patches-sequence.wav',
+    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+  });
+  if (dlg.canceled || !dlg.filePath) return { saved: false };
+
+  const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
+  try {
+    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${dlg.filePath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return { saved: true, path: dlg.filePath };
+  } catch (err) {
+    return { saved: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
+  }
+});

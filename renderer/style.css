@@ -484,6 +484,97 @@ body {
 }
 .modal-btn-confirm:hover { background: #233525; border-color: #5d8a62; }
 
+/* Save Sequence modal (Layout A) — wider than the default confirm dialog to
+   accommodate the RATE slider widget at a useful size. */
+.seq-save-modal {
+  max-width: 520px;
+}
+.seq-modal-captured {
+  color: var(--text-mid);
+  font-size: 12px;
+  margin-bottom: 18px;
+  padding: 8px 12px;
+  background: #0e0e0e;
+  border-left: 2px solid var(--green-sel-bdr);
+  border-radius: 2px;
+}
+.seq-modal-section {
+  margin-bottom: 16px;
+}
+.seq-modal-section label {
+  display: block;
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.seq-modal-paired {
+  color: var(--text-bright);
+  font-size: 13px;
+  padding: 7px 10px;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+}
+.seq-modal-rate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.seq-modal-rate-end {
+  color: var(--text-mid);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  min-width: 30px;
+}
+.seq-modal-rate-end:last-of-type { text-align: right; }
+.seq-modal-rate-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  outline: none;
+}
+.seq-modal-rate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 22px;
+  background: linear-gradient(180deg, #d4d4d4 0%, #8a8a8a 50%, #5a5a5a 100%);
+  border: 1px solid #1a1a1a;
+  border-radius: 2px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.seq-modal-rate-pct {
+  color: var(--text-bright);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
+}
+.seq-modal-note {
+  width: 100%;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 7px 10px;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+.seq-modal-note:focus { border-color: var(--green-sel-bdr); }
+
 .package-item {
   display: flex;
   flex-direction: column;

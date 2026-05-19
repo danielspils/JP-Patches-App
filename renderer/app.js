@@ -233,6 +233,7 @@ function ensureLibraryShape() {
   });
   if ('names' in library) delete library.names;
   if (Array.isArray(library.packages)) library.packages.forEach(migratePackageShape);
+  if (Array.isArray(library.sequences)) library.sequences.forEach(migrateSequenceShape);
 }
 
 // Old packages stored pkg.names: { slotKey: name }. Convert to pkg.slotMeta.
@@ -252,6 +253,47 @@ function migratePackageShape(pkg) {
     pkg.slotMeta[bank].length = 16;
   });
   if ('names' in pkg) delete pkg.names;
+}
+
+// Sequence entries split into `tape` (hardware-faithful, round-trips to JX)
+// and `app` (librarian-only metadata: patch note, paired patch, rate slider).
+// Legacy entries had pairedPatch at the top level + sequenceData: null; this
+// migrates them in place. Safe to call repeatedly.
+function migrateSequenceShape(seq) {
+  if (!seq || typeof seq !== 'object') return;
+  if (!seq.tape || typeof seq.tape !== 'object') {
+    seq.tape = {
+      // The JX-3P sequencer is one continuous ~128-step memory split into
+      // 8 pages × 16 steps on tape. We treat a saved library entry as one
+      // logical sequence and store all pages as the unit. Each entry in
+      // `pages` is either an array of 16 step objects or null if the page
+      // was empty. `pages` itself is null until the codec is wired.
+      pages: null,
+    };
+  } else {
+    if ('sequenceIndex' in seq.tape) delete seq.tape.sequenceIndex;
+    if ('steps'         in seq.tape) delete seq.tape.steps;
+    if (!('pages' in seq.tape)) seq.tape.pages = null;
+  }
+  if (!seq.app || typeof seq.app !== 'object') seq.app = {};
+  if (typeof seq.app.patchNote !== 'string') seq.app.patchNote = '';
+  if (!seq.app.pairedPatch || typeof seq.app.pairedPatch !== 'object') {
+    const legacyPp = seq.pairedPatch || {};
+    seq.app.pairedPatch = {
+      bank:      legacyPp.bank || null,
+      slot:      typeof legacyPp.slot === 'number' ? legacyPp.slot : null,
+      params:    legacyPp.params || null,
+      patchName: legacyPp.patchName || null,
+    };
+  }
+  if (!seq.app.rate || typeof seq.app.rate !== 'object') {
+    seq.app.rate = {
+      sliderPercent: null,  // 0..100, captured from user in Tape mode
+      bpm:           null,  // exact BPM, captured via MIDI in v2
+    };
+  }
+  if ('pairedPatch'  in seq) delete seq.pairedPatch;
+  if ('sequenceData' in seq) delete seq.sequenceData;
 }
 
 function currentPatch() {
@@ -1070,9 +1112,10 @@ function cancelPackageNameEdit(nm, inp) {
 // Library — Sequences sub-tab
 // ═══════════════════════════════════════════════════════════════
 // Same UX as Tones (select / inline-rename / drag-reorder / hover-trash)
-// but operates on library.sequences. Each sequence carries a paired-patch
-// snapshot; loading restores the paired patch. Real sequencer audio data
-// is stored in `sequenceData` (null today; awaits upstream codec).
+// but operates on library.sequences. Each entry has a `tape` block
+// (hardware-faithful sequencer data, null until the codec is wired) and an
+// `app` block (patchNote, pairedPatch, rate slider position — librarian-only
+// metadata that doesn't round-trip to the JX-3P).
 
 function renderSequencesList(list) {
   const seqs = Array.isArray(library.sequences) ? library.sequences : [];
@@ -1089,6 +1132,11 @@ function renderSequencesList(list) {
   seqs.forEach((seq, idx) => {
     const item = document.createElement('div');
     item.className = 'package-item' + (idx === selSequence ? ' selected' : '');
+    if (seq.id && seq.id === pendingSaveAnimationId) {
+      item.classList.add('just-saved');
+      pendingSaveAnimationId = null;
+      item.addEventListener('animationend', () => item.classList.remove('just-saved'), { once: true });
+    }
     item.draggable = true;
     item.dataset.idx = String(idx);
 
@@ -1239,35 +1287,185 @@ function cancelSequenceNameEdit(nm, inp) {
 }
 
 function renderSequencesActions(actions) {
-  const btn = document.createElement('button');
-  btn.className = 'save-banks-btn';
-  btn.textContent = 'load selected sequence to app';
-  btn.disabled = selSequence === null;
-  btn.addEventListener('click', handleLoadLibrarySequence);
-  actions.appendChild(btn);
+  const loadBtn = document.createElement('button');
+  loadBtn.className = 'save-banks-btn';
+  loadBtn.textContent = 'load selected sequence to app';
+  loadBtn.disabled = selSequence === null;
+  loadBtn.addEventListener('click', handleLoadLibrarySequence);
+  actions.appendChild(loadBtn);
+
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'save-banks-btn';
+  sendBtn.textContent = 'send to JX-3P';
+  sendBtn.disabled = selSequence === null;
+  sendBtn.addEventListener('click', handleSendSequenceToJX);
+  actions.appendChild(sendBtn);
 }
 
 function handleLoadLibrarySequence() {
   if (selSequence === null) return;
   const seq = library.sequences[selSequence];
   if (!seq) return;
-  const pp = seq.pairedPatch || {};
+  migrateSequenceShape(seq);
+  const pp = seq.app.pairedPatch;
   const where = (pp.bank || 'C') + ((pp.slot || 0) + 1);
   showConfirmModal({
-    title: 'Load this Sequence?',
+    title: 'Load paired patch to app?',
     body:
       `Loading this Sequence will jump to the paired patch slot (${where}) and ` +
       `apply the patch parameters captured at save time.\n\n` +
-      'Sequence audio data isn\'t yet captured by the patch tool — only the paired ' +
-      'patch is restored today.',
+      'This restores the patch in the app only. To send the sequence to your ' +
+      'JX-3P, use the "send to JX-3P" button.',
     confirmLabel: 'Load',
     onConfirm: () => loadSequenceIntoActivePatch(seq),
   });
 }
 
+function handleSendSequenceToJX() {
+  if (selSequence === null) return;
+  const seq = library.sequences[selSequence];
+  if (!seq) return;
+  migrateSequenceShape(seq);
+  if (!seq.tape || !Array.isArray(seq.tape.pages)) {
+    showConfirmModal({
+      title: 'No sequence data to send',
+      body:
+        'This library entry was saved before sequencer audio support was wired ' +
+        'and only contains the paired-patch metadata. There is nothing to send ' +
+        'to the JX-3P. Re-capture the sequence to populate the tape data.',
+      confirmLabel: 'OK',
+      onConfirm: () => {},
+    });
+    return;
+  }
+  showLoadSequenceModal({
+    seq,
+    onSend: async () => {
+      const result = await window.api.seqTapeLoad(seq.tape);
+      if (result && result.saved) {
+        console.log('Loaded (exported) sequence WAV to', result.path);
+      } else if (result && result.error) {
+        console.error('Sequencer load (export) error:', result.error);
+      }
+    },
+  });
+}
+
+function showLoadSequenceModal({ seq, onSend }) {
+  const pp = (seq.app && seq.app.pairedPatch) || {};
+  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
+  const pName = pp.patchName || '(unnamed)';
+  const note = (seq.app && seq.app.patchNote) || '';
+  const ratePct = seq.app && seq.app.rate && typeof seq.app.rate.sliderPercent === 'number'
+    ? seq.app.rate.sliderPercent
+    : null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal seq-save-modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = 'Send Sequence to JX-3P';
+
+  const intro = document.createElement('div');
+  intro.className = 'seq-modal-captured';
+  intro.textContent =
+    'You will save a WAV file. Play that WAV into the JX-3P\'s tape input ' +
+    'while the synth is in Tape Memory Load mode.';
+
+  // Paired patch reminder.
+  const ppSec = document.createElement('div');
+  ppSec.className = 'seq-modal-section';
+  const ppLabel = document.createElement('label');
+  ppLabel.textContent = 'Paired patch (select this slot on your JX-3P)';
+  const ppValue = document.createElement('div');
+  ppValue.className = 'seq-modal-paired';
+  ppValue.textContent = `${where}: ${pName}`;
+  ppSec.appendChild(ppLabel);
+  ppSec.appendChild(ppValue);
+
+  // Rate slider reminder (read-only).
+  const rateSec = document.createElement('div');
+  rateSec.className = 'seq-modal-section';
+  const rateLabel = document.createElement('label');
+  rateLabel.textContent = ratePct === null
+    ? 'RATE slider (not captured at save time)'
+    : 'Set the JX-3P RATE slider to roughly this position';
+  const rateRow = document.createElement('div');
+  rateRow.className = 'seq-modal-rate-row';
+  const slowEnd = document.createElement('span');
+  slowEnd.className = 'seq-modal-rate-end';
+  slowEnd.textContent = 'SLOW';
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = String(ratePct == null ? 50 : ratePct);
+  slider.className = 'seq-modal-rate-slider';
+  slider.disabled = true;
+  const fastEnd = document.createElement('span');
+  fastEnd.className = 'seq-modal-rate-end';
+  fastEnd.textContent = 'FAST';
+  const pctLabel = document.createElement('span');
+  pctLabel.className = 'seq-modal-rate-pct';
+  pctLabel.textContent = ratePct == null ? '—' : `${ratePct}%`;
+  rateRow.appendChild(slowEnd);
+  rateRow.appendChild(slider);
+  rateRow.appendChild(fastEnd);
+  rateRow.appendChild(pctLabel);
+  rateSec.appendChild(rateLabel);
+  rateSec.appendChild(rateRow);
+
+  // Patch note reminder (if present).
+  if (note) {
+    const noteSec = document.createElement('div');
+    noteSec.className = 'seq-modal-section';
+    const noteLabel = document.createElement('label');
+    noteLabel.textContent = 'Note';
+    const noteValue = document.createElement('div');
+    noteValue.className = 'seq-modal-paired';
+    noteValue.textContent = note;
+    noteSec.appendChild(noteLabel);
+    noteSec.appendChild(noteValue);
+    modal.appendChild(noteSec);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'modal-btn modal-btn-confirm';
+  sendBtn.textContent = 'Save WAV…';
+
+  modal.appendChild(h);
+  modal.appendChild(intro);
+  modal.appendChild(ppSec);
+  modal.appendChild(rateSec);
+  // (note section appended above if present)
+  modal.appendChild(actions);
+  actions.appendChild(cancelBtn);
+  actions.appendChild(sendBtn);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  cancelBtn.addEventListener('click', close);
+  sendBtn.addEventListener('click', () => { close(); onSend(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+}
+
 function loadSequenceIntoActivePatch(seq) {
-  const pp = seq && seq.pairedPatch;
-  if (!pp) return;
+  const pp = seq && seq.app && seq.app.pairedPatch;
+  if (!pp || !pp.bank) return;
   const bankIdx = pp.bank === 'D' ? 1 : 0;
   if (patches && Array.isArray(patches.banks) && patches.banks[bankIdx] && pp.params) {
     patches.banks[bankIdx][pp.slot] = JSON.parse(JSON.stringify(pp.params));
@@ -1610,52 +1808,199 @@ async function handleToneLoad() {
 }
 
 // ── Sequencer mode ─────────────────────────────────────────────────────
-// Bruce's `jx3p` tool decodes/encodes patch banks only — sequencer WAV
-// support isn't there. For now, "save" captures the currently active patch
-// as a library Sequence entry (the killer-feature pairing); the actual
-// sequence-audio data is left null until upstream codec support exists.
-// "Load" navigates the user to Library > Sequences to pick one.
-function handleSequencerSave() {
-  const patch = currentPatch();
-  if (!patch) {
+// Save: prompt for the sequencer-dump WAV file, decode it via the bundled
+// jx3p tool, then show the Layout A modal so the user can attach metadata
+// (paired patch, RATE slider position, optional note) before persisting to
+// library.sequences[].
+
+async function handleSequencerSave() {
+  if (!currentPatch()) {
     console.warn('No active patch to pair with a sequence entry');
     return;
   }
-  showConfirmModal({
-    title: 'Save active patch as a Sequence entry?',
-    body:
-      'Sequence audio data isn\'t yet supported by the patch tool, so this will save ' +
-      'a Sequence entry that bookmarks the currently selected patch only. Loading the ' +
-      'entry later will restore that patch.\n\n' +
-      'When sequencer codec support is added, this same entry can carry the actual ' +
-      'sequence audio alongside the paired patch.',
-    confirmLabel: 'Save Sequence',
-    onConfirm: () => saveSequenceEntry(),
+  const result = await window.api.seqTapeSave();
+  if (!result || !result.loaded) {
+    if (result && result.error) console.error('Sequencer save (import) error:', result.error);
+    return;
+  }
+  showSaveSequenceModal({
+    tapeData: result.data,
+    sourcePath: result.path,
+    onConfirm: ({ patchNote, sliderPercent }) => {
+      saveSequenceEntry({ tapeData: result.data, patchNote, sliderPercent });
+    },
   });
 }
 
-function saveSequenceEntry() {
+// Summarize the decoded tape data for the "Captured" line in the save modal.
+function summarizeSeqTape(data) {
+  const pages = (data && Array.isArray(data.pages)) ? data.pages : [];
+  let pagesWithContent = 0;
+  let activeSteps = 0;
+  pages.forEach((page) => {
+    if (!Array.isArray(page)) return;
+    pagesWithContent += 1;
+    page.forEach((step) => {
+      if (step && Array.isArray(step.voices) && step.voices.some((v) => v != null)) {
+        activeSteps += 1;
+      }
+    });
+  });
+  return { pagesWithContent, activeSteps };
+}
+
+function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
+  const bank = selBank === 'L' ? 'C' : selBank;
+  const pName = patchName(bank, selSlot);
+  const summary = summarizeSeqTape(tapeData);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal seq-save-modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = 'Save Sequence to Library';
+
+  const captured = document.createElement('div');
+  captured.className = 'seq-modal-captured';
+  captured.textContent =
+    `Captured ${summary.pagesWithContent} page${summary.pagesWithContent === 1 ? '' : 's'}` +
+    ` with content · ${summary.activeSteps} active step${summary.activeSteps === 1 ? '' : 's'}`;
+
+  // Paired patch section.
+  const ppSec = document.createElement('div');
+  ppSec.className = 'seq-modal-section';
+  const ppLabel = document.createElement('label');
+  ppLabel.textContent = 'Paired patch';
+  const ppValue = document.createElement('div');
+  ppValue.className = 'seq-modal-paired';
+  ppValue.textContent = pName
+    ? `${slotKey(bank, selSlot)}: ${pName}`
+    : `${slotKey(bank, selSlot)} (unnamed)`;
+  ppSec.appendChild(ppLabel);
+  ppSec.appendChild(ppValue);
+
+  // RATE slider section.
+  const rateSec = document.createElement('div');
+  rateSec.className = 'seq-modal-section';
+  const rateLabel = document.createElement('label');
+  rateLabel.textContent = 'RATE slider position (match the physical slider on your JX-3P)';
+  const rateRow = document.createElement('div');
+  rateRow.className = 'seq-modal-rate-row';
+  const slowEnd = document.createElement('span');
+  slowEnd.className = 'seq-modal-rate-end';
+  slowEnd.textContent = 'SLOW';
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = '50';
+  slider.className = 'seq-modal-rate-slider';
+  const fastEnd = document.createElement('span');
+  fastEnd.className = 'seq-modal-rate-end';
+  fastEnd.textContent = 'FAST';
+  const pctLabel = document.createElement('span');
+  pctLabel.className = 'seq-modal-rate-pct';
+  pctLabel.textContent = '50%';
+  slider.addEventListener('input', () => { pctLabel.textContent = `${slider.value}%`; });
+  rateRow.appendChild(slowEnd);
+  rateRow.appendChild(slider);
+  rateRow.appendChild(fastEnd);
+  rateRow.appendChild(pctLabel);
+  rateSec.appendChild(rateLabel);
+  rateSec.appendChild(rateRow);
+
+  // Patch note section.
+  const noteSec = document.createElement('div');
+  noteSec.className = 'seq-modal-section';
+  const noteLabel = document.createElement('label');
+  noteLabel.textContent = 'Note (optional)';
+  const noteInput = document.createElement('textarea');
+  noteInput.className = 'seq-modal-note';
+  noteInput.rows = 2;
+  noteInput.maxLength = 200;
+  noteInput.placeholder = 'e.g. Try with chorus on, light reverb';
+  noteSec.appendChild(noteLabel);
+  noteSec.appendChild(noteInput);
+
+  // Actions.
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'modal-btn modal-btn-confirm';
+  saveBtn.textContent = 'Save Sequence';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(captured);
+  modal.appendChild(ppSec);
+  modal.appendChild(rateSec);
+  modal.appendChild(noteSec);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  cancelBtn.addEventListener('click', close);
+  saveBtn.addEventListener('click', () => {
+    onConfirm({
+      patchNote: noteInput.value.trim(),
+      sliderPercent: parseInt(slider.value, 10),
+    });
+    close();
+  });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+
+  // Focus the note input so the user can start typing immediately.
+  setTimeout(() => noteInput.focus(), 0);
+}
+
+function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = null } = {}) {
   if (!library) return;
   const now = new Date();
+  const bank = selBank === 'L' ? 'C' : selBank;
   const entry = {
     id: now.toISOString(),
     defaultName: sequenceDefaultName(now),
     customName: '',
     savedAt: now.toISOString(),
-    pairedPatch: {
-      bank: selBank === 'L' ? 'C' : selBank,
-      slot: selSlot,
-      params: JSON.parse(JSON.stringify(currentPatch() || {})),
+    tape: {
+      pages: tapeData && Array.isArray(tapeData.pages) ? tapeData.pages : null,
     },
-    sequenceData: null,
+    app: {
+      patchNote: patchNote || '',
+      pairedPatch: {
+        bank,
+        slot:      selSlot,
+        params:    JSON.parse(JSON.stringify(currentPatch() || {})),
+        patchName: patchName(bank, selSlot),
+      },
+      rate: {
+        sliderPercent: typeof sliderPercent === 'number' ? sliderPercent : null,
+        bpm:           null,
+      },
+    },
   };
   if (!Array.isArray(library.sequences)) library.sequences = [];
   library.sequences.unshift(entry);
+  pendingSaveAnimationId = entry.id;
+  selLibTab = 'sequences';
   saveLibraryDebounced();
 
-  // Navigate to Library tab. Sub-tab handling lands when the Library
-  // Tones/Sequences UI is built; for now the sequence is persisted and the
-  // user lands on the Library list.
+  // Navigate to Library > Sequences so the new entry is visible and animates in.
   selBank = 'L';
   selSlot = 0;
   document.querySelectorAll('.tab').forEach((t) => {

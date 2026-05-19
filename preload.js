@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld('api', {
   loadPanelSvg: ()     => ipcRenderer.invoke('load-panel-svg'),
   tapeSave:     ()     => ipcRenderer.invoke('tape-save'),
   tapeLoad:     (data) => ipcRenderer.invoke('tape-load', data),
+  seqTapeSave:  ()     => ipcRenderer.invoke('seq-tape-save'),
+  seqTapeLoad:  (data) => ipcRenderer.invoke('seq-tape-load', data),
 });
