@@ -397,9 +397,11 @@ function findSvgPatchNameEl(svgEl) {
 
 function updateSvgPatchName() {
   if (!svgPatchNameEl) return;
-  // Two-tone readout: slot prefix (cream) + patch name (black). The <text>
-  // element holds two <tspan> children with different fills; we update each
-  // span separately to preserve the color split.
+  // Two-tone readout, independent of bank:
+  //   - Slot prefix (C2: / D7: / …) in light warm gray  #8a7f70
+  //   - Patch name                            in antique white #f7f1e6
+  // Colors are set on each <tspan> in the SVG; the JS just updates the
+  // text content here.
   const prefixSpan = svgPatchNameEl.querySelector('.patch-readout-prefix');
   const nameSpan   = svgPatchNameEl.querySelector('.patch-readout-name');
   const prefix = `${slotKey(selBank, selSlot)}: `;

@@ -763,6 +763,7 @@ body {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 14px;
+  text-align: center;
 }
 .modal-body {
   color: var(--text-mid);
@@ -776,9 +777,8 @@ body {
   justify-content: flex-end;
 }
 /* Compact mode: when the modal has only a title + actions (no body), shrink
-   the width and center both the title and the buttons. */
+   the width and center the buttons. (Title is centered for all modals.) */
 .modal:has(.modal-title + .modal-actions) { max-width: 320px; }
-.modal:has(.modal-title + .modal-actions) .modal-title { text-align: center; }
 .modal-title + .modal-actions { justify-content: center; }
 .modal-btn {
   padding: 7px 16px;

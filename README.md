@@ -18,7 +18,26 @@ Free, open-source macOS librarian app for the Roland JX-3P synthesizer.
 
 Once a release is published you can grab the latest **JP Patches.dmg** from the [Releases page](https://github.com/danielspils/JP-Patches-App/releases), drag the app to Applications, and launch. The `.dmg` bundles Bruce's `jx3p` tool and the `uv` Python runner, so there's nothing else to install — the first WAV import will take ~10–30s while `uv` fetches a Python interpreter into its local cache; subsequent runs are instant.
 
-> **Unsigned builds** (until I set up notarization): macOS will block first launch. Right-click the app in Applications → **Open** → confirm. After that, it launches normally.
+### First-launch on macOS — "damaged" dialog
+
+The GitHub builds are not signed with an Apple Developer ID yet. When you first try to open JP Patches you'll see a dialog saying *"JP Patches is damaged and can't be opened."* The app isn't damaged — macOS Gatekeeper blocks unsigned downloads by default. Pick whichever of these works for you:
+
+**Option 1 — System Settings (recommended, easiest)**
+1. Double-click JP Patches in Applications. The "damaged" dialog appears. Click **Cancel**.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll down to the **Security** section. You should see a line saying *"JP Patches was blocked to protect your Mac"* with an **Open Anyway** button.
+4. Click **Open Anyway**, confirm with Touch ID or your password.
+5. JP Patches launches. After this first time, it opens normally.
+
+**Option 2 — Terminal (one command)**
+
+Open **Terminal.app** (Spotlight → "Terminal") and paste:
+```
+xattr -dr com.apple.quarantine "/Applications/JP Patches.app"
+```
+Then double-click JP Patches normally. This removes the quarantine flag macOS adds to files downloaded via a browser.
+
+The old right-click → Open trick no longer works on macOS Ventura (13) and later — Apple removed that loophole. The two options above are the current paths for any unsigned macOS app from GitHub.
 
 ## Run from source
 
@@ -62,15 +81,15 @@ The Library tab is your in-app cold storage. Two sub-tabs:
 
 Click the panel's **Write** button to enter "save-as" mode: a sticky banner appears at the top of the patch list (*Click a slot to write current patch — Esc to cancel*). Click any C/D slot and confirm in the modal to clone the currently shown patch into that slot. App-side only — doesn't touch the real JX-3P's stored memory. To get the edited bank onto the synth, follow up with **Tape Memory → Tone → Load (to JX-3P)**.
 
-## Custom bank builder (planned)
+## Custom bank builder
 
-Real-world workflow: once you've collected a handful of different C/D snapshots in the Library, you'll want to **cherry-pick patches across them** to build a new custom 32-patch collection — say, a setlist for a gig.
+Once you've collected a handful of C/D snapshots in the Library, you'll often want to **cherry-pick patches across them** into a new custom 32-patch collection — a setlist for a gig, your favorite 32 leads, etc.
 
-The plan is a two-stage rollout:
+Click **Create Custom Banks** below the PG-200 panel to open a staging area: a 4×8 slot grid (C on the left in green, D on the right in blue) sitting under a red header strip. Drag any patch from the active C or D bank list into any slot. Slots stay across navigation and across app restarts, so you can browse multiple library packages, pulling favorites in as you go.
 
-- **Stage 1 — Per-patch clipboard.** A small *copy* icon on each bank slot puts that patch onto a single-patch clipboard that persists across navigation. A matching *paste here* affordance on any slot drops the clipboard's patch in. Load Package A → copy a few patches → load Package B → paste them at chosen target slots → *save C/D banks to library* gives you the new mixed bank. Minimal new UI; composes naturally with the existing reorder + cross-bank swap.
-
-- **Stage 2 — Build-a-Bank modal.** If the per-patch clipboard turns out too slow for assembling whole 32-slot collections, a dedicated modal with a source-package dropdown and a 32-slot target grid lands. Drag patches from the source list into target slots, name the bank inline, save.
+- **SAVE TO LIBRARY** — commits the staged buckets as a new Library Tones snapshot. Empty slots are padded with a silent default patch. The builder closes and the new snapshot becomes the active C/D banks.
+- **CLEAR** — wipes both staged buckets. Immediately after clearing the button becomes **UNDO** for a one-shot restore; dropping any new patch voids the undo.
+- **×** — closes the staging area without clearing. Reopen it and your staged patches are still there.
 
 ## Roadmap
 
