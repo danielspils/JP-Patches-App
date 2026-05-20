@@ -9,7 +9,7 @@
   --bg-left:       #050505;
   --bg-right:      #1f1f1f;
   --border-dim:    #3a3a3a;
-  --text-bright:   #e0e0e0;
+  --text-bright:   #e8e2d3;
   --text-mid:      #999;
   --text-dim:      #666;
   --text-faint:    #444;
@@ -77,7 +77,7 @@ body {
    reliable than background-image on a <select>). Default = Tape Memory. */
 .hw-tape-header-wrap {
   position: relative;
-  background: #ebe3d2;
+  background: #f7f1e6;
   /* Span the same horizontal range as the four Save/Load buttons below.
      At the locked 370px left-column width: each .hw-section is 169px wide,
      the 104px buttons block is centered → 20.5px gutter inside each 12px
@@ -135,12 +135,12 @@ body {
   padding: 0 12px;
 }
 .hw-section + .hw-section {
-  border-left: 1px solid #ffffff;
+  border-left: 1px solid #f7f1e6;
 }
 
 .hw-section-header {
   background: transparent;
-  color: #ffffff;
+  color: #f7f1e6;
   font-size: 14px;
   font-weight: 500;
   padding: 0;
@@ -167,7 +167,7 @@ body {
 }
 
 .hw-label {
-  color: #fff;
+  color: #f7f1e6;
   font-size: 10px;
   font-weight: 500;
 }
@@ -231,18 +231,19 @@ body {
 .tab {
   flex: 1;
   padding: 9px 4px 8px;
-  background: none;
+  background: #f7f1e6;
+  color: #8a7f70;  /* dimmed warm gray — reads as inactive against the cream bg */
   border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
+  border-right: 1px solid #1a1a1a;
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
   -webkit-app-region: no-drag;
   transition: color 0.15s, background 0.15s;
 }
-.tab:hover  { color: var(--text-mid); }
-.tab.active { color: var(--text-bright); background: #233525; }
+.tab:last-child { border-right: none; }
+.tab:not(.active):hover { background: #ece5d6; color: #5e5447; }
+.tab.active { color: #f7f1e6; background: #b94a2e; }
 
 #lib-sub-tabs {
   display: flex;
@@ -255,22 +256,23 @@ body {
 .lib-sub-tab {
   flex: 1;
   padding: 6px 4px;
-  background: none;
+  background: #f7f1e6;
+  color: #8a7f70;  /* dimmed warm gray — matches the top-tab inactive treatment */
   border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
+  border-right: 1px solid #1a1a1a;
   cursor: pointer;
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
   transition: color 0.15s, background 0.15s;
 }
-.lib-sub-tab:hover  { color: var(--text-mid); }
-.lib-sub-tab.active {
-  color: var(--text-bright);
-  background: #1a1a1a;
-  border-bottom-color: var(--green-sel-bdr);
-}
+.lib-sub-tab:last-child { border-right: none; }
+.lib-sub-tab:not(.active):hover { background: #ece5d6; color: #5e5447; }
+/* Active sub-tab lights up with its bank color: Tones in Roland green,
+   Sequences in Roland blue. Inactive sub-tabs fall back to cream. */
+.lib-sub-tab.active                              { color: #f7f1e6; }
+.lib-sub-tab.active[data-libtab="tones"]         { background: #1f6e5b; }
+.lib-sub-tab.active[data-libtab="sequences"]     { background: #33508f; }
 
 #patch-list {
   flex: 1;
@@ -293,7 +295,7 @@ body {
    header). Used for the "Create Custom Banks" toggle, the in-header Save
    keys, and the X close key. */
 .jx3p-key {
-  background: #ebe3d2;
+  background: #f7f1e6;
   color: #000000;
   border: none;
   border-radius: 0;
@@ -305,8 +307,8 @@ body {
   letter-spacing: 0.02em;
   transition: background 0.12s;
 }
-.jx3p-key:hover  { background: #ddd2bc; }
-.jx3p-key:active { background: #cfc2a8; }
+.jx3p-key:hover  { background: #ece5d6; }
+.jx3p-key:active { background: #ded6c2; }
 .jx3p-key:disabled {
   background: #b8b8b8;
   color: #555;
@@ -386,7 +388,7 @@ body {
 }
 .cb-hint {
   flex: 1;
-  color: #ffffff;
+  color: #f7f1e6;
   font-family: inherit;
   font-size: 13px;
   font-weight: 400;
@@ -404,7 +406,7 @@ body {
   line-height: 1;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #ffffff;
+  color: #f7f1e6;
   cursor: pointer;
   flex-shrink: 0;
   align-self: stretch;
@@ -457,7 +459,7 @@ body {
   height: 100%;
   animation: cb-actions-appear 260ms ease-out;
 }
-.cb-bucket.drop-active { box-shadow: inset 0 0 0 1px #ffffff; }
+.cb-bucket.drop-active { box-shadow: inset 0 0 0 1px #f7f1e6; }
 
 /* 16 slot rows as 2 columns × 8 rows, column-major flow so the left column
    reads C1..C8 (or D1..D8) and the right column reads C9..C16 (or D9..D16). */
@@ -476,7 +478,7 @@ body {
   min-height: 22px;
   padding: 0 8px 2px;
   font-size: 12px;
-  color: #ffffff;
+  color: #f7f1e6;
   white-space: nowrap;
   overflow: hidden;
   position: relative;
@@ -484,7 +486,7 @@ body {
   min-width: 0;
 }
 .cb-slot-prefix {
-  color: #ffffff;
+  color: #f7f1e6;
   flex-shrink: 0;
   margin-right: 4px;
   /* Reserve enough width for the widest 4-character variant ("C16:" / "D16:")
@@ -511,9 +513,9 @@ body {
   flex: 1;
   min-width: 0;
   background: #1a1a1a;
-  border: 1px solid #ffffff;
+  border: 1px solid #f7f1e6;
   border-radius: 2px;
-  color: #ffffff;
+  color: #f7f1e6;
   font-size: 12px;
   font-family: inherit;
   padding: 0 4px;
@@ -531,7 +533,7 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  color: #ffffff;
+  color: #f7f1e6;
   border-radius: 3px;
   cursor: pointer;
 }
@@ -570,7 +572,7 @@ body {
   padding: 4px 10px;
   font-size: 13px;
   line-height: 1.2;
-  color: #ffffff;
+  color: #f7f1e6;
   background: rgba(20, 20, 20, 0.92);
   border: 1px solid #444;
   border-radius: 3px;
@@ -673,10 +675,13 @@ body {
    that slides toward the other bank's tab while the replacement row slides in
    from the same direction. The two cross paths visibly in the middle.
    --swap-dir is set in JS: +1 (C→D, rightward) or -1 (D→C, leftward). */
-.patch-item.swap-out {
+/* Only the name span animates during a C↔D swap; the slot prefix
+   (C7:/D7:) stays put so it's clear the SLOT is the anchor and the
+   PATCHES are what cross over. */
+.patch-name-span.swap-out {
   animation: patch-swap-out 0.7s ease-in forwards;
 }
-.patch-item.swap-in {
+.patch-name-span.swap-in {
   animation: patch-swap-in 0.75s ease-out;
 }
 @keyframes patch-swap-out {
@@ -712,27 +717,26 @@ body {
 .save-banks-btn {
   display: block;
   margin: 4px 12px;
-  padding: 4px 12px;
+  padding: 6px 12px;
   width: calc(100% - 24px);
-  background: #1a2a1c;
-  border: 1px solid var(--green-sel-bdr);
-  border-radius: 3px;
-  color: var(--text-bright);
+  background: #f7f1e6;
+  border: none;
+  border-radius: 0;
+  color: #1a1a1a;
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
   text-align: center;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s;
 }
-.save-banks-btn:hover  { background: #233525; border-color: #5d8a62; }
-.save-banks-btn:active { background: #2c4530; }
+.save-banks-btn:hover  { background: #ece5d6; }
+.save-banks-btn:active { background: #ddd2bc; }
 .save-banks-btn:disabled,
 .save-banks-btn:disabled:hover {
-  background: #181818;
-  border-color: var(--border-dim);
-  color: var(--text-dim);
+  background: #c8c4ba;
+  color: #8a7f70;
   cursor: not-allowed;
 }
 

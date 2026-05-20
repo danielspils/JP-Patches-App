@@ -397,14 +397,23 @@ function findSvgPatchNameEl(svgEl) {
 
 function updateSvgPatchName() {
   if (!svgPatchNameEl) return;
-  svgPatchNameEl.textContent = displayLabel(selBank, selSlot);
-  // Truncate with an ellipsis if the rendered text would extend past the
-  // red parallelogram's slanted right edge at the text baseline (y=116).
+  // Two-tone readout: slot prefix (cream) + patch name (black). The <text>
+  // element holds two <tspan> children with different fills; we update each
+  // span separately to preserve the color split.
+  const prefixSpan = svgPatchNameEl.querySelector('.patch-readout-prefix');
+  const nameSpan   = svgPatchNameEl.querySelector('.patch-readout-name');
+  const prefix = `${slotKey(selBank, selSlot)}: `;
+  const name   = patchName(selBank, selSlot) || patchPlaceholder(selBank, selSlot);
+  if (prefixSpan) prefixSpan.textContent = prefix;
+  if (nameSpan)   nameSpan  .textContent = name;
+  // Truncate the NAME portion (never the prefix) with an ellipsis if the
+  // rendered text would extend past the red parallelogram's slanted right
+  // edge at the text baseline.
   const MAX_WIDTH = 195;
   if (typeof svgPatchNameEl.getComputedTextLength !== 'function') return;
   while (svgPatchNameEl.getComputedTextLength() > MAX_WIDTH &&
-         svgPatchNameEl.textContent.length > 4) {
-    svgPatchNameEl.textContent = svgPatchNameEl.textContent.slice(0, -2) + '…';
+         nameSpan && nameSpan.textContent.length > 4) {
+    nameSpan.textContent = nameSpan.textContent.slice(0, -2) + '…';
   }
 }
 
@@ -1759,11 +1768,18 @@ function swapAcrossBanks(slot) {
   }
   const dir = selBank === 'C' ? 1 : -1;
 
-  // Snapshot the outgoing row's position before we mutate state.
-  const rect     = row.getBoundingClientRect();
+  // Snapshot the outgoing NAME span only — the slot prefix (C7: / D7:)
+  // represents the slot, not the patch, so it stays put while the patch
+  // names cross-fade past each other.
+  const outgoingName = row.querySelector('.patch-name-span');
+  if (!outgoingName) {
+    performSwap(slot);
+    return;
+  }
+  const rect     = outgoingName.getBoundingClientRect();
   const listRect = list.getBoundingClientRect();
-  const ghost = row.cloneNode(true);
-  ghost.classList.remove('selected', 'dragging', 'drag-over', 'swap-in');
+  const ghost = outgoingName.cloneNode(true);
+  ghost.classList.remove('swap-in');
   ghost.style.position      = 'absolute';
   ghost.style.top           = `${rect.top - listRect.top + list.scrollTop}px`;
   ghost.style.left          = `${rect.left - listRect.left + list.scrollLeft}px`;
@@ -1777,15 +1793,17 @@ function swapAcrossBanks(slot) {
   performSwap(slot);
 
   // After re-render the new row carries the incoming patch. Float the ghost
-  // over the list and animate the two in opposite directions so they cross.
+  // over the list and animate just the names — the slot prefix on either
+  // row never moves.
   list.appendChild(ghost);
-  const newRow = list.querySelector(`.patch-item[data-slot="${slot}"]`);
-  if (newRow) {
-    newRow.style.setProperty('--swap-dir', String(dir));
-    newRow.classList.add('swap-in');
-    newRow.addEventListener('animationend', () => {
-      newRow.classList.remove('swap-in');
-      newRow.style.removeProperty('--swap-dir');
+  const newRow  = list.querySelector(`.patch-item[data-slot="${slot}"]`);
+  const newName = newRow && newRow.querySelector('.patch-name-span');
+  if (newName) {
+    newName.style.setProperty('--swap-dir', String(dir));
+    newName.classList.add('swap-in');
+    newName.addEventListener('animationend', () => {
+      newName.classList.remove('swap-in');
+      newName.style.removeProperty('--swap-dir');
     }, { once: true });
   }
   // Force a reflow so the starting state is committed before adding swap-out.
