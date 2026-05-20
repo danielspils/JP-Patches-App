@@ -1119,12 +1119,14 @@ function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }
   h.className = 'modal-title';
   h.textContent = title;
 
-  const p = document.createElement('p');
-  p.className = 'modal-body';
-  body.split('\n').forEach((line, i) => {
-    if (i > 0) p.appendChild(document.createElement('br'));
-    p.appendChild(document.createTextNode(line));
-  });
+  const p = body ? document.createElement('p') : null;
+  if (p) {
+    p.className = 'modal-body';
+    body.split('\n').forEach((line, i) => {
+      if (i > 0) p.appendChild(document.createElement('br'));
+      p.appendChild(document.createTextNode(line));
+    });
+  }
 
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
@@ -1141,7 +1143,7 @@ function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }
   actions.appendChild(cancelBtn);
   actions.appendChild(confirmBtn);
   modal.appendChild(h);
-  modal.appendChild(p);
+  if (p) modal.appendChild(p);
   modal.appendChild(actions);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
@@ -1189,7 +1191,6 @@ function handleDeletePackage(idx) {
   if (!pkg) return;
   showConfirmModal({
     title: 'Delete this C/D bank package?',
-    body: 'Are you sure you want to delete this C/D bank? It can not be undone.',
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
@@ -1368,7 +1369,6 @@ function handleDeleteSequence(idx) {
   if (!seq) return;
   showConfirmModal({
     title: 'Delete this Sequence?',
-    body: 'Are you sure you want to delete this Sequence? It can not be undone.',
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
