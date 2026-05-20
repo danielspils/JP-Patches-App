@@ -74,7 +74,13 @@ function createWindow() {
     height: 710,
     minWidth: 1140,
     minHeight: 710,
+    // Drag-to-resize stays disabled — the locked SVG panel artwork was
+    // sized for 1140×710 — but the green ⛶ traffic-light button can
+    // now toggle macOS fullscreen so the app fills the user's display
+    // on larger monitors. Cmd+Ctrl+F also works.
     resizable: false,
+    fullscreenable: true,
+    maximizable: false,
     backgroundColor: '#0a0a0a',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
