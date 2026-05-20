@@ -78,6 +78,13 @@ body {
 .hw-tape-header-wrap {
   position: relative;
   background: #ffffff;
+  /* Span the same horizontal range as the four Save/Load buttons below.
+     At the locked 370px left-column width: each .hw-section is 169px wide,
+     the 104px buttons block is centered → 20.5px gutter inside each 12px
+     section pad. Outer buttons sit 32.5px in from #hw-tape's content edge,
+     so a 273px-wide, center-aligned dropdown ends flush with them. */
+  align-self: center;
+  width: 273px;
 }
 .hw-tape-header-wrap::after {
   content: '';
@@ -209,7 +216,7 @@ body {
   pointer-events: none;
 }
 
-.hw-btn.save.pressed::before { background: #cc2222; }
+.hw-btn.save.pressed::before { background: #b94a2e; }
 .hw-btn.load.pressed::before { background: #44aa44; }
 
 #tabs {
@@ -305,17 +312,6 @@ body {
   color: #555;
   cursor: not-allowed;
 }
-/* Compact X close key — fits inside the bucket header without expanding it. */
-.jx3p-key-x {
-  padding: 0;
-  width: 22px;
-  height: 18px;
-  font-size: 14px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 
 /* Builder area: always reserved below the PG-200 panel. Two visual states:
    closed (centered toggle key over an empty backdrop) and open (two 8×2
@@ -332,64 +328,139 @@ body {
 }
 
 /* Closed state — show only the centered toggle key. */
-#custom-builder #custom-builder-abort,
-#custom-builder #custom-builder-save,
+#custom-builder #cb-actions,
 #custom-builder .cb-bucket { display: none; }
 
-/* Open state — toggle hidden; buckets fill the full builder area. Per-bucket
-   Save lives in each bucket's header (replacing the "drag patches below" hint
-   once that bucket has content); the X close button lives in the D bucket's
-   header at the rightmost edge. */
+/* Open state — one shared action row above a 4×8 slot grid (C bank as
+   cols 1-2, D bank as cols 3-4). JX-3P section-header red background
+   ties the staging area visually to the synth's panel.
+
+   The negative top margin overlaps the panel SVG's bottom 24px red strip
+   (rendered at ~18px on the fixed 1140px window after width-scaling),
+   so the action bar shares vertical space with the panel's strip instead
+   of stacking below it. Border-top is nulled so no dark seam shows. */
 #custom-builder.open {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 12px 18px;
-  align-items: stretch;
-  justify-items: stretch;
+  grid-template-rows: 1fr;
+  gap: 0;
+  padding: 0;
+  border-top-color: transparent;
 }
 #custom-builder.open #custom-builder-toggle { display: none; }
+#custom-builder.open #cb-actions { display: flex; }
 #custom-builder.open .cb-bucket { display: flex; }
 
-.cb-bucket {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: #1a1a1a;
-  border: 1px solid var(--border-dim);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.cb-bucket.drop-active {
-  border-color: var(--green-sel-bdr);
-  box-shadow: inset 0 0 0 1px var(--green-sel-bdr);
+/* Shared action bar — absolutely positioned so its bottom edge is flush with
+   #custom-builder's top, which sits at #panel-host's bottom. That puts the
+   bar exactly where the SVG's bottom red strip is rendered, so the strip
+   itself acts as the bar's background (the bar is transparent). This avoids
+   any negative-margin/overlap math and is robust to flex/grid layout drift.
+
+   Height matches the strip's on-screen height (24 native × right-panel-width
+   / 1050). #custom-builder has position: relative, so absolute positioning
+   anchors here. */
+#cb-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  align-items: center;
+  padding: 0 12px;
+  min-height: calc(24px * (100vw - 370px) / 1050);
+  height:     calc(24px * (100vw - 370px) / 1050);
+  line-height: 1;
+  background: transparent;
 }
 
-.cb-bucket-header {
+/* Subtle fade-in of the action-bar content (text, vertical dividers, black
+   bottom border) when the user opens the Custom Banks builder. The panel
+   SVG's red strip stays put underneath — no positional shift — and the
+   header materializes onto it. */
+@keyframes cb-actions-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+#custom-builder.open #cb-actions {
+  animation: cb-actions-appear 260ms ease-out;
+}
+.cb-hint {
+  flex: 1;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.cb-action {
+  background: none;
+  border: none;
+  border-left: 2px solid #1a1a1a;
+  padding: 0 14px;
+  margin: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: stretch;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: #232323;
-  border-bottom: 1px solid var(--border-dim);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  justify-content: center;
 }
-.cb-bucket-title { color: var(--text-mid); }
-.cb-bucket-counter {
-  color: var(--text-mid);
-  font-variant-numeric: tabular-nums;
-  transition: color 0.18s;
+/* Pin the CLEAR/UNDO button to a fixed width so swapping its label between
+   "CLEAR" (5 chars) and "UNDO" (4 chars) doesn't reflow neighbouring keys. */
+#custom-builder-clear { min-width: 76px; }
+.cb-action:disabled {
+  color: rgba(255, 255, 255, 0.4);
+  cursor: not-allowed;
 }
-.cb-bucket.full .cb-bucket-counter,
-.cb-bucket.full .cb-bucket-title { color: var(--text-bright); }
+.cb-action:not(:disabled):hover { text-decoration: underline; }
+.cb-action-close {
+  padding-right: 0;
+  font-size: 18px;
+  font-weight: 400;
+  /* The × glyph at 18px sits lower than the 13px SAVE/CLEAR text when both
+     line-boxes are centered, because its larger line-box's baseline lands
+     further down the bar. Lift it 2px to match. */
+  transform: translateY(-2px);
+}
+.cb-action-close:not(:disabled):hover { text-decoration: none; color: #ffdada; }
 
-/* 16 slot rows displayed as 2 columns × 8 rows. Column-major flow so the
-   left column reads C1..C8 and the right column reads C9..C16. Rows stretch
-   to fill the bucket's vertical space, giving each slot more breathing room
-   now that the bottom Save row is gone. */
+/* Buckets are flat panes on the red background — no borders, no internal
+   padding, no rounded corners. The black 1px column divider between C16
+   and D1 lives on the D bucket's left edge. */
+.cb-bucket {
+  flex-direction: column;
+  min-width: 0;
+}
+/* Per-bank colors mirror the original JX-3P panel: A=green, B=blue, C/D=red.
+   Here C maps to Roland green and D to Roland blue (one bank each — distinct
+   visual identity, while the action header above stays red). */
+.cb-bucket[data-bank="C"] { background: #1f6e5b; }
+.cb-bucket[data-bank="D"] { background: #33508f; }
+/* The 2px black divider between the red header and the colored slot grid
+   lives on the buckets (not the action bar) so the red strip stays at its
+   full 24px native height, uncovered. */
+.cb-bucket { border-top: 2px solid #1a1a1a; }
+/* Force each bucket to fill its grid cell — without this, a stray strip of
+   parent background (or, when overlap math is slightly off, the panel SVG's
+   hidden bottom strip) can peek through between the action bar's black border
+   and the colored slot grid. */
+#custom-builder.open .cb-bucket {
+  grid-row: 1;
+  align-self: stretch;
+  height: 100%;
+  animation: cb-actions-appear 260ms ease-out;
+}
+.cb-bucket.drop-active { box-shadow: inset 0 0 0 1px #ffffff; }
+
+/* 16 slot rows as 2 columns × 8 rows, column-major flow so the left column
+   reads C1..C8 (or D1..D8) and the right column reads C9..C16 (or D9..D16). */
 .cb-bucket-list {
   position: relative;
   flex: 1;
@@ -401,46 +472,48 @@ body {
 }
 .cb-slot {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   min-height: 22px;
-  padding: 0 8px;
+  padding: 0 8px 2px;
   font-size: 12px;
-  border-bottom: 1px solid #2a2a2a;
-  color: var(--text-bright);
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   position: relative;
   cursor: default;
   min-width: 0;
 }
-/* Subtle vertical divider between the left and right columns of slots. */
-.cb-bucket-list > .cb-slot:nth-child(9) ~ .cb-slot,
-.cb-bucket-list > .cb-slot:nth-child(9) { border-left: 1px solid #2a2a2a; }
 .cb-slot-prefix {
-  color: var(--text-mid);
+  color: #ffffff;
   flex-shrink: 0;
   margin-right: 4px;
+  /* Reserve enough width for the widest 4-character variant ("C16:" / "D16:")
+     so all 32 underlines begin at the same x within their column. Without
+     this, C9/D9 (3 chars) shift their underline ~7px left of C10–C16. */
+  min-width: 28px;
   font-variant-numeric: tabular-nums;
 }
-.cb-slot.filled .cb-slot-prefix { color: var(--text-bright); }
+/* Per-slot underline marks where the dropped patch name will appear.
+   Because the line lives on the name span (not the row), it starts AFTER
+   the prefix and ends at the slot's right edge — yielding 32 distinct
+   underlines instead of continuous horizontal rules across the grid. */
 .cb-slot-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
 }
-.cb-slot:last-child { border-bottom: none; }
-.cb-slot.empty { color: transparent; }     /* keeps the row reserving space */
 .cb-slot.filled { cursor: pointer; }
-.cb-slot.drag-over { background: rgba(60, 110, 70, 0.18); }
+.cb-slot.drag-over { background: rgba(255, 255, 255, 0.18); }
 .cb-slot.dragging { opacity: 0.4; }
 .cb-slot-name-edit {
   flex: 1;
   min-width: 0;
-  background: #1d2c1d;
-  border: 1px solid var(--green-sel-bdr);
+  background: #1a1a1a;
+  border: 1px solid #ffffff;
   border-radius: 2px;
-  color: var(--text-bright);
+  color: #ffffff;
   font-size: 12px;
   font-family: inherit;
   padding: 0 4px;
@@ -458,76 +531,12 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  color: var(--text-mid);
+  color: #ffffff;
   border-radius: 3px;
   cursor: pointer;
 }
 .cb-slot.filled:hover .cb-slot-trash { display: flex; }
-.cb-slot-trash:hover { color: #e07070; background: rgba(224, 112, 112, 0.12); }
-
-/* Italic hint in the middle of each bucket header. Hides per-bucket once
-   THAT bucket is full (16/16) — independent of the other bucket. */
-.cb-bucket-hint {
-  flex: 1;
-  text-align: center;
-  color: var(--text-mid);
-  font-style: italic;
-  font-weight: 300;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 11px;
-}
-.cb-bucket.full .cb-bucket-hint { visibility: hidden; }
-
-/* In-header Save key — lives ONLY in the D bucket header. Replaces D's
-   counter (16/16) when BOTH buckets are full. Plain text styled to match
-   the counter (same uppercase / weight / size / letter-spacing) but in
-   bright white to signal "this is the final commit". No box, no border. */
-.cb-bucket-save {
-  display: none;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #ffffff;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.cb-bucket-save:hover  { text-decoration: underline; }
-.cb-bucket-save:focus  { outline: none; text-decoration: underline; }
-#custom-builder.both-full .cb-bucket[data-bank="D"] .cb-bucket-counter { display: none; }
-#custom-builder.both-full .cb-bucket[data-bank="D"] .cb-bucket-save    { display: inline-block; }
-
-/* X close key — lives in the D bucket header at the rightmost edge. */
-#custom-builder-abort {
-  margin-left: 8px;
-}
-
-#custom-builder-save {
-  align-self: end;
-  background: #1a2a1c;
-  border: 1px solid var(--green-sel-bdr);
-  border-radius: 3px;
-  color: var(--text-bright);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 7px 16px;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-#custom-builder-save:hover { background: #233525; border-color: #5d8a62; }
-#custom-builder-save:disabled {
-  background: #1a1a1a;
-  border-color: var(--border-dim);
-  color: #444;
-  cursor: not-allowed;
-}
+.cb-slot-trash:hover { background: rgba(0, 0, 0, 0.25); }
 
 #bottom-actions {
   flex-shrink: 0;
@@ -547,6 +556,26 @@ body {
   gap: 6px;
   font-size: 13px;
   line-height: 1.2;
+}
+
+/* Drag image used when a patch row is being dragged into the Custom Banks
+   builder. Shows only the slot label + name, omitting the info / swap /
+   rename-pencil affordances that hang off the row in the patch list.
+   Positioned off-screen so it isn't visible at rest — the browser snapshots
+   it synchronously on dragstart and then it's removed. */
+.patch-drag-ghost {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #ffffff;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid #444;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .patch-item:hover    { background: #1c1c1c; }
 .patch-item.selected { background: var(--green-sel-bg); }
@@ -976,7 +1005,14 @@ body {
 }
 
 #panel-host {
-  flex: 1;
+  /* Pin to the SVG's exact rendered height (1050×620 viewBox scaled to fit
+     right-panel width). Without this, flex:1 leaves a small gap of empty
+     space below the SVG inside panel-host, which pushes #custom-builder
+     down so its negative-margin lift only partially overlaps the bottom
+     red strip — and the action bar's text/dividers end up below the
+     strip rather than on it. */
+  flex: 0 0 auto;
+  height: calc((100vw - 370px) * 620 / 1050);
   min-width: 0;
   overflow: visible;
 }

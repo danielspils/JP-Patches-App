@@ -1,7 +1,7 @@
 <svg viewBox="0 0 1050 620" width="1050" preserveAspectRatio="xMidYMin meet" xmlns="http://www.w3.org/2000/svg" style="font-family:Helvetica,'Helvetica Neue',sans-serif;">
 
   <!-- RED HEADER -->
-  <rect x="0" y="0" width="1050" height="24" fill="#cc2222"/>
+  <rect x="0" y="0" width="1050" height="24" fill="#b94a2e"/>
   <text x="70" y="19" text-anchor="middle" fill="#fff" font-size="21">DCO-1</text>
   <text x="285" y="19" text-anchor="middle" fill="#fff" font-size="21">DCO-2</text>
   <text x="503" y="19" text-anchor="middle" fill="#fff" font-size="21">VCF</text>
@@ -416,7 +416,7 @@
 
   <!-- RIGHT PANEL: Patch readout aligned with Mode switch (abs y=85..133) -->
   <text x="1008" y="76" text-anchor="end" fill="#fff" font-size="14">Patch</text>
-  <polygon points="790,85 1018,85 994,133 766,133" fill="#cc2222"/>
+  <polygon points="790,85 1018,85 994,133 766,133" fill="#b94a2e"/>
   <text x="800" y="116" text-anchor="start" fill="#fff" font-size="14">C5: Saw Wave Goodbye</text>
   <image href="assets/jp-logo.png" x="770" y="188" width="248" height="160" preserveAspectRatio="xMidYMid meet"/>
 
@@ -589,7 +589,9 @@
   <rect x="861" y="516" width="22" height="15" fill="#333" rx="1"/>
   <rect x="861" y="516" width="22" height="4" fill="#d8d8d8"/>
 
-  <!-- RED BOTTOM STRIP -->
-  <rect x="0" y="596" width="1050" height="24" fill="#cc2222"/>
+  <!-- RED BOTTOM STRIP — always visible. When the Custom Banks builder is
+       open, the (transparent-bg) action bar overlays this strip exactly,
+       so the strip itself IS the header background. -->
+  <rect id="panel-bottom-strip" x="0" y="596" width="1050" height="24" fill="#b94a2e"/>
 
 </svg>

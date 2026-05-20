@@ -100,8 +100,8 @@ const SWITCH_REGISTRY = [
 //            patch).
 //   Write  — v1 wiring pending: "save current knob positions to active slot".
 const BUTTON_REGISTRY = [
-  { id: 'manual', color: '#cc2222', bodySel: 'rect[x="765"][y="516"][width="58"]' },
-  { id: 'write',  color: '#cc2222', bodySel: 'rect[x="843"][y="516"][width="58"]' },
+  { id: 'manual', color: '#b94a2e', bodySel: 'rect[x="765"][y="516"][width="58"]' },
+  { id: 'write',  color: '#b94a2e', bodySel: 'rect[x="843"][y="516"][width="58"]' },
 ];
 
 const LED_OFF = '#333';
@@ -142,6 +142,11 @@ let saveTimer = null;
 // shown patch params into that slot (save-as / clone). Esc cancels.
 let writePending = false;
 let svgPatchNameEl = null;  // <text> in the SVG that displays the patch name
+
+// Transient snapshot of the C/D bucket arrays taken right before a CLEAR.
+// Non-null = the CLEAR button is in UNDO mode and one click will restore it.
+// Reset to null on UNDO, on the first new patch dropped in, or app restart.
+let clearUndoSnapshot = null;
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -850,6 +855,16 @@ function renderPatchList() {
       e.dataTransfer.setData('text/plain', String(slot));
       e.dataTransfer.setData('application/x-jp-patch-source',
         JSON.stringify({ bank: selBank, slot }));
+      // Custom drag image — just the slot label + name, excluding the info,
+      // swap, and rename-pencil affordances that hang off the row in the
+      // patch list. The element is rendered off-screen so the browser can
+      // snapshot it for the drag visual, then removed after the snapshot.
+      const ghost = document.createElement('div');
+      ghost.className = 'patch-drag-ghost';
+      ghost.textContent = `${key}: ${name || patchPlaceholder(selBank, slot)}`;
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 12, 10);
+      setTimeout(() => ghost.remove(), 0);
       item.classList.add('dragging');
     });
     item.addEventListener('dragend', () => {
@@ -2208,7 +2223,9 @@ function silentDefaultPatch() {
 function setupCustomBuilder() {
   const toggle = document.getElementById('custom-builder-toggle');
   const abort  = document.getElementById('custom-builder-abort');
-  if (!toggle || !abort) return;
+  const save   = document.getElementById('custom-builder-save');
+  const clear  = document.getElementById('custom-builder-clear');
+  if (!toggle || !abort || !save || !clear) return;
 
   toggle.addEventListener('click', () => {
     const s = bucketsState();
@@ -2216,13 +2233,16 @@ function setupCustomBuilder() {
     saveLibraryDebounced();
     renderCustomBuilder();
   });
-  abort.addEventListener('click', () => handleBuilderAbort());
-
-  // Per-bucket Save keys (one in each header, both wired to the same global
-  // save action — clicking either persists both buckets to the library).
-  document.querySelectorAll('.cb-bucket-save').forEach((btn) => {
-    btn.addEventListener('click', () => handleBuilderSave());
+  // X closes the section but preserves staged patches — the user can reopen
+  // and continue. CLEAR is the destructive action.
+  abort.addEventListener('click', () => {
+    const s = bucketsState();
+    s.active = false;
+    saveLibraryDebounced();
+    renderCustomBuilder();
   });
+  save .addEventListener('click', () => handleBuilderSave());
+  clear.addEventListener('click', () => handleBuilderClearOrUndo());
 
   document.querySelectorAll('.cb-bucket').forEach((bucketEl) => {
     const bank = bucketEl.dataset.bank;
@@ -2263,6 +2283,9 @@ function nextEmptyBucketSlot(bank) {
 }
 
 function placePatchInBucket(destBank, destIdx, srcBank, srcSlot) {
+  // First new patch after a CLEAR voids the undo affordance — the buckets are
+  // no longer in the empty post-clear state that UNDO would map back from.
+  clearUndoSnapshot = null;
   const arr = bucketsState()[destBank];
   if (!arr) return;
   if (destIdx < 0 || destIdx > 15) return;
@@ -2320,19 +2343,23 @@ function renderCustomBuilder() {
   builder.classList.toggle('open', !!s.active);
   if (!s.active) return;
 
-  // both-full drives the Save key visibility (D header only). Until both
-  // buckets are 16/16, the user can't save.
-  builder.classList.toggle('both-full',
-    bucketCount('C') === 16 && bucketCount('D') === 16);
+  // SAVE is inert until at least one patch has been staged.
+  // CLEAR is inert until at least one patch has been staged — except when a
+  // CLEAR was just performed, in which case it becomes UNDO and is enabled
+  // even though the buckets are empty.
+  const totalCount = bucketCount('C') + bucketCount('D');
+  const saveBtn  = document.getElementById('custom-builder-save');
+  const clearBtn = document.getElementById('custom-builder-clear');
+  if (saveBtn)  saveBtn .disabled = totalCount === 0;
+  if (clearBtn) {
+    clearBtn.disabled = totalCount === 0 && !clearUndoSnapshot;
+    clearBtn.textContent = clearUndoSnapshot ? 'UNDO' : 'CLEAR';
+  }
 
   ['C', 'D'].forEach((bank) => {
     const bucketEl = builder.querySelector(`.cb-bucket[data-bank="${bank}"]`);
     if (!bucketEl) return;
     const arr = s[bank] || [];
-    const count = bucketCount(bank);
-    // .full hides this bucket's hint independently (per-bucket).
-    bucketEl.classList.toggle('full', count === 16);
-    bucketEl.querySelector('.cb-bucket-counter').textContent = `${count}/16`;
 
     const listEl = bucketEl.querySelector('.cb-bucket-list');
     listEl.innerHTML = '';
@@ -2469,24 +2496,26 @@ function cancelBucketSlotEdit(row) {
   nameSpan.style.display = '';
 }
 
-function handleBuilderAbort() {
+// The CLEAR/UNDO button is a two-state toggle:
+//   - CLEAR (no snapshot): wipes both buckets, captures the prior state as a
+//     transient in-memory snapshot, and re-labels itself UNDO.
+//   - UNDO (snapshot held): restores the snapshot and re-labels itself CLEAR.
+// The snapshot is also discarded the moment the user drops a new patch in
+// (see placePatchInBucket), since at that point an undo no longer maps
+// cleanly to "what the buckets looked like before the clear."
+function handleBuilderClearOrUndo() {
   const s = bucketsState();
-  const totalCount = bucketCount('C') + bucketCount('D');
-  const doAbort = () => {
+  if (clearUndoSnapshot) {
+    s.C = clearUndoSnapshot.C;
+    s.D = clearUndoSnapshot.D;
+    clearUndoSnapshot = null;
+  } else {
+    clearUndoSnapshot = { C: s.C.slice(), D: s.D.slice() };
     s.C = new Array(16).fill(null);
     s.D = new Array(16).fill(null);
-    s.active = false;
-    saveLibraryDebounced();
-    renderCustomBuilder();
-  };
-  if (totalCount === 0) { doAbort(); return; }
-  showConfirmModal({
-    title: 'Discard custom banks?',
-    body: `Discard ${totalCount} patch${totalCount === 1 ? '' : 'es'} from your custom buckets? This can't be undone.`,
-    confirmLabel: 'Discard',
-    confirmStyle: 'danger',
-    onConfirm: doAbort,
-  });
+  }
+  saveLibraryDebounced();
+  renderCustomBuilder();
 }
 
 function handleBuilderSave() {
