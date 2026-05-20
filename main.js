@@ -233,7 +233,14 @@ ipcMain.handle('seq-tape-load', async (e, data) => {
 
   const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
   try {
-    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    // jx3p seq-json-to-wav expects { kind: "sequence", format_version, pages: [...] }.
+    // The renderer sends just seq.tape (= { pages }), so wrap here.
+    const payload = {
+      format_version: '1.0',
+      kind: 'sequence',
+      pages: (data && Array.isArray(data.pages)) ? data.pages : [],
+    };
+    fs.writeFileSync(tempJson, JSON.stringify(payload, null, 2), 'utf8');
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${dlg.filePath}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
     return { saved: true, path: dlg.filePath };

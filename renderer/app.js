@@ -170,9 +170,15 @@ function patchOrigin(b, s) {
   const m = slotMetaAt(b, s);
   return (m && m.origin) || null;
 }
+function patchSourceLabel(b, s) {
+  const m = slotMetaAt(b, s);
+  return (m && m.sourceLabel) || null;
+}
 function patchPlaceholder(b, s) {
   const o = patchOrigin(b, s);
-  return o ? `imported as ${o}` : 'click to name';
+  if (!o) return 'click to name';
+  const src = patchSourceLabel(b, s);
+  return src ? `imported as ${o} from ${src}` : `imported as ${o}`;
 }
 
 // Inline rename affordance: a small pencil SVG appended to a name span when
@@ -770,6 +776,26 @@ function renderPatchList() {
     inp.spellcheck = false;
     inp.autocomplete = 'off';
 
+    // Info icon — hover-revealed, sits to the left of the swap key. Click
+    // shows a small modal with the patch's lineage (origin slot + source
+    // library) so the user can see where it came from after renaming.
+    const info = document.createElement('button');
+    info.className = 'patch-info-btn';
+    info.type = 'button';
+    info.title = 'Patch info';
+    info.innerHTML =
+      '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">' +
+        '<circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="0.9"/>' +
+        '<line x1="6" y1="5.2" x2="6" y2="8.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>' +
+        '<circle cx="6" cy="3.4" r="0.65" fill="currentColor"/>' +
+      '</svg>';
+    info.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (writePending) return;
+      showPatchInfo(selBank, slot);
+    });
+    info.addEventListener('mousedown', (e) => e.stopPropagation());
+
     const swap = document.createElement('button');
     swap.className = 'patch-swap-btn';
     swap.type = 'button';
@@ -786,6 +812,7 @@ function renderPatchList() {
     item.appendChild(num);
     item.appendChild(nm);
     item.appendChild(inp);
+    item.appendChild(info);
     item.appendChild(swap);
     list.appendChild(item);
 
@@ -811,7 +838,7 @@ function renderPatchList() {
     // is in write-pending mode (clicks there mean "write current patch here").
     if (!writePending) item.draggable = true;
     item.addEventListener('dragstart', (e) => {
-      if (writePending || e.target.closest('.patch-swap-btn, .patch-name-edit')) {
+      if (writePending || e.target.closest('.patch-swap-btn, .patch-info-btn, .patch-name-edit')) {
         e.preventDefault();
         return;
       }
@@ -1494,9 +1521,11 @@ function showLoadSequenceModal({ seq, onSend }) {
   rateSec.appendChild(rateLabel);
   rateSec.appendChild(rateRow);
 
-  // Patch note reminder (if present).
+  // Patch note reminder (if present). Built here, appended below in
+  // proper document order (after rateSec, before actions).
+  let noteSec = null;
   if (note) {
-    const noteSec = document.createElement('div');
+    noteSec = document.createElement('div');
     noteSec.className = 'seq-modal-section';
     const noteLabel = document.createElement('label');
     noteLabel.textContent = 'Note';
@@ -1505,7 +1534,6 @@ function showLoadSequenceModal({ seq, onSend }) {
     noteValue.textContent = note;
     noteSec.appendChild(noteLabel);
     noteSec.appendChild(noteValue);
-    modal.appendChild(noteSec);
   }
 
   const actions = document.createElement('div');
@@ -1521,7 +1549,7 @@ function showLoadSequenceModal({ seq, onSend }) {
   modal.appendChild(intro);
   modal.appendChild(ppSec);
   modal.appendChild(rateSec);
-  // (note section appended above if present)
+  if (noteSec) modal.appendChild(noteSec);
   modal.appendChild(actions);
   actions.appendChild(cancelBtn);
   actions.appendChild(sendBtn);
@@ -2481,8 +2509,9 @@ function handleBuilderSave() {
     for (let i = 0; i < 16; i++) {
       const entry = s[bank][i];
       slotMeta[bank][i] = {
-        name:   entry ? (entry.name || null) : null,
-        origin: entry && entry.origin ? entry.origin : `${bank}${i + 1}`,
+        name:        entry ? (entry.name || null) : null,
+        origin:      entry && entry.origin ? entry.origin : `${bank}${i + 1}`,
+        sourceLabel: entry && entry.sourceLabel ? entry.sourceLabel : null,
       };
     }
   });
@@ -2721,32 +2750,51 @@ function snapshotCurrentBanksToLibrary() {
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);
   if (selPackage !== null) selPackage += 1;
+  // Persist immediately — the "Safety First" promise requires this snapshot
+  // to survive even if the subsequent import or the app itself crashes.
+  saveLibraryDebounced();
 }
 
-// Convert decoded jx3p JSON ({banks: {C: [...], D: [...]}}) into the in-memory
-// shape used by patches.banks (2 arrays of 16 param objects). Returns null
-// if the input doesn't look like patch data.
+// Convert decoded jx3p output into the in-memory shape used by patches.banks
+// (2 arrays of 16 param objects). Handles both the WAV decoder's array shape
+// (data.banks = [[16 patches], [16 patches]]) and the app's JSON export shape
+// (data.banks = { C: [{slot, name, params}], D: [...] }). Returns null when
+// the data doesn't contain meaningful patch params.
 function decodedToInMemoryBanks(data) {
-  if (!data || !data.banks || !data.banks.C || !data.banks.D) return null;
-  const hasContent = ['C', 'D'].some((b) =>
-    data.banks[b].some((entry) => entry && entry.params && Object.keys(entry.params).length > 0)
-  );
-  if (!hasContent) return null;
-  return ['C', 'D'].map((b) =>
-    data.banks[b].slice(0, 16).map((entry) => (entry && entry.params) || {})
-  );
+  if (!data || !data.banks) return null;
+  // WAV-shape (jx3p wav-to-json output): array of two banks of raw param objects.
+  if (Array.isArray(data.banks) && data.banks.length >= 2) {
+    const hasContent = [0, 1].some((bi) =>
+      (data.banks[bi] || []).some((p) => p && Object.keys(p).length > 0));
+    if (!hasContent) return null;
+    return [0, 1].map((bi) =>
+      (data.banks[bi] || []).slice(0, 16).map((p) => p || {}));
+  }
+  // App JSON shape: object keyed by 'C'/'D', each entry is {slot, name, params}.
+  if (data.banks.C && data.banks.D) {
+    const hasContent = ['C', 'D'].some((b) =>
+      data.banks[b].some((entry) => entry && entry.params && Object.keys(entry.params).length > 0));
+    if (!hasContent) return null;
+    return ['C', 'D'].map((b) =>
+      data.banks[b].slice(0, 16).map((entry) => (entry && entry.params) || {}));
+  }
+  return null;
 }
 
 function decodedToSlotMeta(data) {
   const meta = { C: [], D: [] };
+  const isArrayShape = data && Array.isArray(data.banks);
   ['C', 'D'].forEach((bank) => {
-    const arr = (data && data.banks && data.banks[bank]) || [];
+    const arr = isArrayShape
+      ? []  // WAV has no name/origin info per slot — defaults will apply
+      : (data && data.banks && data.banks[bank]) || [];
     for (let s = 0; s < 16; s++) {
       const key = `${bank}${s + 1}`;
       const entry = arr[s] || {};
       meta[bank][s] = {
-        name: entry.name || null,
-        origin: entry.origin || key,
+        name:        entry.name || null,
+        origin:      entry.origin || key,
+        sourceLabel: null,
       };
     }
   });
@@ -2757,6 +2805,28 @@ function showImportError(message) {
   showConfirmModal({
     title: 'Import error',
     body: message,
+    confirmLabel: 'OK',
+    onConfirm: () => {},
+  });
+}
+
+// Patch info popover (triggered by the (i) icon in C/D bank rows). Shows the
+// patch's provenance — current display name, origin slot it was imported from,
+// and the source library — so the user can trace lineage after renaming.
+function showPatchInfo(bank, slot) {
+  const key = slotKey(bank, slot);
+  const name = patchName(bank, slot);
+  const origin = patchOrigin(bank, slot);
+  const source = patchSourceLabel(bank, slot);
+  const lines = [
+    `Slot:    ${key}`,
+    `Name:    ${name || '(unnamed)'}`,
+    `Origin:  ${origin || '(none)'}`,
+    `Library: ${source || '(unknown)'}`,
+  ];
+  showConfirmModal({
+    title: 'Patch info',
+    body: lines.join('\n'),
     confirmLabel: 'OK',
     onConfirm: () => {},
   });

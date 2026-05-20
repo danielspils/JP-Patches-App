@@ -589,6 +589,24 @@ body {
   display: none;
 }
 
+/* (i) info icon — hover-revealed, sits to the left of the swap key. Click
+   opens a small modal with the patch's provenance (origin slot + source
+   library). */
+.patch-info-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: #6a6a6a;
+  padding: 0 2px;
+  cursor: pointer;
+  display: none;
+  line-height: 0;
+  margin-left: auto;  /* push to right alongside swap */
+}
+.patch-item:hover .patch-info-btn { display: inline-flex; }
+.patch-info-btn:hover { color: var(--text-bright); }
+.patch-item.selected .patch-info-btn { color: #c4dec0; }
+
 /* Cross-bank swap icon — visible on row hover. Shifts the patch to the same
    slot in the other bank (C ⇄ D). */
 .patch-swap-btn {
