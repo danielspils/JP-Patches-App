@@ -124,6 +124,18 @@ let selLibTab  = 'tones';  // 'tones' | 'sequences'
 // pkg.id of a freshly-saved library package that should animate into the list
 // on the next render. Cleared once the row is created.
 let pendingSaveAnimationId = null;
+// Label describing where the active C/D banks came from (library package name,
+// or null for a fresh JX dump). Used as context when a patch is dragged from
+// active banks into a Custom Builder bucket — unnamed patches display as
+// "{origin} from {sourceLabel}" so the user can see at a glance which library
+// the patch was lifted from.
+let activeBanksSourceLabel = null;
+
+function labelFromPath(path) {
+  if (!path) return null;
+  const basename = path.split(/[\\/]/).pop();
+  return basename.replace(/\.(wav|json)$/i, '') || null;
+}
 let saveTimer = null;
 // Write button: when armed, the next patch-list click writes the currently
 // shown patch params into that slot (save-as / clone). Esc cancels.
@@ -251,6 +263,26 @@ function ensureLibraryShape() {
   if ('names' in library) delete library.names;
   if (Array.isArray(library.packages)) library.packages.forEach(migratePackageShape);
   if (Array.isArray(library.sequences)) library.sequences.forEach(migrateSequenceShape);
+  ensureCustomBucketsShape();
+}
+
+// Custom bank builder buckets — a persistent staging area where the user can
+// drag patches from active C/D banks (across multiple package loads) and then
+// save the result as a new library package. Each slot is null (empty) or
+// { params, name }. `active: true` means the bucket panel is open.
+function ensureCustomBucketsShape() {
+  if (!library.customBuckets || typeof library.customBuckets !== 'object') {
+    library.customBuckets = { active: false, C: [], D: [] };
+  }
+  if (typeof library.customBuckets.active !== 'boolean') library.customBuckets.active = false;
+  ['C', 'D'].forEach((bank) => {
+    if (!Array.isArray(library.customBuckets[bank])) library.customBuckets[bank] = [];
+    const arr = library.customBuckets[bank];
+    for (let s = 0; s < 16; s++) {
+      if (arr[s] === undefined) arr[s] = null;
+    }
+    arr.length = 16;
+  });
 }
 
 // Old packages stored pkg.names: { slotKey: name }. Convert to pkg.slotMeta.
@@ -782,8 +814,14 @@ function renderPatchList() {
         e.preventDefault();
         return;
       }
-      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.effectAllowed = 'copyMove';
+      // text/plain carries the source slot index for in-bank reorder (existing
+      // patch-item drop handlers parse this as int). Custom MIME carries the
+      // full source descriptor (bank + slot) so Custom Builder bucket slots
+      // can identify this as a cross-list patch drag.
       e.dataTransfer.setData('text/plain', String(slot));
+      e.dataTransfer.setData('application/x-jp-patch-source',
+        JSON.stringify({ bank: selBank, slot }));
       item.classList.add('dragging');
     });
     item.addEventListener('dragend', () => {
@@ -1012,6 +1050,7 @@ function loadPackageIntoActiveBanks(pkg) {
   patches.banks = JSON.parse(JSON.stringify(pkg.banks));
   library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta || {}));
   ensureLibraryShape();
+  activeBanksSourceLabel = pkg.customName || pkg.defaultName || null;
   saveLibraryDebounced();
 
   // Surface the loaded banks: switch to Bank C and select the first slot.
@@ -1758,9 +1797,10 @@ function buildExportData() {
 // JSON load — restore an app-saved tape file. Custom names and origins
 // round-trip via the file itself; for any slot the file leaves unnamed, we
 // consult library.history by param fingerprint as a fallback.
-function applyImportData(data) {
+function applyImportData(data, sourceLabel = null) {
   if (!data || !data.banks) throw new Error('invalid file: missing "banks"');
   ensureLibraryShape();
+  activeBanksSourceLabel = sourceLabel;
   ['C', 'D'].forEach((bank) => {
     const bankIdx = bank === 'D' ? 1 : 0;
     const arr = data.banks[bank];
@@ -1787,10 +1827,11 @@ function applyImportData(data) {
 // incoming slot we look up the param fingerprint in library.history and
 // restore the prior name/origin if seen before; otherwise the slot starts
 // fresh with origin = current slot.
-function applyWavData(data) {
+function applyWavData(data, sourceLabel = null) {
   if (!data || !Array.isArray(data.banks) || data.banks.length < 2) {
     throw new Error('invalid jx3p output: expected banks: [[...], [...]]');
   }
+  activeBanksSourceLabel = sourceLabel;
   patches = data;
   ensureLibraryShape();
   ['C', 'D'].forEach((bank) => {
@@ -1816,8 +1857,9 @@ async function handleToneSave() {
     return;
   }
   try {
-    if (result.kind === 'wav') applyWavData(result.data);
-    else                       applyImportData(result.data);
+    const label = labelFromPath(result.path);
+    if (result.kind === 'wav') applyWavData(result.data, label);
+    else                       applyImportData(result.data, label);
     saveLibraryDebounced();
     renderPatchList();
     updateSvgPatchName();
@@ -2065,6 +2107,424 @@ function sequenceDefaultName(date) {
 // (wireTapeButtons replaced by setupInteraction's button delegation.)
 
 // ═══════════════════════════════════════════════════════════════
+// Custom Bank Builder
+// ═══════════════════════════════════════════════════════════════
+//
+// Persistent staging area where the user assembles a new C/D bank by dragging
+// patches from active C/D banks. Buckets persist across navigation AND across
+// app restarts (stored in library.customBuckets). When the user hits Save, the
+// buckets are snapshotted into a new library.packages[] entry — same shape as
+// "save C/D banks to library" but with default name "Custom C/D banks {date}"
+// and empty slots padded with a silent default patch.
+
+function bucketsState() {
+  return library && library.customBuckets;
+}
+
+function bucketEntryDisplayName(entry) {
+  if (!entry) return '';
+  if (entry.name) return entry.name;
+  if (entry.origin && entry.sourceLabel) return `${entry.origin} from ${entry.sourceLabel}`;
+  if (entry.origin) return entry.origin;
+  return '(unnamed)';
+}
+
+function bucketCount(bank) {
+  const arr = bucketsState() && bucketsState()[bank];
+  if (!Array.isArray(arr)) return 0;
+  return arr.reduce((n, e) => n + (e ? 1 : 0), 0);
+}
+
+// A "silent" placeholder patch used to pad empty slots on save. Zero VCA level
+// = no sound; other params default to a benign state. Mirrors what jx3p's
+// JX3PPatch dataclass produces when zero-initialised, but with vca_level=0.
+function silentDefaultPatch() {
+  return {
+    dco1_range: "16'",
+    dco1_waveform: 'saw',
+    dco1_fmod_lfo: false,
+    dco1_fmod_env: false,
+    dco2_range: "16'",
+    dco2_waveform: 'saw',
+    dco2_crossmod: 'off',
+    dco2_tune: 0,
+    dco2_fine_tune: 0,
+    dco2_fmod_lfo: false,
+    dco2_fmod_env: false,
+    dco_lfo_amount: 0,
+    dco_env_amount: 0,
+    dco_env_polarity: 'pos',
+    vcf_mix: 0,
+    vcf_hpf: 0,
+    vcf_cutoff: 0,
+    vcf_lfo_mod: 0,
+    vcf_pitch_follow: 0,
+    vcf_resonance: 0,
+    vcf_env_mod: 0,
+    vcf_env_polarity: 'pos',
+    vca_mode: 'env',
+    vca_level: 0,            // silent
+    chorus: false,
+    lfo_waveform: 'sine',
+    lfo_delay: 0,
+    lfo_rate: 0,
+    env_attack: 0,
+    env_decay: 0,
+    env_sustain: 0,
+    env_release: 0,
+    mystery: 0,
+  };
+}
+
+function setupCustomBuilder() {
+  const toggle = document.getElementById('custom-builder-toggle');
+  const abort  = document.getElementById('custom-builder-abort');
+  if (!toggle || !abort) return;
+
+  toggle.addEventListener('click', () => {
+    const s = bucketsState();
+    s.active = !s.active;
+    saveLibraryDebounced();
+    renderCustomBuilder();
+  });
+  abort.addEventListener('click', () => handleBuilderAbort());
+
+  // Per-bucket Save keys (one in each header, both wired to the same global
+  // save action — clicking either persists both buckets to the library).
+  document.querySelectorAll('.cb-bucket-save').forEach((btn) => {
+    btn.addEventListener('click', () => handleBuilderSave());
+  });
+
+  document.querySelectorAll('.cb-bucket').forEach((bucketEl) => {
+    const bank = bucketEl.dataset.bank;
+    // Drop directly on the bucket container (not on a specific slot) =
+    // append to the next available empty slot.
+    bucketEl.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('application/x-jp-patch-source')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      bucketEl.classList.add('drop-active');
+    });
+    bucketEl.addEventListener('dragleave', (e) => {
+      if (!bucketEl.contains(e.relatedTarget)) bucketEl.classList.remove('drop-active');
+    });
+    bucketEl.addEventListener('drop', (e) => {
+      bucketEl.classList.remove('drop-active');
+      const json = e.dataTransfer.getData('application/x-jp-patch-source');
+      if (!json) return;
+      e.preventDefault();
+      let src;
+      try { src = JSON.parse(json); } catch { return; }
+      const droppedOnSlot = e.target.closest('.cb-slot');
+      const targetIdx = droppedOnSlot
+        ? Number(droppedOnSlot.dataset.idx)
+        : nextEmptyBucketSlot(bank);
+      if (targetIdx === -1) return;  // bucket full
+      placePatchInBucket(bank, targetIdx, src.bank, src.slot);
+    });
+  });
+
+  renderCustomBuilder();
+}
+
+function nextEmptyBucketSlot(bank) {
+  const arr = bucketsState()[bank];
+  for (let i = 0; i < 16; i++) if (!arr[i]) return i;
+  return -1;
+}
+
+function placePatchInBucket(destBank, destIdx, srcBank, srcSlot) {
+  const arr = bucketsState()[destBank];
+  if (!arr) return;
+  if (destIdx < 0 || destIdx > 15) return;
+  const bankIdx = srcBank === 'D' ? 1 : 0;
+  const params = patches && patches.banks && patches.banks[bankIdx]
+    && patches.banks[bankIdx][srcSlot];
+  if (!params) return;
+  arr[destIdx] = {
+    params: JSON.parse(JSON.stringify(params)),
+    name:   patchName(srcBank, srcSlot),
+    origin: patchOrigin(srcBank, srcSlot),
+    sourceLabel: activeBanksSourceLabel,
+  };
+  saveLibraryDebounced();
+  renderCustomBuilder();
+}
+
+function removePatchFromBucket(bank, idx) {
+  const arr = bucketsState()[bank];
+  if (!arr) return;
+  arr[idx] = null;
+  saveLibraryDebounced();
+  renderCustomBuilder();
+}
+
+function reorderBucketSlot(bank, fromIdx, toIdx) {
+  if (fromIdx === toIdx) return;
+  const arr = bucketsState()[bank];
+  if (!arr) return;
+  const [moved] = arr.splice(fromIdx, 1);
+  arr.splice(toIdx, 0, moved);
+  // Buckets are always length 16; the splice above can shorten the array
+  // (if we move a filled entry past trailing empties). Re-pad.
+  while (arr.length < 16) arr.push(null);
+  arr.length = 16;
+  saveLibraryDebounced();
+  renderCustomBuilder();
+}
+
+function renameBucketEntry(bank, idx, newName) {
+  const arr = bucketsState()[bank];
+  if (!arr || !arr[idx]) return;
+  arr[idx].name = newName || null;
+  saveLibraryDebounced();
+  renderCustomBuilder();
+}
+
+function renderCustomBuilder() {
+  const builder = document.getElementById('custom-builder');
+  const toggle  = document.getElementById('custom-builder-toggle');
+  if (!builder || !toggle) return;
+  const s = bucketsState();
+  if (!s) return;
+
+  builder.classList.toggle('open', !!s.active);
+  if (!s.active) return;
+
+  // both-full drives the Save key visibility (D header only). Until both
+  // buckets are 16/16, the user can't save.
+  builder.classList.toggle('both-full',
+    bucketCount('C') === 16 && bucketCount('D') === 16);
+
+  ['C', 'D'].forEach((bank) => {
+    const bucketEl = builder.querySelector(`.cb-bucket[data-bank="${bank}"]`);
+    if (!bucketEl) return;
+    const arr = s[bank] || [];
+    const count = bucketCount(bank);
+    // .full hides this bucket's hint independently (per-bucket).
+    bucketEl.classList.toggle('full', count === 16);
+    bucketEl.querySelector('.cb-bucket-counter').textContent = `${count}/16`;
+
+    const listEl = bucketEl.querySelector('.cb-bucket-list');
+    listEl.innerHTML = '';
+
+    for (let i = 0; i < 16; i++) {
+      const entry = arr[i];
+      const row = document.createElement('div');
+      row.className = 'cb-slot' + (entry ? ' filled' : ' empty');
+      row.dataset.idx = String(i);
+      row.dataset.bank = bank;
+
+      // Static slot prefix (e.g. "D5:") — stays visible during rename edit,
+      // mirroring the patch-list pattern where the slot number doesn't toggle.
+      const prefixSpan = document.createElement('span');
+      prefixSpan.className = 'cb-slot-prefix';
+      prefixSpan.textContent = `${bank}${i + 1}:`;
+      row.appendChild(prefixSpan);
+
+      // Name portion (hidden during edit). For empty slots this stays empty
+      // so the slot's CSS placeholder/empty state can show through.
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'cb-slot-name';
+      nameSpan.textContent = entry ? bucketEntryDisplayName(entry) : '';
+      row.appendChild(nameSpan);
+
+      // Inline rename input (shown during edit; replaces just the name span,
+      // not the slot prefix).
+      const editInp = document.createElement('input');
+      editInp.type = 'text';
+      editInp.className = 'cb-slot-name-edit';
+      editInp.maxLength = 28;
+      editInp.spellcheck = false;
+      row.appendChild(editInp);
+
+      if (entry) {
+        // Trash icon (hover-revealed via CSS)
+        const trash = document.createElement('button');
+        trash.className = 'cb-slot-trash';
+        trash.type = 'button';
+        trash.innerHTML =
+          '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M3 4h10M5.5 4V2.5h5V4M4 4l.5 9.5h7L12 4M7 7v5M9 7v5"/>' +
+          '</svg>';
+        trash.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removePatchFromBucket(bank, i);
+        });
+        row.appendChild(trash);
+
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+          if (e.target.closest('.cb-slot-trash, .cb-slot-name-edit')) {
+            e.preventDefault();
+            return;
+          }
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/x-jp-bucket-source',
+            JSON.stringify({ bank, idx: i }));
+          row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+
+        // Click → edit name inline (matches patch-name-span pattern).
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('.cb-slot-trash, .cb-slot-name-edit')) return;
+          startBucketSlotEdit(row, bank, i);
+        });
+        editInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter')  commitBucketSlotEdit(row, bank, i);
+          if (e.key === 'Escape') cancelBucketSlotEdit(row);
+        });
+        editInp.addEventListener('blur', () => commitBucketSlotEdit(row, bank, i));
+      }
+
+      // Drop target (within-bucket reorder OR cross-list drop from patch list)
+      row.addEventListener('dragover', (e) => {
+        const isPatchSrc  = e.dataTransfer.types.includes('application/x-jp-patch-source');
+        const isBucketSrc = e.dataTransfer.types.includes('application/x-jp-bucket-source');
+        if (!isPatchSrc && !isBucketSrc) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = isBucketSrc ? 'move' : 'copy';
+        row.classList.add('drag-over');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('drop', (e) => {
+        row.classList.remove('drag-over');
+        const bucketJson = e.dataTransfer.getData('application/x-jp-bucket-source');
+        if (bucketJson) {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            const src = JSON.parse(bucketJson);
+            if (src.bank === bank) reorderBucketSlot(bank, src.idx, i);
+          } catch {}
+          return;
+        }
+        const patchJson = e.dataTransfer.getData('application/x-jp-patch-source');
+        if (patchJson) {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            const src = JSON.parse(patchJson);
+            placePatchInBucket(bank, i, src.bank, src.slot);
+          } catch {}
+        }
+      });
+
+      listEl.appendChild(row);
+    }
+  });
+}
+
+function startBucketSlotEdit(row, bank, idx) {
+  const entry = bucketsState()[bank][idx];
+  if (!entry) return;
+  const nameSpan = row.querySelector('.cb-slot-name');
+  const editInp  = row.querySelector('.cb-slot-name-edit');
+  editInp.value = entry.name || '';
+  nameSpan.style.display = 'none';
+  editInp.style.display = 'block';
+  editInp.focus();
+  editInp.select();
+}
+function commitBucketSlotEdit(row, bank, idx) {
+  const editInp = row.querySelector('.cb-slot-name-edit');
+  if (editInp.style.display !== 'block') return;
+  renameBucketEntry(bank, idx, editInp.value.trim());
+}
+function cancelBucketSlotEdit(row) {
+  const nameSpan = row.querySelector('.cb-slot-name');
+  const editInp  = row.querySelector('.cb-slot-name-edit');
+  editInp.style.display = 'none';
+  nameSpan.style.display = '';
+}
+
+function handleBuilderAbort() {
+  const s = bucketsState();
+  const totalCount = bucketCount('C') + bucketCount('D');
+  const doAbort = () => {
+    s.C = new Array(16).fill(null);
+    s.D = new Array(16).fill(null);
+    s.active = false;
+    saveLibraryDebounced();
+    renderCustomBuilder();
+  };
+  if (totalCount === 0) { doAbort(); return; }
+  showConfirmModal({
+    title: 'Discard custom banks?',
+    body: `Discard ${totalCount} patch${totalCount === 1 ? '' : 'es'} from your custom buckets? This can't be undone.`,
+    confirmLabel: 'Discard',
+    confirmStyle: 'danger',
+    onConfirm: doAbort,
+  });
+}
+
+function handleBuilderSave() {
+  const s = bucketsState();
+  const cCount = bucketCount('C');
+  const dCount = bucketCount('D');
+  if (cCount + dCount === 0) return;
+
+  const now = new Date();
+  const banks = [
+    s.C.map((entry) => entry
+      ? JSON.parse(JSON.stringify(entry.params))
+      : silentDefaultPatch()),
+    s.D.map((entry) => entry
+      ? JSON.parse(JSON.stringify(entry.params))
+      : silentDefaultPatch()),
+  ];
+  const slotMeta = { C: [], D: [] };
+  ['C', 'D'].forEach((bank, bi) => {
+    for (let i = 0; i < 16; i++) {
+      const entry = s[bank][i];
+      slotMeta[bank][i] = {
+        name:   entry ? (entry.name || null) : null,
+        origin: entry && entry.origin ? entry.origin : `${bank}${i + 1}`,
+      };
+    }
+  });
+
+  const dateStr = now.toLocaleDateString('en-US',
+    { month: 'long', day: 'numeric', year: 'numeric' });
+  const pkg = {
+    id: now.toISOString(),
+    defaultName: `Custom C/D banks ${dateStr}`,
+    customName: '',
+    savedAt: now.toISOString(),
+    banks,
+    slotMeta,
+  };
+  if (!Array.isArray(library.packages)) library.packages = [];
+  library.packages.unshift(pkg);
+  if (selPackage !== null) selPackage += 1;
+  pendingSaveAnimationId = pkg.id;
+  selLibTab = 'tones';
+
+  // Auto-load the just-saved package into active C/D banks so they mirror
+  // what the user built. Without this, the active list keeps whatever was
+  // there before save and visibly disagrees with the bucket contents — a
+  // confusing "I just saved this but the active list shows other patches"
+  // experience.
+  patches.banks = JSON.parse(JSON.stringify(pkg.banks));
+  library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta));
+  ensureLibraryShape();
+  activeBanksSourceLabel = pkg.customName || pkg.defaultName || null;
+
+  saveLibraryDebounced();
+
+  // Navigate to Library > Tones so the new entry is visible and animates in.
+  selBank = 'L';
+  selSlot = 0;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === 'L');
+  });
+  renderPatchList();
+  // Buckets remain populated — user can keep building / save again with edits.
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Tabs
 // ═══════════════════════════════════════════════════════════════
 
@@ -2225,7 +2685,7 @@ function handleBankDropImport(filePath) {
         return;
       }
       try {
-        applyWavData(result.data);
+        applyWavData(result.data, labelFromPath(filePath));
         saveLibraryDebounced();
         renderPatchList();
         updateSvgPatchName();
@@ -2298,6 +2758,9 @@ async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
   ensureLibraryShape();
+  // Default source label for patches loaded at startup from ~/Desktop/patches.json.
+  // Overridden whenever the user loads a library package or imports a WAV/JSON.
+  if (patches) activeBanksSourceLabel = 'Desktop patches';
 
   // patches may be null on first run (no ~/Desktop/patches.json yet). That's
   // not a fatal state — the empty-state in renderPatchList prompts the user
@@ -2318,6 +2781,7 @@ async function init() {
   setupLibSubTabs();
   setupHwButtons();
   setupPatchListDropZone();
+  setupCustomBuilder();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !writePending) return;
     // If a modal is open it handles its own Esc (close → write mode stays

@@ -279,6 +279,256 @@ body {
   background: rgba(60, 110, 70, 0.06);
 }
 
+/* ─── Custom Bank Builder ───────────────────────────────────────── */
+
+/* JX-3P-style "key": white rectangle with square edges, black Helvetica.
+   Mirrors the labelling on the JX-3P front panel (e.g. the "TAPE MEMORY"
+   header). Used for the "Create Custom Banks" toggle, the in-header Save
+   keys, and the X close key. */
+.jx3p-key {
+  background: #ffffff;
+  color: #000000;
+  border: none;
+  border-radius: 0;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  padding: 8px 18px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.12s;
+}
+.jx3p-key:hover  { background: #f0f0f0; }
+.jx3p-key:active { background: #e2e2e2; }
+.jx3p-key:disabled {
+  background: #b8b8b8;
+  color: #555;
+  cursor: not-allowed;
+}
+/* Compact X close key — fits inside the bucket header without expanding it. */
+.jx3p-key-x {
+  padding: 0;
+  width: 22px;
+  height: 18px;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Builder area: always reserved below the PG-200 panel. Two visual states:
+   closed (centered toggle key over an empty backdrop) and open (two 8×2
+   buckets + X corner + Save bottom-right). */
+#custom-builder {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  background: #0a0a0a;
+  border-top: 1px solid #1f1f1f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Closed state — show only the centered toggle key. */
+#custom-builder #custom-builder-abort,
+#custom-builder #custom-builder-save,
+#custom-builder .cb-bucket { display: none; }
+
+/* Open state — toggle hidden; buckets fill the full builder area. Per-bucket
+   Save lives in each bucket's header (replacing the "drag patches below" hint
+   once that bucket has content); the X close button lives in the D bucket's
+   header at the rightmost edge. */
+#custom-builder.open {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 12px 18px;
+  align-items: stretch;
+  justify-items: stretch;
+}
+#custom-builder.open #custom-builder-toggle { display: none; }
+#custom-builder.open .cb-bucket { display: flex; }
+
+.cb-bucket {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #1a1a1a;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cb-bucket.drop-active {
+  border-color: var(--green-sel-bdr);
+  box-shadow: inset 0 0 0 1px var(--green-sel-bdr);
+}
+
+.cb-bucket-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #232323;
+  border-bottom: 1px solid var(--border-dim);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cb-bucket-title { color: var(--text-mid); }
+.cb-bucket-counter {
+  color: var(--text-mid);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.18s;
+}
+.cb-bucket.full .cb-bucket-counter,
+.cb-bucket.full .cb-bucket-title { color: var(--text-bright); }
+
+/* 16 slot rows displayed as 2 columns × 8 rows. Column-major flow so the
+   left column reads C1..C8 and the right column reads C9..C16. Rows stretch
+   to fill the bucket's vertical space, giving each slot more breathing room
+   now that the bottom Save row is gone. */
+.cb-bucket-list {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(8, 1fr);
+  grid-auto-flow: column;
+  min-height: 0;
+}
+.cb-slot {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-bottom: 1px solid #2a2a2a;
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+  cursor: default;
+  min-width: 0;
+}
+/* Subtle vertical divider between the left and right columns of slots. */
+.cb-bucket-list > .cb-slot:nth-child(9) ~ .cb-slot,
+.cb-bucket-list > .cb-slot:nth-child(9) { border-left: 1px solid #2a2a2a; }
+.cb-slot-prefix {
+  color: var(--text-mid);
+  flex-shrink: 0;
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.cb-slot.filled .cb-slot-prefix { color: var(--text-bright); }
+.cb-slot-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-slot:last-child { border-bottom: none; }
+.cb-slot.empty { color: transparent; }     /* keeps the row reserving space */
+.cb-slot.filled { cursor: pointer; }
+.cb-slot.drag-over { background: rgba(60, 110, 70, 0.18); }
+.cb-slot.dragging { opacity: 0.4; }
+.cb-slot-name-edit {
+  flex: 1;
+  min-width: 0;
+  background: #1d2c1d;
+  border: 1px solid var(--green-sel-bdr);
+  border-radius: 2px;
+  color: var(--text-bright);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 0 4px;
+  height: 18px;
+  outline: none;
+  display: none;
+}
+.cb-slot-trash {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-mid);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.cb-slot.filled:hover .cb-slot-trash { display: flex; }
+.cb-slot-trash:hover { color: #e07070; background: rgba(224, 112, 112, 0.12); }
+
+/* Italic hint in the middle of each bucket header. Hides per-bucket once
+   THAT bucket is full (16/16) — independent of the other bucket. */
+.cb-bucket-hint {
+  flex: 1;
+  text-align: center;
+  color: var(--text-mid);
+  font-style: italic;
+  font-weight: 300;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+.cb-bucket.full .cb-bucket-hint { visibility: hidden; }
+
+/* In-header Save key — lives ONLY in the D bucket header. Replaces D's
+   counter (16/16) when BOTH buckets are full. Plain text styled to match
+   the counter (same uppercase / weight / size / letter-spacing) but in
+   bright white to signal "this is the final commit". No box, no border. */
+.cb-bucket-save {
+  display: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cb-bucket-save:hover  { text-decoration: underline; }
+.cb-bucket-save:focus  { outline: none; text-decoration: underline; }
+#custom-builder.both-full .cb-bucket[data-bank="D"] .cb-bucket-counter { display: none; }
+#custom-builder.both-full .cb-bucket[data-bank="D"] .cb-bucket-save    { display: inline-block; }
+
+/* X close key — lives in the D bucket header at the rightmost edge. */
+#custom-builder-abort {
+  margin-left: 8px;
+}
+
+#custom-builder-save {
+  align-self: end;
+  background: #1a2a1c;
+  border: 1px solid var(--green-sel-bdr);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+#custom-builder-save:hover { background: #233525; border-color: #5d8a62; }
+#custom-builder-save:disabled {
+  background: #1a1a1a;
+  border-color: var(--border-dim);
+  color: #444;
+  cursor: not-allowed;
+}
+
 #bottom-actions {
   flex-shrink: 0;
   border-top: 1px solid var(--border-dim);

@@ -71,6 +71,31 @@
   <main id="right-panel">
     <div id="drag-bar"></div>
     <div id="panel-host"></div>
+
+    <!-- Builder area: always reserved below the PG-200 panel. Shows a
+         centered "Create Custom Banks" key when closed; expands into two
+         8x2 buckets + X (top-right) + Save (bottom-right) when open. -->
+    <div id="custom-builder">
+      <button id="custom-builder-toggle" class="jx3p-key">Create Custom Banks</button>
+      <div class="cb-bucket" data-bank="C">
+        <div class="cb-bucket-header">
+          <span class="cb-bucket-title">C Bank</span>
+          <span class="cb-bucket-hint">drag patches below</span>
+          <span class="cb-bucket-counter">0/16</span>
+        </div>
+        <div class="cb-bucket-list"></div>
+      </div>
+      <div class="cb-bucket" data-bank="D">
+        <div class="cb-bucket-header">
+          <span class="cb-bucket-title">D Bank</span>
+          <span class="cb-bucket-hint">drag patches below</span>
+          <span class="cb-bucket-counter">0/16</span>
+          <button class="cb-bucket-save">Save</button>
+          <button id="custom-builder-abort" class="jx3p-key jx3p-key-x" aria-label="Close" title="Close">×</button>
+        </div>
+        <div class="cb-bucket-list"></div>
+      </div>
+    </div>
   </main>
 
 </div>
