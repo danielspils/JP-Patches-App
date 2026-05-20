@@ -122,7 +122,8 @@ let selPackage = null;     // selected index in library.packages   (Tones sub-ta
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
 // pkg.id of a freshly-saved library package that should animate into the list
-// on the next render. Cleared once the row is created.
+// on the next render. Cleared once the row is created. NOTE: live above any
+// renderCustomBuilder reference so handleBuilderSave can set it cleanly.
 let pendingSaveAnimationId = null;
 // Label describing where the active C/D banks came from (library package name,
 // or null for a fresh JX dump). Used as context when a patch is dragged from
@@ -2512,6 +2513,13 @@ function handleBuilderSave() {
   ensureLibraryShape();
   activeBanksSourceLabel = pkg.customName || pkg.defaultName || null;
 
+  // Close the builder and clear the buckets — save is the commit, the
+  // workspace resets to a clean slate. To iterate on the saved bank,
+  // load it from the Library into active banks and start a new build.
+  s.active = false;
+  s.C = new Array(16).fill(null);
+  s.D = new Array(16).fill(null);
+
   saveLibraryDebounced();
 
   // Navigate to Library > Tones so the new entry is visible and animates in.
@@ -2521,7 +2529,7 @@ function handleBuilderSave() {
     t.classList.toggle('active', t.dataset.bank === 'L');
   });
   renderPatchList();
-  // Buckets remain populated — user can keep building / save again with edits.
+  renderCustomBuilder();
 }
 
 // ═══════════════════════════════════════════════════════════════
