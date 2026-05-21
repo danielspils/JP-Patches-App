@@ -780,6 +780,77 @@ body {
    the width and center the buttons. (Title is centered for all modals.) */
 .modal:has(.modal-title + .modal-actions) { max-width: 320px; }
 .modal-title + .modal-actions { justify-content: center; }
+
+/* Send-to-JX modal: instruction list + segmented timeline + status line. */
+.send-jx-modal { max-width: 560px; }
+.send-jx-modal .modal-body { text-align: left; }
+.send-jx-status { margin: 12px 0 18px; min-height: 32px; }
+.send-jx-status-text {
+  font-size: 12px;
+  color: var(--text-mid);
+  text-align: center;
+  margin-top: 8px;
+}
+
+/* 4-segment timeline showing Init / Bank C / Divider / Bank D, with a
+   playback indicator that sweeps left → right. Pilot durations are exact
+   (4096 bits × 50 samples/bit at 44100 Hz); data sections derive from
+   total minus pilots. flex-grow on each segment is the per-segment
+   duration in seconds. */
+.send-jx-timeline {
+  position: relative;
+  display: flex;
+  height: 26px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.send-jx-seg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-right: 1px solid #2a2a2a;
+  transition: background 0.18s;
+}
+.send-jx-seg:last-child { border-right: none; }
+.send-jx-seg-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(247, 241, 230, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+/* Per-segment bg/active colors echo the bank palette. */
+.send-jx-seg-init,
+.send-jx-seg-divider     { background: #3a3a3a; }
+.send-jx-seg-bank-c      { background: rgba(31, 110, 91, 0.30); }
+.send-jx-seg-bank-d      { background: rgba(51, 80, 143, 0.30); }
+.send-jx-seg-sequence    { background: rgba(31, 110, 91, 0.30); }
+.send-jx-seg.active.send-jx-seg-init,
+.send-jx-seg.active.send-jx-seg-divider { background: #b94a2e; }
+.send-jx-seg.active.send-jx-seg-bank-c  { background: #1f6e5b; }
+.send-jx-seg.active.send-jx-seg-bank-d  { background: #33508f; }
+.send-jx-seg.active.send-jx-seg-sequence { background: #1f6e5b; }
+.send-jx-seg.active .send-jx-seg-label  { color: #f7f1e6; }
+
+.send-jx-indicator {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 0%;
+  width: 2px;
+  background: #f7f1e6;
+  pointer-events: none;
+  transition: left 0.12s linear;
+  box-shadow: 0 0 4px rgba(247, 241, 230, 0.6);
+}
+.send-jx-timeline.complete .send-jx-indicator { display: none; }
 .modal-btn {
   padding: 7px 16px;
   background: none;

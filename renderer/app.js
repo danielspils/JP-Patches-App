@@ -1467,17 +1467,95 @@ function handleSendSequenceToJX() {
     });
     return;
   }
-  showLoadSequenceModal({
-    seq,
-    onSend: async () => {
-      const result = await window.api.seqTapeLoad(seq.tape);
-      if (result && result.saved) {
-        console.log('Loaded (exported) sequence WAV to', result.path);
-      } else if (result && result.error) {
-        console.error('Sequencer load (export) error:', result.error);
-      }
-    },
-  });
+  // Build the paired-patch / RATE / note reminder as an "intro" block to
+  // sit above the standard send-to-JX flow.
+  const intro = buildSequenceIntro(seq);
+  const label = seq.customName || seq.defaultName || null;
+  // jx3p seq-json-to-wav validates kind: "sequence" + format_version; the
+  // saved seq.tape only carries `pages`, so wrap it here.
+  const exportData = {
+    format_version: '1.0',
+    kind: 'sequence',
+    pages: seq.tape.pages,
+  };
+  showSendSequenceToJxModal(exportData, label, intro);
+}
+
+// Construct the paired-patch + RATE-slider + note reminder block reused
+// by the sequence-send modal. Pulled out of the old showLoadSequenceModal
+// so the new flow can drop it in as an intro DOM node.
+function buildSequenceIntro(seq) {
+  const pp = (seq.app && seq.app.pairedPatch) || {};
+  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
+  const pName = pp.patchName || '(unnamed)';
+  const note = (seq.app && seq.app.patchNote) || '';
+  const ratePct = seq.app && seq.app.rate && typeof seq.app.rate.sliderPercent === 'number'
+    ? seq.app.rate.sliderPercent
+    : null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'seq-modal-intro';
+
+  // Paired patch.
+  const ppSec = document.createElement('div');
+  ppSec.className = 'seq-modal-section';
+  const ppLabel = document.createElement('label');
+  ppLabel.textContent = 'Paired patch (select this slot on your JX-3P)';
+  const ppValue = document.createElement('div');
+  ppValue.className = 'seq-modal-paired';
+  ppValue.textContent = `${where}: ${pName}`;
+  ppSec.appendChild(ppLabel);
+  ppSec.appendChild(ppValue);
+  wrap.appendChild(ppSec);
+
+  // RATE slider reminder.
+  const rateSec = document.createElement('div');
+  rateSec.className = 'seq-modal-section';
+  const rateLabel = document.createElement('label');
+  rateLabel.textContent = ratePct === null
+    ? 'RATE slider (not captured at save time)'
+    : 'Set the JX-3P RATE slider to roughly this position';
+  const rateRow = document.createElement('div');
+  rateRow.className = 'seq-modal-rate-row';
+  const slowEnd = document.createElement('span');
+  slowEnd.className = 'seq-modal-rate-end';
+  slowEnd.textContent = 'SLOW';
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = String(ratePct == null ? 50 : ratePct);
+  slider.className = 'seq-modal-rate-slider';
+  slider.disabled = true;
+  const fastEnd = document.createElement('span');
+  fastEnd.className = 'seq-modal-rate-end';
+  fastEnd.textContent = 'FAST';
+  const pctLabel = document.createElement('span');
+  pctLabel.className = 'seq-modal-rate-pct';
+  pctLabel.textContent = ratePct == null ? '—' : `${ratePct}%`;
+  rateRow.appendChild(slowEnd);
+  rateRow.appendChild(slider);
+  rateRow.appendChild(fastEnd);
+  rateRow.appendChild(pctLabel);
+  rateSec.appendChild(rateLabel);
+  rateSec.appendChild(rateRow);
+  wrap.appendChild(rateSec);
+
+  // Optional note.
+  if (note) {
+    const noteSec = document.createElement('div');
+    noteSec.className = 'seq-modal-section';
+    const noteLabel = document.createElement('label');
+    noteLabel.textContent = 'Note';
+    const noteValue = document.createElement('div');
+    noteValue.className = 'seq-modal-paired';
+    noteValue.textContent = note;
+    noteSec.appendChild(noteLabel);
+    noteSec.appendChild(noteValue);
+    wrap.appendChild(noteSec);
+  }
+
+  return wrap;
 }
 
 function showLoadSequenceModal({ seq, onSend }) {
@@ -1935,7 +2013,28 @@ async function handleToneSave() {
 }
 
 async function handleToneLoad() {
-  if (!patches || !Array.isArray(patches.banks) || patches.banks.length < 2) {
+  // Pick the source: when the user is browsing the Library Tones sub-tab
+  // with a package selected, send that package directly. Otherwise send the
+  // active C/D banks. This matches the intuition that clicking Load while
+  // viewing "Martin Crane DUMBO Sounds" sends *that* — without making the
+  // user first round-trip it through the active banks.
+  let exportData = patches;
+  let label = activeBanksSourceLabel || null;
+  if (selBank === 'L' && selLibTab === 'tones' && selPackage !== null
+      && library && Array.isArray(library.packages) && library.packages[selPackage]) {
+    const pkg = library.packages[selPackage];
+    if (pkg.banks && pkg.banks.length === 2) {
+      // jx3p's bank.schema.json requires { format_version, banks }; library
+      // packages carry extra fields (id, slotMeta, customName, savedAt) that
+      // the schema doesn't know about, so wrap a minimal-shape object here.
+      exportData = {
+        format_version: (patches && patches.format_version) || '1.0',
+        banks: pkg.banks,
+      };
+      label = pkg.customName || pkg.defaultName || null;
+    }
+  }
+  if (!exportData || !Array.isArray(exportData.banks) || exportData.banks.length < 2) {
     console.error('No patch data to export');
     return;
   }
@@ -1944,12 +2043,301 @@ async function handleToneLoad() {
   // will restore the name no matter what slot they come back in.
   recordAllNamedToHistory();
   saveLibraryDebounced();
-  const result = await window.api.tapeLoad(patches);
-  if (result && result.saved) {
-    console.log('Loaded (exported) tape dump WAV to', result.path);
-  } else if (result && result.error) {
-    console.error('Load (export) error:', result.error);
-  }
+  showSendToJxModal(exportData, label);
+}
+
+// Two-step send-to-JX flow:
+//   Step 1: setup instructions + "Send to JX-3P" button. Clicking it just
+//           encodes the WAV in-app (no playback yet) and transforms the
+//           modal into a ready-to-play state.
+//   Step 2: a Play button. The user puts the JX into Tape Memory → Tone →
+//           Load mode, THEN hits Play; the audio leaves the Mac at a moment
+//           the JX is armed and waiting.
+function showSendToJxModal(exportData, sourceLabel) {
+  return showSendToJxFlow({
+    exportData,
+    sourceLabel,
+    kind: 'patches',
+    encodeApi: 'tapeEncodeToTemp',
+    saveApi:   'tapeLoad',
+    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button &gt; <b>Tone/Load</b> (button 16), then hit play below.',
+    segments:  [
+      { kind: 'init',    label: 'Init',    pilot: true  },
+      { kind: 'bank-c',  label: 'Bank C',  pilot: false },
+      { kind: 'divider', label: 'Divider', pilot: true  },
+      { kind: 'bank-d',  label: 'Bank D',  pilot: false },
+    ],
+  });
+}
+
+function showSendSequenceToJxModal(exportData, sourceLabel, intro) {
+  return showSendToJxFlow({
+    exportData,
+    sourceLabel,
+    intro,
+    kind: 'sequence',
+    encodeApi: 'seqTapeEncodeToTemp',
+    saveApi:   'seqTapeLoad',
+    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button &gt; <b>Sequencer/Load</b>, then hit play below.',
+    segments:  [
+      { kind: 'init',     label: 'Init',     pilot: true  },
+      { kind: 'sequence', label: 'Sequence', pilot: false },
+    ],
+  });
+}
+
+// Generic "send a tape dump to the JX-3P" flow. Step 1 shows setup
+// instructions and a Send button; step 2 (after encoding) shows the timeline
+// + Play; on completion, Done closes the modal. Used by both tone patches
+// and sequencer dumps via thin wrappers above.
+function showSendToJxFlow(opts) {
+  const { exportData, sourceLabel, kind, encodeApi, saveApi, jxStep2, segments, intro } = opts;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal send-jx-modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  const noun = kind === 'sequence' ? 'sequence' : 'patches';
+  h.textContent = sourceLabel
+    ? `Send "${sourceLabel}" to JX-3P`
+    : `Send ${noun} to JX-3P`;
+  modal.appendChild(h);
+
+  if (intro) modal.appendChild(intro);
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  body.innerHTML =
+    '<ol style="padding-left: 20px; margin: 0;">' +
+      '<li>Connect your Mac headphone out to JX-3P Tape Memory LOAD input.</li>' +
+      '<li>Turn up Mac volume to 100%.</li>' +
+      '<li>Click the <b>Send to JX-3P</b> button below.</li>' +
+    '</ol>';
+  modal.appendChild(body);
+
+  // Status row: per-segment timeline (driven by opts.segments) with a
+  // playback indicator, plus a status text line. Hidden until step 2.
+  const status = document.createElement('div');
+  status.className = 'send-jx-status';
+  const timeline = document.createElement('div');
+  timeline.className = 'send-jx-timeline';
+  timeline.style.display = 'none';
+  const segs = segments.map((cfg) => {
+    const seg = document.createElement('div');
+    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
+    const label = document.createElement('span');
+    label.className = 'send-jx-seg-label';
+    label.textContent = cfg.label.toUpperCase();
+    seg.appendChild(label);
+    timeline.appendChild(seg);
+    return { ...cfg, el: seg };
+  });
+  const indicator = document.createElement('div');
+  indicator.className = 'send-jx-indicator';
+  timeline.appendChild(indicator);
+  status.appendChild(timeline);
+  const statusText = document.createElement('div');
+  statusText.className = 'send-jx-status-text';
+  status.appendChild(statusText);
+  modal.appendChild(status);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'modal-btn';
+  saveBtn.textContent = 'Save WAV…';
+  saveBtn.title = 'Export to a file instead of sending directly';
+  const primaryBtn = document.createElement('button');
+  primaryBtn.className = 'modal-btn modal-btn-confirm';
+  primaryBtn.textContent = 'Send to JX-3P';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  actions.appendChild(primaryBtn);
+  modal.appendChild(actions);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // Active playback state.
+  let audioEl = null;
+  let tempPath = null;
+  let progressTimer = null;
+  let cancelled = false;
+
+  const cleanup = async () => {
+    if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+    if (audioEl) {
+      try { audioEl.pause(); } catch {}
+      audioEl.src = '';
+      audioEl = null;
+    }
+    if (tempPath) {
+      try { await window.api.tapeCleanupTemp(tempPath); } catch {}
+      tempPath = null;
+    }
+  };
+
+  const close = async () => {
+    await cleanup();
+    overlay.remove();
+  };
+
+  cancelBtn.addEventListener('click', async () => {
+    cancelled = true;
+    await close();
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    primaryBtn.disabled = true;
+    saveBtn.disabled = true;
+    const result = await window.api[saveApi](exportData);
+    if (result && result.saved) {
+      statusText.textContent = `Saved to ${result.path}`;
+      saveBtn.textContent = 'Saved';
+    } else if (result && result.error) {
+      statusText.textContent = `Save failed: ${result.error}`;
+      saveBtn.disabled = false;
+    } else {
+      saveBtn.disabled = false;
+      primaryBtn.disabled = false;
+    }
+  });
+
+  // Segment boundaries derived from opts.segments. Pilot segments are EXACT
+  // (4096 bits × 50 samples/bit / 44100 Hz = 4.6440s each); non-pilots share
+  // the remaining duration equally.
+  const PILOT_SEC = 4096 * 50 / 44100;
+  let segDurations = null; // per-segment duration in seconds, indexed parallel to `segs`
+
+  const computeSegDurations = (total) => {
+    const numPilots = segs.filter((s) => s.pilot).length;
+    const numData = segs.length - numPilots;
+    const pilotTotal = numPilots * PILOT_SEC;
+    const dataEach = numData > 0 ? Math.max(0, (total - pilotTotal) / numData) : 0;
+    return segs.map((s) => (s.pilot ? PILOT_SEC : dataEach));
+  };
+
+  const applySegProportions = (durations) => {
+    segs.forEach((s, i) => { s.el.style.flexGrow = String(Math.max(0.01, durations[i])); });
+  };
+
+  const updateIndicator = (currentSec) => {
+    if (!segDurations) return;
+    const total = segDurations.reduce((a, b) => a + b, 0);
+    if (!total) return;
+    const pct = Math.min(100, (currentSec / total) * 100);
+    indicator.style.left = `${pct}%`;
+    // Highlight whichever segment the playhead is currently inside.
+    let acc = 0;
+    let activeIdx = 0;
+    for (let i = 0; i < segs.length; i++) {
+      acc += segDurations[i];
+      if (currentSec < acc) { activeIdx = i; break; }
+      activeIdx = i;
+    }
+    segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
+  };
+
+  // Step 2: arm the JX, then click Play to send the audio.
+  const enterPlayState = (durationSec) => {
+    primaryBtn.disabled = false;
+    primaryBtn.textContent = '▶ Play';
+    saveBtn.style.display = 'none';
+    h.textContent = 'Ready to send';
+    const dur = durationSec ? `${Math.ceil(durationSec)} seconds` : 'about 25 seconds';
+    body.innerHTML =
+      `<p>Tape dump audio is ready.</p>` +
+      `<p style="margin-top: 8px;">${jxStep2}</p>` +
+      `<p style="margin-top: 8px; color: var(--text-mid); font-size: 12px;">Transfer takes about ${dur}. Don’t switch apps or generate audio during transfer.</p>`;
+    statusText.textContent = '';
+    segDurations = computeSegDurations(durationSec);
+    applySegProportions(segDurations);
+    timeline.style.display = '';
+  };
+
+  const startPlayback = async () => {
+    primaryBtn.disabled = true;
+    cancelBtn.textContent = 'Cancel';
+    statusText.textContent = 'Playing…';
+    try {
+      await audioEl.play();
+    } catch (err) {
+      statusText.textContent = `Playback blocked: ${err.message}`;
+      primaryBtn.disabled = false;
+      return;
+    }
+    progressTimer = setInterval(() => {
+      if (!audioEl) return;
+      updateIndicator(audioEl.currentTime || 0);
+    }, 100);
+  };
+
+  // Step 1 → 2: encode the WAV, then hand off to enterPlayState. The primary
+  // button is then re-armed as a Play button, and finally as a Done button
+  // that closes the modal after the transfer completes.
+  primaryBtn.addEventListener('click', async () => {
+    if (primaryBtn.dataset.state === 'done') {
+      await close();
+      return;
+    }
+    if (primaryBtn.dataset.state === 'play') {
+      startPlayback();
+      return;
+    }
+
+    primaryBtn.disabled = true;
+    saveBtn.disabled = true;
+    statusText.textContent = 'Encoding…';
+
+    const result = await window.api[encodeApi](exportData);
+    if (cancelled) return;
+    if (!result || !result.ok) {
+      // Encoder errors (Python tracebacks, schema validation dumps) can be
+      // huge. Take the first line and cap it so the modal doesn't blow up.
+      const raw = (result && result.error) || 'unknown error';
+      const firstLine = String(raw).split('\n')[0].slice(0, 200);
+      statusText.textContent = `Encode failed: ${firstLine}`;
+      primaryBtn.disabled = false;
+      saveBtn.disabled = false;
+      return;
+    }
+    tempPath = result.path;
+
+    audioEl = new Audio('file://' + tempPath);
+    audioEl.preload = 'auto';
+
+    audioEl.addEventListener('loadedmetadata', () => {
+      enterPlayState(audioEl.duration);
+      primaryBtn.dataset.state = 'play';
+    });
+
+    audioEl.addEventListener('ended', () => {
+      if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+      indicator.style.left = '100%';
+      // Mark every segment "active" so the whole bar lights up at completion.
+      segs.forEach((s) => s.el.classList.add('active'));
+      timeline.classList.add('complete');
+      statusText.textContent = '✓ Complete. Check your JX for confirmation.';
+      // Done is now the only action — it closes the modal.
+      primaryBtn.textContent = 'Done';
+      primaryBtn.disabled = false;
+      primaryBtn.dataset.state = 'done';
+      cancelBtn.style.display = 'none';
+    });
+
+    audioEl.addEventListener('error', () => {
+      statusText.textContent = 'Playback error. Try Save WAV… instead.';
+      primaryBtn.disabled = false;
+      saveBtn.disabled = false;
+      saveBtn.style.display = '';
+    });
+  });
 }
 
 // ── Sequencer mode ─────────────────────────────────────────────────────
@@ -2545,23 +2933,41 @@ function handleBuilderSave() {
   if (cCount + dCount === 0) return;
 
   const now = new Date();
-  const banks = [
-    s.C.map((entry) => entry
-      ? JSON.parse(JSON.stringify(entry.params))
-      : silentDefaultPatch()),
-    s.D.map((entry) => entry
-      ? JSON.parse(JSON.stringify(entry.params))
-      : silentDefaultPatch()),
-  ];
+  // Empty bucket slots inherit from the current active C/D banks at the same
+  // position — so the user can iterate on a few slots without nuking the rest
+  // of the bank. silentDefaultPatch() is only the final fallback for the
+  // (unlikely) case where active banks aren't populated for a slot.
+  const activeC = (patches && patches.banks && patches.banks[0]) || [];
+  const activeD = (patches && patches.banks && patches.banks[1]) || [];
+  const activeMeta = (library && library.slotMeta) || {};
+  const fillBank = (bucket, activeBank) =>
+    bucket.map((entry, i) => {
+      if (entry) return JSON.parse(JSON.stringify(entry.params));
+      if (activeBank[i]) return JSON.parse(JSON.stringify(activeBank[i]));
+      return silentDefaultPatch();
+    });
+  const banks = [fillBank(s.C, activeC), fillBank(s.D, activeD)];
+
   const slotMeta = { C: [], D: [] };
-  ['C', 'D'].forEach((bank, bi) => {
+  ['C', 'D'].forEach((bank) => {
     for (let i = 0; i < 16; i++) {
       const entry = s[bank][i];
-      slotMeta[bank][i] = {
-        name:        entry ? (entry.name || null) : null,
-        origin:      entry && entry.origin ? entry.origin : `${bank}${i + 1}`,
-        sourceLabel: entry && entry.sourceLabel ? entry.sourceLabel : null,
-      };
+      if (entry) {
+        slotMeta[bank][i] = {
+          name:        entry.name || null,
+          origin:      entry.origin || `${bank}${i + 1}`,
+          sourceLabel: entry.sourceLabel || null,
+        };
+      } else {
+        // Inherit slot identity from the active bank position too, so the
+        // saved package's metadata matches the patch params it just adopted.
+        const a = (activeMeta[bank] && activeMeta[bank][i]) || {};
+        slotMeta[bank][i] = {
+          name:        a.name || null,
+          origin:      a.origin || `${bank}${i + 1}`,
+          sourceLabel: a.sourceLabel || activeBanksSourceLabel || null,
+        };
+      }
     }
   });
 

@@ -199,6 +199,57 @@ ipcMain.handle('tape-load', async (e, data) => {
   }
 });
 
+// tape-encode-to-temp: same encoder pipeline as tape-load, but writes the WAV
+// to a temp path the renderer can play directly through the Mac audio output
+// (so users don't have to find/play the file themselves). The renderer is
+// expected to call tape-cleanup-temp when playback ends or is cancelled.
+ipcMain.handle('tape-encode-to-temp', async (_e, data) => {
+  const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
+  const tempWav  = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.wav`);
+  try {
+    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${tempWav}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return { ok: true, path: tempWav };
+  } catch (err) {
+    try { fs.unlinkSync(tempWav); } catch {}
+    return { ok: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
+  }
+});
+
+// tape-cleanup-temp: delete a temp WAV produced by tape-encode-to-temp
+// or seq-tape-encode-to-temp. Safe-bounded to our jp_patches_ prefixes
+// in os.tmpdir() so the renderer can't ask us to unlink an arbitrary path.
+ipcMain.handle('tape-cleanup-temp', async (_e, filePath) => {
+  if (typeof filePath !== 'string') return { ok: false };
+  const okPrefix1 = path.join(os.tmpdir(), 'jp_patches_export_');
+  const okPrefix2 = path.join(os.tmpdir(), 'jp_seq_export_');
+  if (!filePath.startsWith(okPrefix1) && !filePath.startsWith(okPrefix2)) return { ok: false };
+  try { fs.unlinkSync(filePath); return { ok: true }; }
+  catch { return { ok: false }; }
+});
+
+// seq-tape-encode-to-temp: same flow as tape-encode-to-temp but for the
+// sequencer dump WAV (jx3p seq-json-to-wav). Returns a temp WAV path the
+// renderer plays directly to the JX.
+ipcMain.handle('seq-tape-encode-to-temp', async (_e, data) => {
+  const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
+  const tempWav  = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.wav`);
+  try {
+    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${tempWav}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return { ok: true, path: tempWav };
+  } catch (err) {
+    try { fs.unlinkSync(tempWav); } catch {}
+    return { ok: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
+  }
+});
+
 async function decodeSeqFile(filePath) {
   const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
   try {
