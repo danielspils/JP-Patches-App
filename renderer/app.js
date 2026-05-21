@@ -1500,7 +1500,7 @@ function buildSequenceIntro(seq) {
   const ppSec = document.createElement('div');
   ppSec.className = 'seq-modal-section';
   const ppLabel = document.createElement('label');
-  ppLabel.textContent = 'Paired patch (select this slot on your JX-3P)';
+  ppLabel.textContent = 'PAIRED PATCH from the person who made this sequence';
   const ppValue = document.createElement('div');
   ppValue.className = 'seq-modal-paired';
   ppValue.textContent = `${where}: ${pName}`;
@@ -1508,37 +1508,55 @@ function buildSequenceIntro(seq) {
   ppSec.appendChild(ppValue);
   wrap.appendChild(ppSec);
 
-  // RATE slider reminder.
+  // RATE slider reminder — drawn as a custom JX-3P-style horizontal slider
+  // with 11 tick marks (0..10) and "0 / 5 / 10" labels underneath, instead
+  // of a native <input type="range"> which can't be styled to match.
   const rateSec = document.createElement('div');
   rateSec.className = 'seq-modal-section';
   const rateLabel = document.createElement('label');
   rateLabel.textContent = ratePct === null
     ? 'RATE slider (not captured at save time)'
-    : 'Set the JX-3P RATE slider to roughly this position';
-  const rateRow = document.createElement('div');
-  rateRow.className = 'seq-modal-rate-row';
-  const slowEnd = document.createElement('span');
-  slowEnd.className = 'seq-modal-rate-end';
-  slowEnd.textContent = 'SLOW';
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = String(ratePct == null ? 50 : ratePct);
-  slider.className = 'seq-modal-rate-slider';
-  slider.disabled = true;
-  const fastEnd = document.createElement('span');
-  fastEnd.className = 'seq-modal-rate-end';
-  fastEnd.textContent = 'FAST';
-  const pctLabel = document.createElement('span');
-  pctLabel.className = 'seq-modal-rate-pct';
-  pctLabel.textContent = ratePct == null ? '—' : `${ratePct}%`;
-  rateRow.appendChild(slowEnd);
-  rateRow.appendChild(slider);
-  rateRow.appendChild(fastEnd);
-  rateRow.appendChild(pctLabel);
+    : `Set the RATE slider to roughly ${ratePct}%`;
   rateSec.appendChild(rateLabel);
-  rateSec.appendChild(rateRow);
+
+  const sliderVisual = document.createElement('div');
+  sliderVisual.className = 'rate-slider-visual vertical' + (ratePct == null ? ' uncaptured' : '');
+
+  // Track + thumb sit centered; tick rows are absolutely positioned by
+  // bottom% along the same parent. Each row has [label-L | tick-L | (gap
+  // bridged by the centered track) | tick-R | label-R]. Major rows
+  // (i % 5 === 0) get number labels and longer/brighter tick marks,
+  // mirroring the physical JX RATE slider where 0 is bottom, 10 is top.
+  const track = document.createElement('div');
+  track.className = 'rate-slider-track';
+  const thumb = document.createElement('div');
+  thumb.className = 'rate-slider-thumb';
+  thumb.style.bottom = `${ratePct == null ? 50 : ratePct}%`;
+  sliderVisual.appendChild(track);
+  sliderVisual.appendChild(thumb);
+
+  for (let i = 0; i <= 10; i++) {
+    const row = document.createElement('div');
+    row.className = 'rate-tick-row' + (i % 5 === 0 ? ' major' : '');
+    row.style.bottom = `${i * 10}%`;
+    const labelL = document.createElement('span');
+    labelL.className = 'rate-tick-label left';
+    labelL.textContent = (i % 5 === 0) ? String(i) : '';
+    const tickL = document.createElement('span');
+    tickL.className = 'rate-tick-mark left';
+    const tickR = document.createElement('span');
+    tickR.className = 'rate-tick-mark right';
+    const labelR = document.createElement('span');
+    labelR.className = 'rate-tick-label right';
+    labelR.textContent = (i % 5 === 0) ? String(i) : '';
+    row.appendChild(labelL);
+    row.appendChild(tickL);
+    row.appendChild(tickR);
+    row.appendChild(labelR);
+    sliderVisual.appendChild(row);
+  }
+
+  rateSec.appendChild(sliderVisual);
   wrap.appendChild(rateSec);
 
   // Optional note.
@@ -1546,7 +1564,7 @@ function buildSequenceIntro(seq) {
     const noteSec = document.createElement('div');
     noteSec.className = 'seq-modal-section';
     const noteLabel = document.createElement('label');
-    noteLabel.textContent = 'Note';
+    noteLabel.textContent = 'NOTES from the person who made this sequence';
     const noteValue = document.createElement('div');
     noteValue.className = 'seq-modal-paired';
     noteValue.textContent = note;
@@ -1632,7 +1650,7 @@ function showLoadSequenceModal({ seq, onSend }) {
     noteSec = document.createElement('div');
     noteSec.className = 'seq-modal-section';
     const noteLabel = document.createElement('label');
-    noteLabel.textContent = 'Note';
+    noteLabel.textContent = 'NOTES from the person who made this sequence';
     const noteValue = document.createElement('div');
     noteValue.className = 'seq-modal-paired';
     noteValue.textContent = note;

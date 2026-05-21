@@ -894,8 +894,7 @@ body {
   color: var(--text-mid);
   font-size: 11px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   margin-bottom: 6px;
 }
 .seq-modal-paired {
@@ -906,48 +905,95 @@ body {
   border: 1px solid var(--border-dim);
   border-radius: 3px;
 }
-.seq-modal-rate-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* JX-3P-style VERTICAL slider visualization (read-only).
+   Track is centered; tick marks + numeric labels (10/5/0 top→bottom)
+   on BOTH sides match the physical synth panel. Slider cap has a
+   center groove via ::after.
+
+   Coordinates: bottom% rises with the captured rate — 0 at bottom =
+   SLOW, 100 at top = FAST. */
+.rate-slider-visual.vertical {
+  display: block;
+  position: relative;
+  width: 110px;
+  height: 160px;
+  margin: 6px auto 0;
 }
-.seq-modal-rate-end {
-  color: var(--text-mid);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  min-width: 30px;
-}
-.seq-modal-rate-end:last-of-type { text-align: right; }
-.seq-modal-rate-slider {
-  flex: 1;
-  -webkit-appearance: none;
-  appearance: none;
-  height: 6px;
+.seq-modal-section:has(.rate-slider-visual) label { text-align: center; }
+.rate-slider-visual.uncaptured { opacity: 0.5; }
+.rate-slider-visual.vertical .rate-slider-track {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
   background: #0e0e0e;
   border: 1px solid var(--border-dim);
-  border-radius: 3px;
-  outline: none;
+  border-radius: 2px;
 }
-.seq-modal-rate-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 22px;
-  background: linear-gradient(180deg, #d4d4d4 0%, #8a8a8a 50%, #5a5a5a 100%);
+.rate-slider-visual.vertical .rate-slider-thumb {
+  position: absolute;
+  left: 50%;
+  width: 24px;
+  height: 14px;
+  margin-left: -12px;
+  margin-bottom: -7px;
+  background: linear-gradient(180deg, #d4d4d4 0%, #9c9c9c 50%, #5a5a5a 100%);
   border: 1px solid #1a1a1a;
   border-radius: 2px;
-  cursor: pointer;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 2;
 }
-.seq-modal-rate-pct {
-  color: var(--text-bright);
-  font-size: 12px;
+.rate-slider-visual.vertical .rate-slider-thumb::after {
+  /* Center groove — the finger-grip notch on the JX cap. */
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 50%;
+  margin-top: -1px;
+  height: 2px;
+  background: #2a2a2a;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+/* Each tick row is absolutely positioned at its bottom % and spans the
+   full width. The track sits behind in the middle, and the row's tick
+   marks visually extend out from the track's left and right edges. */
+.rate-tick-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.rate-tick-mark {
+  display: inline-block;
+  height: 1px;
+  width: 6px;
+  background: #aea696;
+}
+.rate-tick-mark.left  { margin-right: auto; }
+.rate-tick-mark.right { margin-left: auto; }
+.rate-tick-row.major .rate-tick-mark {
+  width: 12px;
+  background: #f7f1e6;
+}
+.rate-tick-label {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  color: var(--text-mid);
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
-  min-width: 36px;
-  text-align: right;
 }
+.rate-tick-row.major .rate-tick-label { color: #f7f1e6; }
 .seq-modal-note {
   width: 100%;
   background: #0e0e0e;
