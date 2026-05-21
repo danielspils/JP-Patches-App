@@ -2739,9 +2739,14 @@ async function handleTonesDropImport(filePath) {
     return;
   }
   const now = new Date();
+  // Default to the dropped file's name (sans .wav/.json extension) so the
+  // library entry is recognizable at a glance. Fall back to a date-stamped
+  // "Imported" label if for some reason the path can't be parsed.
+  const fileLabel = labelFromPath(filePath);
   const pkg = {
     id: now.toISOString(),
-    defaultName: `Imported ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+    defaultName: fileLabel
+      || `Imported ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
     customName: '',
     savedAt: now.toISOString(),
     banks,
