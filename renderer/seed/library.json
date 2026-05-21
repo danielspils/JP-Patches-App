@@ -2,10 +2,10 @@
   "version": "1.0",
   "packages": [
     {
-      "id": "2026-05-21T15:59:37.054Z",
+      "id": "2026-05-21T17:36:51.444Z",
       "defaultName": "Custom C/D banks May 21, 2026",
       "customName": "Spils Sounds",
-      "savedAt": "2026-05-21T15:59:37.054Z",
+      "savedAt": "2026-05-21T17:36:51.444Z",
       "banks": [
         [
           {
@@ -887,41 +887,6 @@
           },
           {
             "dco1_range": "16'",
-            "dco1_waveform": "pulse",
-            "dco1_fmod_lfo": true,
-            "dco1_fmod_env": true,
-            "dco2_range": "8'",
-            "dco2_waveform": "square",
-            "dco2_crossmod": "sync",
-            "dco2_tune": 132,
-            "dco2_fine_tune": 108,
-            "dco2_fmod_lfo": false,
-            "dco2_fmod_env": false,
-            "dco_lfo_amount": 115,
-            "dco_env_amount": 127,
-            "dco_env_polarity": "pos",
-            "vcf_mix": 0,
-            "vcf_hpf": 0,
-            "vcf_cutoff": 94,
-            "vcf_lfo_mod": 0,
-            "vcf_pitch_follow": 129,
-            "vcf_resonance": 204,
-            "vcf_env_mod": 13,
-            "vcf_env_polarity": "pos",
-            "vca_mode": "env",
-            "vca_level": 254,
-            "chorus": false,
-            "lfo_waveform": "sine",
-            "lfo_delay": 118,
-            "lfo_rate": 219,
-            "env_attack": 254,
-            "env_decay": 89,
-            "env_sustain": 252,
-            "env_release": 165,
-            "mystery": 0
-          },
-          {
-            "dco1_range": "16'",
             "dco1_waveform": "saw",
             "dco1_fmod_lfo": false,
             "dco1_fmod_env": true,
@@ -1099,6 +1064,41 @@
             "dco1_range": "16'",
             "dco1_waveform": "saw",
             "dco1_fmod_lfo": false,
+            "dco1_fmod_env": true,
+            "dco2_range": "16'",
+            "dco2_waveform": "saw",
+            "dco2_crossmod": "metal",
+            "dco2_tune": 88,
+            "dco2_fine_tune": 108,
+            "dco2_fmod_lfo": false,
+            "dco2_fmod_env": false,
+            "dco_lfo_amount": 35,
+            "dco_env_amount": 0,
+            "dco_env_polarity": "neg",
+            "vcf_mix": 254,
+            "vcf_hpf": 0,
+            "vcf_cutoff": 13,
+            "vcf_lfo_mod": 0,
+            "vcf_pitch_follow": 184,
+            "vcf_resonance": 254,
+            "vcf_env_mod": 112,
+            "vcf_env_polarity": "pos",
+            "vca_mode": "gate",
+            "vca_level": 209,
+            "chorus": false,
+            "lfo_waveform": "square",
+            "lfo_delay": 0,
+            "lfo_rate": 125,
+            "env_attack": 0,
+            "env_decay": 0,
+            "env_sustain": 142,
+            "env_release": 0,
+            "mystery": 0
+          },
+          {
+            "dco1_range": "16'",
+            "dco1_waveform": "saw",
+            "dco1_fmod_lfo": false,
             "dco1_fmod_env": false,
             "dco2_range": "16'",
             "dco2_waveform": "saw",
@@ -1137,164 +1137,164 @@
           {
             "name": "Square Pants",
             "origin": "C1",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
-            "name": "Bubbly Wubbly",
+            "name": "Prosecco",
             "origin": "C2",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Rhodes-ish",
             "origin": "C3",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
-            "name": "Gulp!",
+            "name": "Big Gulp",
             "origin": "C4",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Rising Tide",
             "origin": "C5",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Ghost Notes",
             "origin": "C6",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Eighties Arp",
             "origin": "C7",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Deep Unrest",
             "origin": "C8",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Beasty Girls",
             "origin": "C9",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Brass Tacks",
             "origin": "C10",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Recorder Disorder",
             "origin": "C11",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Steak Stabwich",
             "origin": "C12",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Weebles Wobble",
             "origin": "C13",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
-            "name": "Spider's Web",
+            "name": "Spider Web",
             "origin": "C14",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Late Bloomer",
             "origin": "C15",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Haus Party",
             "origin": "C16",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           }
         ],
         "D": [
           {
             "name": "Classic Strings",
             "origin": "D1",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Juicy Fruit",
             "origin": "D2",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Subtle Sizzle",
             "origin": "D3",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "PBS",
             "origin": "D4",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Super Stab!",
             "origin": "D5",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Ghoulish Tremors",
             "origin": "D6",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
-            "name": "Horny Toad",
+            "name": "Brass Swell",
             "origin": "D7",
             "sourceLabel": "D7 sound patches"
           },
           {
             "name": "Wait ... what?",
             "origin": "D8",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Spooky Spirits",
             "origin": "D9",
-            "sourceLabel": "Daniel's Patches"
-          },
-          {
-            "name": "Spooky Spirits",
-            "origin": "D9",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Thunderpig",
             "origin": "D10",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Eighties Redux",
             "origin": "D11",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Looney Tunes",
             "origin": "D12",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Pluck Bass",
             "origin": "D13",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Cutie Pie",
             "origin": "D14",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
+          },
+          {
+            "name": "Angry Bird",
+            "origin": "D15",
+            "sourceLabel": "Spils Sounds"
           },
           {
             "name": "Hold Tight",
             "origin": "D16",
-            "sourceLabel": "Daniel's Patches"
+            "sourceLabel": "Spils Sounds"
           }
         ]
       }
@@ -2158,164 +2158,164 @@
       {
         "name": "Square Pants",
         "origin": "C1",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
-        "name": "Bubbly Wubbly",
+        "name": "Prosecco",
         "origin": "C2",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Rhodes-ish",
         "origin": "C3",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
-        "name": "Gulp!",
+        "name": "Big Gulp",
         "origin": "C4",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Rising Tide",
         "origin": "C5",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Ghost Notes",
         "origin": "C6",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Eighties Arp",
         "origin": "C7",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Deep Unrest",
         "origin": "C8",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Beasty Girls",
         "origin": "C9",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Brass Tacks",
         "origin": "C10",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Recorder Disorder",
         "origin": "C11",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Steak Stabwich",
         "origin": "C12",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Weebles Wobble",
         "origin": "C13",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
-        "name": "Spider's Web",
+        "name": "Spider Web",
         "origin": "C14",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Late Bloomer",
         "origin": "C15",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Haus Party",
         "origin": "C16",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       }
     ],
     "D": [
       {
         "name": "Classic Strings",
         "origin": "D1",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Juicy Fruit",
         "origin": "D2",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Subtle Sizzle",
         "origin": "D3",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "PBS",
         "origin": "D4",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Super Stab!",
         "origin": "D5",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Ghoulish Tremors",
         "origin": "D6",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
-        "name": "Horny Toad",
+        "name": "Brass Swell",
         "origin": "D7",
         "sourceLabel": "D7 sound patches"
       },
       {
         "name": "Wait ... what?",
         "origin": "D8",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Spooky Spirits",
         "origin": "D9",
-        "sourceLabel": "Daniel's Patches"
-      },
-      {
-        "name": "Spooky Spirits",
-        "origin": "D9",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Thunderpig",
         "origin": "D10",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Eighties Redux",
         "origin": "D11",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Looney Tunes",
         "origin": "D12",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Pluck Bass",
         "origin": "D13",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Cutie Pie",
         "origin": "D14",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
+      },
+      {
+        "name": "Angry Bird",
+        "origin": "D15",
+        "sourceLabel": "Spils Sounds"
       },
       {
         "name": "Hold Tight",
         "origin": "D16",
-        "sourceLabel": "Daniel's Patches"
+        "sourceLabel": "Spils Sounds"
       }
     ]
   },

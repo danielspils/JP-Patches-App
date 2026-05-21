@@ -4,7 +4,6 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 ## Ready to build
 
-- **First-run seeding.** Ship the app with "Daniel's Patches" loaded into the active C/D banks plus a "Daniel's Sequence" entry in the Library, so a brand-new user sees content instead of an empty state. Source: Daniel's current `~/Desktop/patches.json` + library package + sequence. Seed only when the user's `library.json` is missing on first launch — never re-seed.
 - **README screenshots refresh.** Current screenshots predate the vintage cream palette and the Custom Banks redesign. Capture fresh screenshots and embed in the README.
 
 ## Distribution
@@ -26,7 +25,10 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **MIDI integration (v2).** Full bidirectional CC sync with the JX-3P. Blocked on installing the Series Circuits JX-3P MIDI Upgrade Kit. CC map and architecture are already in the spec doc — see `library-and-midi-spec.md` §Phase 3.
 
+## Data interchange
+
+- **Embed patch names in exported WAV (v1.x).** The JX-3P tape format only carries the 32 patch parameter bytes per slot — no name field — so names are lost when a bank round-trips through WAV. WAV is a RIFF container that allows custom metadata chunks alongside the PCM audio; the JX ignores everything except PCM so adding a chunk doesn't break tape loading. Approach: on export, append a `LIST/INFO`-style chunk containing the bank's `slotMeta` JSON; on import, read it back if present. Result: round-trip via WAV preserves names within the app while remaining a valid JX tape dump. Either implement in the renderer's main-process IPC handler (post-process the WAV after `jx3p json-to-wav` writes it) or push upstream into Bruce's `jx3p` tool with an opt-in flag.
+
 ## Smaller polish
 
-- **Always-centered modal titles.** Currently only modals with no body get centered title + buttons. Could push to "centered title always, regardless of body" for visual consistency. Trade-off: loses the slight visual cue that body-having modals have more info.
 - **(Add new items here as they come up.)**
