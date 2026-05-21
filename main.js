@@ -23,8 +23,20 @@ const UV_BIN = app.isPackaged
 const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
 const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
 
+// First-run seed data — bundled with the app so a brand-new user lands on
+// "Spils Sounds" in the active C/D banks and sees "Spils Sounds" + "Spils
+// Sequence" in the Library, instead of an empty state. Only used when the
+// user's own files don't exist yet; once they make their first change, the
+// app writes their library.json to userData and the seed is no longer read.
+const SEED_PATCHES_PATH = path.join(__dirname, 'renderer', 'seed', 'patches.json');
+const SEED_LIBRARY_PATH = path.join(__dirname, 'renderer', 'seed', 'library.json');
+
 function getLibraryPath() {
   return path.join(app.getPath('userData'), 'library.json');
+}
+
+function readJsonOrNull(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
 }
 
 function buildAppMenu() {
@@ -100,11 +112,12 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 ipcMain.handle('load-patches', () => {
-  try { return JSON.parse(fs.readFileSync(PATCHES_PATH, 'utf8')); } catch { return null; }
+  return readJsonOrNull(PATCHES_PATH) || readJsonOrNull(SEED_PATCHES_PATH);
 });
 ipcMain.handle('load-library', () => {
-  try { return JSON.parse(fs.readFileSync(getLibraryPath(), 'utf8')); }
-  catch { return { version: '1.0', names: {} }; }
+  return readJsonOrNull(getLibraryPath())
+    || readJsonOrNull(SEED_LIBRARY_PATH)
+    || { version: '1.0', names: {} };
 });
 ipcMain.handle('save-library', (_e, data) => {
   fs.writeFileSync(getLibraryPath(), JSON.stringify(data, null, 2), 'utf8');
