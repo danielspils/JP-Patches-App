@@ -39,6 +39,17 @@ function readJsonOrNull(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
 }
 
+// Suggest a filesystem-safe .wav filename for the Save WAV dialog. If the
+// renderer passed a human name (e.g., a library package title), slugify it
+// (spaces → dashes, strip anything outside [A-Za-z0-9-]); otherwise fall
+// back to the supplied default base. Always appends .wav.
+function slugForWav(name, defaultBase) {
+  const base = (typeof name === 'string' && name.trim())
+    ? name.trim().replace(/\s+/g, '-').replace(/[^A-Za-z0-9-]/g, '')
+    : defaultBase;
+  return `${base || defaultBase}.wav`;
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   const template = [
@@ -177,11 +188,11 @@ ipcMain.handle('tape-save-from-path', async (_e, filePath) => {
 // tape-load: LOAD on the JX-3P reads patch data IN to the synth from audio.
 // The app is on the sending side: this handler exports a WAV the user plays
 // into the synth's CMT input, encoded via `jx3p json-to-wav`.
-ipcMain.handle('tape-load', async (e, data) => {
+ipcMain.handle('tape-load', async (e, data, suggestedName) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const dlg = await dialog.showSaveDialog(win, {
     title: 'Load — export tape dump for JX-3P',
-    defaultPath: 'jp-patches-tape.wav',
+    defaultPath: slugForWav(suggestedName, 'jp-patches-tape'),
     filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
   });
   if (dlg.canceled || !dlg.filePath) return { saved: false };
@@ -292,11 +303,11 @@ ipcMain.handle('seq-tape-save-from-path', async (_e, filePath) => {
 
 // seq-tape-load: LOAD on the JX-3P reads sequencer data IN from audio. The app
 // is on the sending side: export a sequence as WAV via `jx3p seq-json-to-wav`.
-ipcMain.handle('seq-tape-load', async (e, data) => {
+ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const dlg = await dialog.showSaveDialog(win, {
     title: 'Load — export sequencer dump for JX-3P',
-    defaultPath: 'jp-patches-sequence.wav',
+    defaultPath: slugForWav(suggestedName, 'jp-patches-sequence'),
     filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
   });
   if (dlg.canceled || !dlg.filePath) return { saved: false };

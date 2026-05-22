@@ -118,6 +118,15 @@ let selSlot  = 0;
 // selected patch" (e.g. pairing a sequence import) still work when the user is
 // looking at the Library tab — the panel still visibly shows that patch.
 let lastBankSelection = { bank: 'C', slot: 0 };
+// Range selection in the C/D patch list — shift-click extends from the
+// most-recent single-click slot to the shift-clicked slot. The whole range
+// is then draggable as one unit into the Custom Banks builder buckets, and
+// each slot in the range renders with an `.in-range` highlight.
+// Shape: { bank: 'C'|'D', start: int, end: int } | null
+let selectedRange = null;
+// Anchor slot for shift-click range — the most recent non-shift click.
+// Persists per bank so flipping tabs doesn't lose the anchor.
+let rangeAnchor = { bank: 'C', slot: 0 };
 let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
@@ -723,12 +732,48 @@ function setupInteraction(svg) {
 // Patch list
 // ═══════════════════════════════════════════════════════════════
 
+// Greys out Tape Memory hardware buttons when their action wouldn't do
+// anything meaningful in the current context. Called from renderPatchList
+// so it runs on every tab/selection change.
+//   - Tone Save: always enabled (it's a file-import).
+//   - Tone Load: needs sendable data — active C/D banks, OR a selected
+//     Library > Tones package.
+//   - Sequencer Save: pairs the dump with the active patch, so it needs
+//     a valid Bank C/D selection + loaded patches.
+//   - Sequencer Load: only meaningful on Library > Sequences with a
+//     sequence selected.
+function updateTapeButtonStates() {
+  const toneSave = document.getElementById('hw-tone-save');
+  const toneLoad = document.getElementById('hw-tone-load');
+  const seqSave  = document.getElementById('hw-seq-save');
+  const seqLoad  = document.getElementById('hw-seq-load');
+  if (!toneSave || !toneLoad || !seqSave || !seqLoad) return;
+
+  const onBank   = selBank === 'C' || selBank === 'D';
+  const onTones  = selBank === 'L' && selLibTab === 'tones';
+  const onSeqs   = selBank === 'L' && selLibTab === 'sequences';
+  const havePatches = !!(patches && Array.isArray(patches.banks) && patches.banks.length === 2);
+  const hasPkg   = onTones && selPackage !== null
+                   && library && Array.isArray(library.packages) && library.packages[selPackage];
+  const hasSeq   = onSeqs && selSequence !== null
+                   && library && Array.isArray(library.sequences) && library.sequences[selSequence];
+
+  toneSave.disabled = false;
+  toneLoad.disabled = !((onBank && havePatches) || hasPkg);
+  // Sequencer Save pairs the imported sequence with the active C/D patch
+  // (which persists as `lastBankSelection` even when the user is browsing
+  // the Library), so it only needs patches loaded — not a specific tab.
+  seqSave .disabled = !havePatches;
+  seqLoad .disabled = !hasSeq;
+}
+
 function renderPatchList() {
   const list = document.getElementById('patch-list');
   const actions = document.getElementById('bottom-actions');
   const subTabs = document.getElementById('lib-sub-tabs');
   list.innerHTML = '';
   actions.innerHTML = '';
+  updateTapeButtonStates();
 
   if (selBank === 'L') {
     if (subTabs) {
@@ -772,8 +817,14 @@ function renderPatchList() {
     const key  = slotKey(selBank, slot);
     const name = patchName(selBank, slot);
 
+    const inRange = selectedRange
+      && selectedRange.bank === selBank
+      && slot >= selectedRange.start
+      && slot <= selectedRange.end;
     const item = document.createElement('div');
-    item.className = 'patch-item' + (slot === selSlot ? ' selected' : '');
+    item.className = 'patch-item'
+      + (slot === selSlot ? ' selected' : '')
+      + (inRange ? ' in-range' : '');
     item.dataset.slot = String(slot);
 
     const num = document.createElement('span');
@@ -841,7 +892,7 @@ function renderPatchList() {
         startNameEdit(slot, nm, inp);
         return;
       }
-      selectPatch(slot);
+      selectPatch(slot, { shiftKey: e.shiftKey });
     });
 
     inp.addEventListener('keydown', (e) => {
@@ -866,13 +917,31 @@ function renderPatchList() {
       e.dataTransfer.setData('text/plain', String(slot));
       e.dataTransfer.setData('application/x-jp-patch-source',
         JSON.stringify({ bank: selBank, slot }));
-      // Custom drag image — just the slot label + name, excluding the info,
-      // swap, and rename-pencil affordances that hang off the row in the
-      // patch list. The element is rendered off-screen so the browser can
-      // snapshot it for the drag visual, then removed after the snapshot.
+      // Shift-click range: if the dragged slot is part of an active range
+      // on the same bank, also include the range descriptor so the bucket
+      // drop handler can place all the patches in one shot.
+      const draggingRange = selectedRange
+        && selectedRange.bank === selBank
+        && slot >= selectedRange.start
+        && slot <= selectedRange.end
+        && selectedRange.end > selectedRange.start;
+      if (draggingRange) {
+        e.dataTransfer.setData('application/x-jp-patch-range',
+          JSON.stringify({ bank: selBank, start: selectedRange.start, end: selectedRange.end }));
+      }
+      // Custom drag image — just the slot label + name (or a "n patches"
+      // summary when dragging a range), excluding the info/swap/pencil
+      // affordances. Rendered off-screen so the browser can snapshot it.
       const ghost = document.createElement('div');
       ghost.className = 'patch-drag-ghost';
-      ghost.textContent = `${key}: ${name || patchPlaceholder(selBank, slot)}`;
+      if (draggingRange) {
+        const n = selectedRange.end - selectedRange.start + 1;
+        const a = slotKey(selBank, selectedRange.start);
+        const b = slotKey(selBank, selectedRange.end);
+        ghost.textContent = `${n} patches  (${a}–${b})`;
+      } else {
+        ghost.textContent = `${key}: ${name || patchPlaceholder(selBank, slot)}`;
+      }
       document.body.appendChild(ghost);
       e.dataTransfer.setDragImage(ghost, 12, 10);
       setTimeout(() => ghost.remove(), 0);
@@ -912,13 +981,24 @@ function renderPatchList() {
   actions.appendChild(btn);
 }
 
-function renderLibraryActions(actions) {
+// Inline "load" button — hover-revealed on each Library row, sits just
+// left of the trash icon. Clicking loads that specific row's data into
+// the active banks / sequence editor (idx is bound by the caller).
+function buildLoadToAppIcon(onClick, title, label) {
   const btn = document.createElement('button');
-  btn.className = 'save-banks-btn';
-  btn.textContent = 'load selected library C/D banks to app';
-  btn.disabled = selPackage === null;
-  btn.addEventListener('click', handleLoadLibraryBanks);
-  actions.appendChild(btn);
+  btn.className = 'package-load-btn';
+  btn.textContent = label || 'load';
+  if (title) btn.title = title;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
+function renderLibraryActions(_actions) {
+  // The "load to app" action moved to an inline hover icon on each
+  // package row (see buildLoadToAppIcon). No bottom-of-list button.
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1016,6 +1096,10 @@ function renderLibraryList(list) {
     item.appendChild(nm);
     item.appendChild(def);
     item.appendChild(inp);
+    item.appendChild(buildLoadToAppIcon(
+      () => handleLoadLibraryBanks(idx),
+      'Load this C/D bank package to app',
+    ));
     item.appendChild(buildTrashIcon(idx));
     list.appendChild(item);
 
@@ -1085,15 +1169,17 @@ function reorderPackage(fromIdx, toIdx) {
   renderPatchList();
 }
 
-function handleLoadLibraryBanks() {
-  if (selPackage === null) return;
-  const pkg = library.packages[selPackage];
+function handleLoadLibraryBanks(idx) {
+  if (idx === undefined) idx = selPackage;
+  if (idx == null) return;
+  const pkg = library.packages[idx];
   if (!pkg) return;
+  const pkgName = pkg.customName || pkg.defaultName || 'This package';
   showConfirmModal({
-    title: 'Overwrite active C/D banks?',
+    title: 'Loading new C/D banks to JP Patches',
     body:
-      'Loading this library package will replace the C and D banks currently in the JP Patches app.\n\n' +
-      'These banks will not be loaded to a JX-3P until you click the "load to JX-3P" button.',
+      `*${pkgName}* will replace the current C and D banks in the JP Patches app.\n\n` +
+      `Use the **Tone → Send to JX-3P** button to send *${pkgName}* to your synth.`,
     confirmLabel: 'Load',
     onConfirm: () => loadPackageIntoActiveBanks(pkg),
   });
@@ -1133,9 +1219,25 @@ function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }
   const p = body ? document.createElement('p') : null;
   if (p) {
     p.className = 'modal-body';
+    // Render newlines as <br>, **bold** as <strong>, and *italic* as <em>.
+    // Anything else stays literal — minimal so the body shape doesn't drift
+    // toward generic HTML injection.
     body.split('\n').forEach((line, i) => {
       if (i > 0) p.appendChild(document.createElement('br'));
-      p.appendChild(document.createTextNode(line));
+      const parts = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/);
+      parts.forEach((piece) => {
+        if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) {
+          const strong = document.createElement('strong');
+          strong.textContent = piece.slice(2, -2);
+          p.appendChild(strong);
+        } else if (piece.startsWith('*') && piece.endsWith('*') && piece.length > 2) {
+          const em = document.createElement('em');
+          em.textContent = piece.slice(1, -1);
+          p.appendChild(em);
+        } else if (piece) {
+          p.appendChild(document.createTextNode(piece));
+        }
+      });
     });
   }
 
@@ -1288,6 +1390,11 @@ function renderSequencesList(list) {
     item.appendChild(nm);
     item.appendChild(def);
     item.appendChild(inp);
+    item.appendChild(buildLoadToAppIcon(
+      () => handleLoadLibrarySequence(idx),
+      'Load the paired patch for this sequence to app',
+      'paired patch',
+    ));
     item.appendChild(buildSequenceTrashIcon(idx));
     list.appendChild(item);
 
@@ -1415,36 +1522,26 @@ function cancelSequenceNameEdit(nm, inp) {
   nm.style.display  = '';
 }
 
-function renderSequencesActions(actions) {
-  const loadBtn = document.createElement('button');
-  loadBtn.className = 'save-banks-btn';
-  loadBtn.textContent = 'load selected sequence to app';
-  loadBtn.disabled = selSequence === null;
-  loadBtn.addEventListener('click', handleLoadLibrarySequence);
-  actions.appendChild(loadBtn);
-
-  const sendBtn = document.createElement('button');
-  sendBtn.className = 'save-banks-btn';
-  sendBtn.textContent = 'send to JX-3P';
-  sendBtn.disabled = selSequence === null;
-  sendBtn.addEventListener('click', handleSendSequenceToJX);
-  actions.appendChild(sendBtn);
+function renderSequencesActions(_actions) {
+  // No bottom-of-list actions on the Sequences sub-tab:
+  // - "load paired patch to app" moved to an inline hover icon on each row
+  // - "send to JX-3P" was duplicative of the panel's Sequencer → Load button
+  //   (which calls handleSequencerLoad → handleSendSequenceToJX when a
+  //   sequence is selected).
 }
 
-function handleLoadLibrarySequence() {
-  if (selSequence === null) return;
-  const seq = library.sequences[selSequence];
+function handleLoadLibrarySequence(idx) {
+  if (idx === undefined) idx = selSequence;
+  if (idx == null) return;
+  const seq = library.sequences[idx];
   if (!seq) return;
   migrateSequenceShape(seq);
-  const pp = seq.app.pairedPatch;
-  const where = (pp.bank || 'C') + ((pp.slot || 0) + 1);
+  const seqName = seq.customName || seq.defaultName || 'this sequence';
   showConfirmModal({
-    title: 'Load paired patch to app?',
+    title: 'Loading Paired Patch to JP Patches',
     body:
-      `Loading this Sequence will jump to the paired patch slot (${where}) and ` +
-      `apply the patch parameters captured at save time.\n\n` +
-      'This restores the patch in the app only. To send the sequence to your ' +
-      'JX-3P, use the "send to JX-3P" button.',
+      `This will load the patch that the person who made *${seqName}* recommends.\n\n` +
+      'To load the sequence into your synth, use the **Sequencer → Load to JX-3P** button.',
     confirmLabel: 'Load',
     onConfirm: () => loadSequenceIntoActivePatch(seq),
   });
@@ -1719,10 +1816,24 @@ function setupLibSubTabs() {
   });
 }
 
-function selectPatch(slot) {
+function selectPatch(slot, opts) {
   selSlot = slot;
+  const shift = !!(opts && opts.shiftKey);
   if (selBank === 'C' || selBank === 'D') {
     lastBankSelection = { bank: selBank, slot };
+    // Shift-click extends a range from the prior anchor on the same bank.
+    // A plain click resets the anchor and clears any existing range.
+    if (shift && rangeAnchor.bank === selBank) {
+      const start = Math.min(rangeAnchor.slot, slot);
+      const end   = Math.max(rangeAnchor.slot, slot);
+      selectedRange = { bank: selBank, start, end };
+    } else {
+      rangeAnchor = { bank: selBank, slot };
+      selectedRange = null;
+    }
+  } else {
+    // Library tab — no range selection in the library list.
+    selectedRange = null;
   }
   renderPatchList();
   updateSvgPatchName();
@@ -2078,7 +2189,7 @@ function showSendToJxModal(exportData, sourceLabel) {
     kind: 'patches',
     encodeApi: 'tapeEncodeToTemp',
     saveApi:   'tapeLoad',
-    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button &gt; <b>Tone/Load</b> (button 16), then hit play below.',
+    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button → <b>Tone/Load</b> (button 16), then hit play below.',
     segments:  [
       { kind: 'init',    label: 'Init',    pilot: true  },
       { kind: 'bank-c',  label: 'Bank C',  pilot: false },
@@ -2096,7 +2207,7 @@ function showSendSequenceToJxModal(exportData, sourceLabel, intro) {
     kind: 'sequence',
     encodeApi: 'seqTapeEncodeToTemp',
     saveApi:   'seqTapeLoad',
-    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button &gt; <b>Sequencer/Load</b>, then hit play below.',
+    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button → <b>Sequencer/Load</b>, then hit play below.',
     segments:  [
       { kind: 'init',     label: 'Init',     pilot: true  },
       { kind: 'sequence', label: 'Sequence', pilot: false },
@@ -2118,10 +2229,10 @@ function showSendToJxFlow(opts) {
 
   const h = document.createElement('h2');
   h.className = 'modal-title';
-  const noun = kind === 'sequence' ? 'sequence' : 'patches';
+  const fallback = kind === 'sequence' ? 'Send sequence to JX-3P' : 'Send C/D banks to JX-3P';
   h.textContent = sourceLabel
     ? `Send "${sourceLabel}" to JX-3P`
-    : `Send ${noun} to JX-3P`;
+    : fallback;
   modal.appendChild(h);
 
   if (intro) modal.appendChild(intro);
@@ -2169,7 +2280,7 @@ function showSendToJxFlow(opts) {
   cancelBtn.textContent = 'Cancel';
   const saveBtn = document.createElement('button');
   saveBtn.className = 'modal-btn';
-  saveBtn.textContent = 'Save WAV…';
+  saveBtn.textContent = 'Save WAV file';
   saveBtn.title = 'Export to a file instead of sending directly';
   const primaryBtn = document.createElement('button');
   primaryBtn.className = 'modal-btn modal-btn-confirm';
@@ -2350,7 +2461,7 @@ function showSendToJxFlow(opts) {
     });
 
     audioEl.addEventListener('error', () => {
-      statusText.textContent = 'Playback error. Try Save WAV… instead.';
+      statusText.textContent = 'Playback error. Try Save WAV file instead.';
       primaryBtn.disabled = false;
       saveBtn.disabled = false;
       saveBtn.style.display = '';
@@ -2561,8 +2672,16 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = nu
 }
 
 function handleSequencerLoad() {
+  // If the user already has a sequence selected, mirror the "send to JX-3P"
+  // action button by opening the send modal. Otherwise navigate to Library →
+  // Sequences so they can pick one first (the previous behaviour).
+  if (selBank === 'L' && selLibTab === 'sequences' && selSequence !== null) {
+    handleSendSequenceToJX();
+    return;
+  }
   selBank = 'L';
   selSlot = 0;
+  selLibTab = 'sequences';
   document.querySelectorAll('.tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.bank === 'L');
   });
@@ -2672,29 +2791,75 @@ function setupCustomBuilder() {
 
   document.querySelectorAll('.cb-bucket').forEach((bucketEl) => {
     const bank = bucketEl.dataset.bank;
-    // Drop directly on the bucket container (not on a specific slot) =
-    // append to the next available empty slot.
+    // Resolve where the drop would start: the slot under the cursor, or
+    // the next empty slot at the end of the bucket if dropping in dead
+    // space. Returns -1 only if the bucket is completely full AND the
+    // user wasn't aiming at a specific slot.
+    const resolveTargetIdx = (e) => {
+      const droppedOnSlot = e.target.closest('.cb-slot');
+      if (droppedOnSlot) return Number(droppedOnSlot.dataset.idx);
+      const next = nextEmptyBucketSlot(bank);
+      return next;
+    };
+    // Will this range fit starting at startIdx? (Range size must be ≤
+    // 16 − startIdx.) Used by both dragover preview and drop guard.
+    const rangeFitsAt = (rangeSize, startIdx) =>
+      startIdx >= 0 && startIdx + rangeSize <= 16;
+
     bucketEl.addEventListener('dragover', (e) => {
       if (!e.dataTransfer.types.includes('application/x-jp-patch-source')) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      bucketEl.classList.add('drop-active');
+      const rangeJson = e.dataTransfer.types.includes('application/x-jp-patch-range')
+        ? e.dataTransfer.getData('application/x-jp-patch-range') : '';
+      let rangeSize = 1;
+      if (rangeJson) {
+        try {
+          const r = JSON.parse(rangeJson);
+          rangeSize = (r.end - r.start) + 1;
+        } catch {}
+      }
+      const startIdx = resolveTargetIdx(e);
+      const fits = rangeFitsAt(rangeSize, startIdx);
+      e.dataTransfer.dropEffect = fits ? 'copy' : 'none';
+      bucketEl.classList.toggle('drop-active', fits);
+      bucketEl.classList.toggle('drop-blocked', !fits);
     });
     bucketEl.addEventListener('dragleave', (e) => {
-      if (!bucketEl.contains(e.relatedTarget)) bucketEl.classList.remove('drop-active');
+      if (!bucketEl.contains(e.relatedTarget)) {
+        bucketEl.classList.remove('drop-active');
+        bucketEl.classList.remove('drop-blocked');
+      }
     });
     bucketEl.addEventListener('drop', (e) => {
       bucketEl.classList.remove('drop-active');
+      bucketEl.classList.remove('drop-blocked');
       const json = e.dataTransfer.getData('application/x-jp-patch-source');
       if (!json) return;
       e.preventDefault();
       let src;
       try { src = JSON.parse(json); } catch { return; }
+
+      // Multi-patch path: a range descriptor means this is the leading
+      // patch of a shift-selected group, place them all in sequence.
+      const rangeJson = e.dataTransfer.getData('application/x-jp-patch-range');
+      if (rangeJson) {
+        let r;
+        try { r = JSON.parse(rangeJson); } catch { return; }
+        const startIdx = resolveTargetIdx(e);
+        const rangeSize = (r.end - r.start) + 1;
+        if (!rangeFitsAt(rangeSize, startIdx)) return; // guarded by dragover too
+        for (let i = 0; i < rangeSize; i++) {
+          placePatchInBucket(bank, startIdx + i, r.bank, r.start + i);
+        }
+        return;
+      }
+
+      // Single-patch path (existing behaviour).
       const droppedOnSlot = e.target.closest('.cb-slot');
       const targetIdx = droppedOnSlot
         ? Number(droppedOnSlot.dataset.idx)
         : nextEmptyBucketSlot(bank);
-      if (targetIdx === -1) return;  // bucket full
+      if (targetIdx === -1) return;
       placePatchInBucket(bank, targetIdx, src.bank, src.slot);
     });
   });
@@ -2860,15 +3025,24 @@ function renderCustomBuilder() {
         editInp.addEventListener('blur', () => commitBucketSlotEdit(row, bank, i));
       }
 
-      // Drop target (within-bucket reorder OR cross-list drop from patch list)
+      // Drop target (within-bucket reorder OR cross-list drop from patch list).
+      // For shift-selected ranges, validate the range fits at this slot.
       row.addEventListener('dragover', (e) => {
         const isPatchSrc  = e.dataTransfer.types.includes('application/x-jp-patch-source');
         const isBucketSrc = e.dataTransfer.types.includes('application/x-jp-bucket-source');
+        const isRange     = e.dataTransfer.types.includes('application/x-jp-patch-range');
         if (!isPatchSrc && !isBucketSrc) return;
         e.preventDefault();
         e.stopPropagation();
-        e.dataTransfer.dropEffect = isBucketSrc ? 'move' : 'copy';
-        row.classList.add('drag-over');
+        // Multi-patch range: compute size from the dataTransfer types list
+        // (we can't read range contents on dragover — security restriction —
+        // so fall back to a permissive guard here and re-check on drop).
+        // We can't parse the range JSON until drop; on dragover, treat any
+        // range drag as "needs to fit from i to 16" by tightening the
+        // dropEffect when the slot can hold at least one patch.
+        const fits = isRange ? (i < 16) : true;
+        e.dataTransfer.dropEffect = isBucketSrc ? 'move' : (fits ? 'copy' : 'none');
+        row.classList.toggle('drag-over', fits);
       });
       row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
       row.addEventListener('drop', (e) => {
@@ -2881,6 +3055,20 @@ function renderCustomBuilder() {
             const src = JSON.parse(bucketJson);
             if (src.bank === bank) reorderBucketSlot(bank, src.idx, i);
           } catch {}
+          return;
+        }
+        // Multi-patch range path (shift-selected drag).
+        const rangeJson = e.dataTransfer.getData('application/x-jp-patch-range');
+        if (rangeJson) {
+          e.preventDefault();
+          e.stopPropagation();
+          let r;
+          try { r = JSON.parse(rangeJson); } catch { return; }
+          const rangeSize = (r.end - r.start) + 1;
+          if (i + rangeSize > 16) return; // doesn't fit
+          for (let k = 0; k < rangeSize; k++) {
+            placePatchInBucket(bank, i + k, r.bank, r.start + k);
+          }
           return;
         }
         const patchJson = e.dataTransfer.getData('application/x-jp-patch-source');
@@ -3314,9 +3502,10 @@ async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
   ensureLibraryShape();
-  // Default source label for patches loaded at startup from ~/Desktop/patches.json.
-  // Overridden whenever the user loads a library package or imports a WAV/JSON.
-  if (patches) activeBanksSourceLabel = 'Desktop patches';
+  // No source label at boot — active C/D banks are unnamed until the user
+  // explicitly loads a library package (which sets activeBanksSourceLabel
+  // to that package's name). The send-to-JX modal falls back to the
+  // generic "Send C and D banks to JX-3P" title when label is null.
 
   // patches may be null on first run (no ~/Desktop/patches.json yet). That's
   // not a fatal state — the empty-state in renderPatchList prompts the user
