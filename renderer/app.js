@@ -188,6 +188,14 @@ function patchSourceLabel(b, s) {
   const m = slotMetaAt(b, s);
   return (m && m.sourceLabel) || null;
 }
+function patchOriginLibrary(b, s) {
+  const m = slotMetaAt(b, s);
+  return (m && (m.originLibrary || m.sourceLabel)) || null;
+}
+function patchOriginalName(b, s) {
+  const m = slotMetaAt(b, s);
+  return (m && m.originalName) || null;
+}
 function patchPlaceholder(b, s) {
   const o = patchOrigin(b, s);
   if (!o) return 'click to name';
@@ -1035,6 +1043,7 @@ function handleSaveBanksToLibrary() {
     id: now.toISOString(),
     defaultName: packageDefaultName(now),
     customName: '',
+    createdAt: now.toISOString(),
     savedAt: now.toISOString(),
     banks: JSON.parse(JSON.stringify(patches.banks)),
     slotMeta: JSON.parse(JSON.stringify(library.slotMeta || {})),
@@ -1179,7 +1188,7 @@ function handleLoadLibraryBanks(idx) {
     title: 'Loading new C/D banks to JP Patches',
     body:
       `*${pkgName}* will replace the current C and D banks in the JP Patches app.\n\n` +
-      `Use the **Tone → Send to JX-3P** button to send *${pkgName}* to your synth.`,
+      `Use the **Tone → Save to JX-3P** button to send *${pkgName}* to your synth.`,
     confirmLabel: 'Load',
     onConfirm: () => loadPackageIntoActiveBanks(pkg),
   });
@@ -1191,6 +1200,25 @@ function loadPackageIntoActiveBanks(pkg) {
   library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta || {}));
   ensureLibraryShape();
   activeBanksSourceLabel = pkg.customName || pkg.defaultName || null;
+  // Stamp source / origin info onto each slot's slotMeta:
+  //   sourceLabel    — the most-recent library load (always updated)
+  //   originLibrary  — the FIRST library this patch lived in (set once,
+  //                    never overwritten — preserves the origin across
+  //                    saves into custom mixes)
+  //   originalName   — name at first-stamp time (set once); useful when
+  //                    the user renames the patch later
+  if (activeBanksSourceLabel) {
+    ['C', 'D'].forEach((bank) => {
+      const arr = library.slotMeta[bank] || [];
+      for (let i = 0; i < arr.length; i++) {
+        const m = arr[i];
+        if (!m) continue;
+        m.sourceLabel = activeBanksSourceLabel;
+        if (!m.originLibrary) m.originLibrary = activeBanksSourceLabel;
+        if (!m.originalName && m.name) m.originalName = m.name;
+      }
+    });
+  }
   saveLibraryDebounced();
 
   // Surface the loaded banks: switch to Bank C and select the first slot.
@@ -1205,40 +1233,50 @@ function loadPackageIntoActiveBanks(pkg) {
 }
 
 // Lightweight confirmation modal.
-function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }) {
+function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
   const modal = document.createElement('div');
   modal.className = 'modal';
+  if (subtitle) modal.classList.add('has-subtitle');
 
   const h = document.createElement('h2');
   h.className = 'modal-title';
   h.textContent = title;
 
-  const p = body ? document.createElement('p') : null;
-  if (p) {
-    p.className = 'modal-body';
-    // Render newlines as <br>, **bold** as <strong>, and *italic* as <em>.
-    // Anything else stays literal — minimal so the body shape doesn't drift
-    // toward generic HTML injection.
-    body.split('\n').forEach((line, i) => {
-      if (i > 0) p.appendChild(document.createElement('br'));
+  // Tiny inline markdown renderer used by both subtitle and body.
+  // Supports **bold** and *italic*; everything else stays literal.
+  const renderInline = (container, text) => {
+    text.split('\n').forEach((line, i) => {
+      if (i > 0) container.appendChild(document.createElement('br'));
       const parts = line.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/);
       parts.forEach((piece) => {
         if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) {
           const strong = document.createElement('strong');
           strong.textContent = piece.slice(2, -2);
-          p.appendChild(strong);
+          container.appendChild(strong);
         } else if (piece.startsWith('*') && piece.endsWith('*') && piece.length > 2) {
           const em = document.createElement('em');
           em.textContent = piece.slice(1, -1);
-          p.appendChild(em);
+          container.appendChild(em);
         } else if (piece) {
-          p.appendChild(document.createTextNode(piece));
+          container.appendChild(document.createTextNode(piece));
         }
       });
     });
+  };
+
+  const sub = subtitle ? document.createElement('div') : null;
+  if (sub) {
+    sub.className = 'modal-subtitle';
+    renderInline(sub, subtitle);
+  }
+
+  const p = body ? document.createElement('p') : null;
+  if (p) {
+    p.className = 'modal-body';
+    renderInline(p, body);
   }
 
   const actions = document.createElement('div');
@@ -1256,6 +1294,7 @@ function showConfirmModal({ title, body, confirmLabel, confirmStyle, onConfirm }
   actions.appendChild(cancelBtn);
   actions.appendChild(confirmBtn);
   modal.appendChild(h);
+  if (sub) modal.appendChild(sub);
   if (p) modal.appendChild(p);
   modal.appendChild(actions);
   overlay.appendChild(modal);
@@ -3183,6 +3222,7 @@ function handleBuilderSave() {
     id: now.toISOString(),
     defaultName: `Custom C/D banks ${dateStr}`,
     customName: '',
+    createdAt: now.toISOString(),
     savedAt: now.toISOString(),
     banks,
     slotMeta,
@@ -3360,6 +3400,7 @@ async function handleTonesDropImport(filePath) {
     defaultName: fileLabel
       || `Imported ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
     customName: '',
+    createdAt: now.toISOString(),
     savedAt: now.toISOString(),
     banks,
     slotMeta,
@@ -3409,6 +3450,7 @@ function snapshotCurrentBanksToLibrary() {
     id: now.toISOString(),
     defaultName: packageDefaultName(now),
     customName: '',
+    createdAt: now.toISOString(),
     savedAt: now.toISOString(),
     banks: JSON.parse(JSON.stringify(patches.banks)),
     slotMeta: JSON.parse(JSON.stringify(library.slotMeta || {})),
@@ -3483,25 +3525,104 @@ function showPatchInfo(bank, slot) {
   const key = slotKey(bank, slot);
   const name = patchName(bank, slot);
   const origin = patchOrigin(bank, slot);
-  const source = patchSourceLabel(bank, slot);
-  const lines = [
-    `Slot:    ${key}`,
-    `Name:    ${name || '(unnamed)'}`,
-    `Origin:  ${origin || '(none)'}`,
-    `Library: ${source || '(unknown)'}`,
-  ];
+  const source = patchSourceLabel(bank, slot);          // most-recent library load
+  const originLib = patchOriginLibrary(bank, slot);     // FIRST library — never overwritten
+  const originalName = patchOriginalName(bank, slot);   // name at first stamp
+
+  // Subtitle (centered, sits attached to the "Patch history" title):
+  //   <current slot>: <current name> / <current library>
+  const subParts = [`${key}: ${name || '(unnamed)'}`];
+  if (source) subParts.push(source);
+  const subtitle = subParts.join(' / ');
+
+  // History block:
+  //   Origin: <original slot> / <original name or "no name"> / <original library>
+  //   Date:   uploaded <package savedAt formatted as "May 15, 2026">
+  const originSlot = origin || key;
+  const originName = originalName || 'no name';
+  const originParts = [originSlot, originName];
+  if (originLib) originParts.push(originLib);
+  const originLine = `Origin: ${originParts.join(' / ')}`;
+
+  // Look up the original library's upload date. Prefer createdAt (stamped
+  // once when the package is first written); fall back to savedAt for
+  // packages that predate the createdAt field. If the originLibrary string
+  // matches a known package (by customName or defaultName), use its date;
+  // otherwise skip the date line.
+  let dateLine = null;
+  if (originLib && library && Array.isArray(library.packages)) {
+    const pkg = library.packages.find((p) =>
+      (p.customName === originLib) || (p.defaultName === originLib));
+    const stamp = pkg && (pkg.createdAt || pkg.savedAt);
+    if (stamp) {
+      const d = new Date(stamp);
+      if (!Number.isNaN(d.getTime())) {
+        const formatted = d.toLocaleDateString('en-US', {
+          month: 'long', day: 'numeric', year: 'numeric',
+        });
+        dateLine = `Date: uploaded ${formatted}`;
+      }
+    }
+  }
+
+  const lines = [originLine];
+  if (dateLine) lines.push(dateLine);
+
   showConfirmModal({
-    title: 'Patch info',
+    title: 'Patch history',
+    subtitle,
     body: lines.join('\n'),
     confirmLabel: 'OK',
     onConfirm: () => {},
   });
 }
 
+// One-shot backfill so existing libraries get their originLibrary /
+// originalName / sourceLabel fields populated using current data. Idempotent
+// — only sets fields that are missing. Called once at boot, just after
+// loading the library file.
+function backfillOriginFields() {
+  if (!library) return;
+  let dirty = false;
+  // Library packages: use each package's own name as the origin.
+  (library.packages || []).forEach((pkg) => {
+    // Backfill createdAt from savedAt for packages that predate the field.
+    // Real first-upload date is unrecoverable; savedAt is the best we have.
+    if (!pkg.createdAt && pkg.savedAt) { pkg.createdAt = pkg.savedAt; dirty = true; }
+    const pkgName = pkg.customName || pkg.defaultName || null;
+    if (!pkgName || !pkg.slotMeta) return;
+    ['C', 'D'].forEach((bank) => {
+      const arr = pkg.slotMeta[bank];
+      if (!Array.isArray(arr)) return;
+      for (let i = 0; i < arr.length; i++) {
+        const m = arr[i];
+        if (!m) continue;
+        if (!m.sourceLabel)   { m.sourceLabel   = pkgName; dirty = true; }
+        if (!m.originLibrary) { m.originLibrary = pkgName; dirty = true; }
+        if (!m.originalName && m.name) { m.originalName = m.name; dirty = true; }
+      }
+    });
+  });
+  // Active C/D banks: if a slot has a sourceLabel from a previous load,
+  // promote it to originLibrary. (Slots with no source info stay unset.)
+  ['C', 'D'].forEach((bank) => {
+    const arr = library.slotMeta && library.slotMeta[bank];
+    if (!Array.isArray(arr)) return;
+    for (let i = 0; i < arr.length; i++) {
+      const m = arr[i];
+      if (!m) continue;
+      if (!m.originLibrary && m.sourceLabel) { m.originLibrary = m.sourceLabel; dirty = true; }
+      if (!m.originalName && m.name) { m.originalName = m.name; dirty = true; }
+    }
+  });
+  if (dirty) saveLibraryDebounced();
+}
+
 async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
   ensureLibraryShape();
+  backfillOriginFields();
   // No source label at boot — active C/D banks are unnamed until the user
   // explicitly loads a library package (which sets activeBanksSourceLabel
   // to that package's name). The send-to-JX modal falls back to the

@@ -794,6 +794,16 @@ body {
   margin-bottom: 14px;
   text-align: center;
 }
+/* When a subtitle is present, pull the title and subtitle together so they
+   read as a single header block. */
+.modal.has-subtitle .modal-title { margin-bottom: 4px; }
+.modal-subtitle {
+  color: var(--text-bright);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 18px;
+}
 .modal-body {
   color: var(--text-mid);
   font-size: 12px;
