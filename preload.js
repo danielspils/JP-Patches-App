@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld('api', {
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),
   seqTapeSaveFromPath: (path)    => ipcRenderer.invoke('seq-tape-save-from-path', path),
+  // View > zoom presets. Main owns the window and applies the zoom; this
+  // callback lets the renderer persist the new value into library.json
+  // so the next launch opens at the same size.
+  onZoomChanged: (cb) => ipcRenderer.on('zoom-changed', (_, factor) => cb(factor)),
 });

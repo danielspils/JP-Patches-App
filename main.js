@@ -23,6 +23,12 @@ const UV_BIN = app.isPackaged
 const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
 const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
 
+// Window base size matches the locked panel SVG's design dimensions.
+// Zoom presets scale both the renderer content and the window itself
+// proportionally so the panel never gets clipped.
+const BASE_WIDTH  = 1140;
+const BASE_HEIGHT = 710;
+
 // First-run seed data — bundled with the app so a brand-new user lands on
 // "Spils Sounds" in the active C/D banks and sees "Spils Sounds" + "Spils
 // Sequence" in the Library, instead of an empty state. Only used when the
@@ -50,8 +56,56 @@ function slugForWav(name, defaultBase) {
   return `${base || defaultBase}.wav`;
 }
 
+// Read the user's last-chosen zoom factor from library.json. Clamped to
+// [0.5, 2.0]; falls back to 1.0 (Actual Size) if unset or out of range.
+function readZoomPref() {
+  const lib = readJsonOrNull(getLibraryPath());
+  const z = lib && typeof lib.zoomFactor === 'number' ? lib.zoomFactor : 1.0;
+  return z >= 0.5 && z <= 2.0 ? z : 1.0;
+}
+
+// Apply a zoom factor: scale both renderer content AND the window itself,
+// so the locked panel SVG stays fully visible at any preset. Also updates
+// minimum-size constraints to match — Electron blocks programmatic resize
+// below minimumSize, so it has to move in lockstep with the window.
+function applyZoomToWindow(win, factor) {
+  if (!win) return;
+  const w = Math.round(BASE_WIDTH  * factor);
+  const h = Math.round(BASE_HEIGHT * factor);
+  win.setMinimumSize(w, h);
+  win.setContentSize(w, h);
+  if (win.webContents) win.webContents.setZoomFactor(factor);
+}
+
+// Menu-driven zoom: apply to the focused window AND notify the renderer
+// so it can persist the new value into library.json for the next launch.
+function setZoomFromMenu(factor) {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  applyZoomToWindow(win, factor);
+  if (win.webContents) win.webContents.send('zoom-changed', factor);
+}
+
+// Helper: call a webContents method on the focused window's contents.
+// Used for Edit menu items so we don't go through Electron `role:` strings
+// (those map to NSMenuItem selectors like `cut:` / `paste:`, which macOS
+// uses as a signal to auto-inject Writing Tools / AutoFill / Start
+// Dictation / Emoji & Symbols into our Edit menu).
+function focusedWebContentsAction(method) {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win && win.webContents && typeof win.webContents[method] === 'function') {
+    win.webContents[method]();
+  }
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
+  // Explicit submenus for Edit and View — using `role: 'editMenu'` or
+  // `role: 'viewMenu'` would let macOS auto-inject items that have no
+  // meaning in this app (Substitutions, Speech, Writing Tools, AutoFill,
+  // Start Dictation, Emoji & Symbols on Edit; Force Reload, Zoom In/Out,
+  // Actual Size on View). We list only the items that actually do
+  // something in JP Patches.
   const template = [
     ...(isMac ? [{
       label: app.name,
@@ -62,17 +116,52 @@ function buildAppMenu() {
           click: () => shell.openExternal(RELEASES_URL),
         },
         { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
-        { role: 'unhide' },
         { type: 'separator' },
         { role: 'quit' },
       ],
     }] : []),
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      label: 'File',
+      submenu: [
+        { role: 'close' },  // Cmd+W — closes the window (app stays in dock)
+      ],
+    },
+    {
+      // Cut/Copy/Paste/Select All work in text fields (patch name editing,
+      // custom-library name field, sequence notes textarea). We bind these
+      // via manual click handlers instead of Electron's `role:` strings so
+      // macOS doesn't recognize this as a "system text-editing menu" and
+      // auto-inject Writing Tools / AutoFill / Start Dictation / Emoji &
+      // Symbols underneath. Undo/Redo are intentionally omitted — they
+      // would only undo text edits, not knob twists or patch loads.
+      label: 'Edit',
+      submenu: [
+        { label: 'Cut',        accelerator: 'CmdOrCtrl+X', click: () => focusedWebContentsAction('cut') },
+        { label: 'Copy',       accelerator: 'CmdOrCtrl+C', click: () => focusedWebContentsAction('copy') },
+        { label: 'Paste',      accelerator: 'CmdOrCtrl+V', click: () => focusedWebContentsAction('paste') },
+        { type: 'separator' },
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', click: () => focusedWebContentsAction('selectAll') },
+      ],
+    },
+    {
+      // Reload + DevTools for development; zoom presets for fitting the
+      // app on smaller screens; Fullscreen for end users (also bound to
+      // the green traffic-light button and Cmd+Ctrl+F).
+      // Only 75% / 100% for now — larger presets (125 / 150 / 200%) wait
+      // on the broader Adaptive Sizing work (see docs/future-features.md).
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomFromMenu(1.0)  },
+        { label: '75%',         accelerator: 'CmdOrCtrl+-', click: () => setZoomFromMenu(0.75) },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
     {
       role: 'help',
@@ -92,15 +181,21 @@ function buildAppMenu() {
 }
 
 function createWindow() {
+  // Start at the user's last-saved zoom factor so the window opens at
+  // the right physical size (no flash of 100% before resizing down).
+  const zoom = readZoomPref();
+  const w = Math.round(BASE_WIDTH  * zoom);
+  const h = Math.round(BASE_HEIGHT * zoom);
   const win = new BrowserWindow({
-    width: 1140,
-    height: 710,
-    minWidth: 1140,
-    minHeight: 710,
+    width:  w,
+    height: h,
+    minWidth:  w,
+    minHeight: h,
     // Drag-to-resize stays disabled — the locked SVG panel artwork was
     // sized for 1140×710 — but the green ⛶ traffic-light button can
     // now toggle macOS fullscreen so the app fills the user's display
-    // on larger monitors. Cmd+Ctrl+F also works.
+    // on larger monitors. Cmd+Ctrl+F also works. View > 75% scales both
+    // the renderer and the window proportionally for smaller screens.
     resizable: false,
     fullscreenable: true,
     maximizable: false,
@@ -111,6 +206,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+  // Apply the renderer-side zoomFactor once content is ready, otherwise
+  // the panel SVG would render at 100% inside a 75%-sized window.
+  win.webContents.once('did-finish-load', () => {
+    if (zoom !== 1.0) win.webContents.setZoomFactor(zoom);
   });
   win.loadFile('renderer/index.html');
 }

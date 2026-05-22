@@ -3623,6 +3623,17 @@ async function init() {
   library = await window.api.loadLibrary();
   ensureLibraryShape();
   backfillOriginFields();
+
+  // View > zoom presets are owned by main (it resizes the window and
+  // applies the renderer zoomFactor). When the user picks a new preset,
+  // main pushes the value here so we can persist it for the next launch.
+  if (typeof window.api.onZoomChanged === 'function') {
+    window.api.onZoomChanged((factor) => {
+      if (typeof factor !== 'number') return;
+      library.zoomFactor = factor;
+      saveLibraryDebounced();
+    });
+  }
   // No source label at boot — active C/D banks are unnamed until the user
   // explicitly loads a library package (which sets activeBanksSourceLabel
   // to that package's name). The send-to-JX modal falls back to the
