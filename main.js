@@ -6,6 +6,16 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
+// Pin the userData directory name to "jp-patches" (lowercase) so dev runs
+// (`npm start`) and packaged DMG builds always share the same library.json.
+// The shipped v0.5.9 DMG already writes to ~/Library/Application Support/
+// jp-patches/, so we keep that path canonical going forward. Without this
+// call, modern Electron in dev mode resolves to "JP Patches" (productName,
+// with space) — a different directory, a different library — while older
+// packaged builds remain on lowercase. Must be called before any
+// app.getPath('userData') lookup.
+app.setName('jp-patches');
+
 const RELEASES_URL = 'https://github.com/danielspils/JP-Patches-App/releases';
 const REPO_URL     = 'https://github.com/danielspils/JP-Patches-App';
 
