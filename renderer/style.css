@@ -829,6 +829,11 @@ body {
   color: var(--text-mid);
   text-align: center;
   margin-top: 8px;
+  /* Reserve one line whether empty or full. Without this, the status text
+     grows from 0 → ~16px when set (e.g. "Playing…" after a Play click),
+     pushing the action-button row down ~24px and creating a layout jump that
+     makes a successful click look like it missed the target. */
+  min-height: 1.2em;
 }
 
 /* 4-segment timeline showing Init / Bank C / Divider / Bank D, with a

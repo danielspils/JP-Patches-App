@@ -59,7 +59,8 @@ Current version: **0.5.10** (May 22, 2026). 22 public releases since v0.1.0 on M
 ## External runtime dependencies
 
 - **`uv`** — Python package runner. From source: `brew install uv`. In packaged DMG: bundled at `vendor/uv/uv` and copied to `extraResources/uv/uv`.
-- **`jx3p`** Python toolkit — Bruce Oberg's fork at `bruceoberg/jx-3p-patches`. Used for WAV ↔ JSON conversion of both **patches** and **sequences** (sequencer codec is shipped upstream; datatype=1; round-trip lossless). From source: expected cloned to `~/JP-Patches/`. In packaged DMG: rsynced to `vendor/jx3p/` then copied to `extraResources/jx3p/`.
+- **`jx3p`** Python toolkit — Bruce Oberg's tool at `bruceoberg/jx-3p-patches`. Used for WAV ↔ JSON conversion of both **patches** and **sequences** (sequencer codec is shipped upstream; datatype=1; round-trip lossless). From source: expected cloned to `~/JP-Patches/`. In packaged DMG: rsynced to `vendor/jx3p/` then copied to `extraResources/jx3p/`.
+  - **`~/JP-Patches/` is Daniel's fork** (`origin = danielspils/JP-Patches`, with `bruceoberg` as upstream remote), **not a clean clone of Bruce's repo**. It carries a local divergence: a quiet-recording auto-boost inside `_load_wav_mono_float` (`jx3p/codec.py`, `AUTO_BOOST_TARGET = 0.7`). See the pitfalls section for the rationale. If pulling from `bruceoberg` upstream, preserve the local patch or re-apply it.
 - **`~/Library/Application Support/jp-patches/library.json`** — user state (patch names, library packages, sequences, custom bank buckets, zoom factor, tape-memory mode, future MIDI prefs). If absent on first launch, app seeds from `renderer/seed/`.
 - **`~/Desktop/patches.json`** — legacy boot-time patch source. No longer fatal if absent (first-run empty state handles it).
 
@@ -248,6 +249,7 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 8. **Loop suppression matters in Phase 3.** When MIDI lands, inbound CC must not trigger outbound CC. See spec §3.5.1.
 9. **Apple Silicon arm64 only.** `electron-builder` is configured for `--mac --arm64`. Intel build target intentionally not shipped.
 10. **macOS auto-injects items into the Edit menu** when it detects standard text-editing `role:` strings. Manual click handlers (current approach) prevent it. Don't switch back to `role:` unless you also want Substitutions/Speech/Writing Tools/Dictation back.
+11. **Quiet-recording auto-boost lives in our `jx3p` fork.** `_load_wav_mono_float` in `~/JP-Patches/jx3p/codec.py` scales any WAV whose peak amplitude is below `AUTO_BOOST_TARGET = 0.7` so the post-load peak hits the target. This rescues tape dumps recorded with too little Mac/interface input gain — without it, the FSK detector's `QUIESCENCE_THRESHOLD = 0.15` Schmitt-trigger band swallows the whole signal and every record decodes to None. Loud-enough recordings (peak ≥ 0.7) are untouched; pure digital silence (peak = 0) is left alone. If a real-world recording ever decodes as garbage rather than empty, suspect the boost amplified the noise floor enough to look like FSK to the demodulator — temporarily lower `AUTO_BOOST_TARGET` (e.g. 0.5) or gate the boost behind a peak floor (e.g. only boost when 0.02 < peak < 0.7) to isolate. Bug history: introduced May 2026 after Daniel's "Sequence 2" recording at peak 0.053 decoded to 8 None pages despite containing real notes.
 
 ## When in doubt
 
