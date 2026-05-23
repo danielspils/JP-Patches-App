@@ -334,7 +334,7 @@ function migratePackageShape(pkg) {
 }
 
 // Sequence entries split into `tape` (hardware-faithful, round-trips to JX)
-// and `app` (librarian-only metadata: patch note, paired patch, rate slider).
+// and `app` (librarian-only metadata: patch note, paired patch).
 // Legacy entries had pairedPatch at the top level + sequenceData: null; this
 // migrates them in place. Safe to call repeatedly.
 function migrateSequenceShape(seq) {
@@ -364,12 +364,12 @@ function migrateSequenceShape(seq) {
       patchName: legacyPp.patchName || null,
     };
   }
-  if (!seq.app.rate || typeof seq.app.rate !== 'object') {
-    seq.app.rate = {
-      sliderPercent: null,  // 0..100, captured from user in Tape mode
-      bpm:           null,  // exact BPM, captured via MIDI in v2
-    };
-  }
+  // Strip the legacy app.rate block. The RATE slider was removed from the
+  // save / load / send modals on May 23, 2026 because the in-import UI was
+  // too much for the user to figure out; tempo metadata will be captured
+  // elsewhere in a future revision. Existing sequences are cleaned up on
+  // first load after the upgrade and persist tidy on their next save.
+  if ('rate'         in seq.app) delete seq.app.rate;
   if ('pairedPatch'  in seq) delete seq.pairedPatch;
   if ('sequenceData' in seq) delete seq.sequenceData;
 }
@@ -1384,7 +1384,7 @@ function cancelPackageNameEdit(nm, inp) {
 // Same UX as Tones (select / inline-rename / drag-reorder / hover-trash)
 // but operates on library.sequences. Each entry has a `tape` block
 // (hardware-faithful sequencer data, null until the codec is wired) and an
-// `app` block (patchNote, pairedPatch, rate slider position — librarian-only
+// `app` block (patchNote, pairedPatch — librarian-only
 // metadata that doesn't round-trip to the JX-3P).
 
 function renderSequencesList(list) {
@@ -1603,8 +1603,8 @@ function handleSendSequenceToJX() {
     });
     return;
   }
-  // Build the paired-patch / RATE / note reminder as an "intro" block to
-  // sit above the standard send-to-JX flow.
+  // Build the paired-patch / note reminder as an "intro" block to sit above
+  // the standard send-to-JX flow.
   const intro = buildSequenceIntro(seq);
   const label = seq.customName || seq.defaultName || null;
   // jx3p seq-json-to-wav validates kind: "sequence" + format_version; the
@@ -1617,17 +1617,14 @@ function handleSendSequenceToJX() {
   showSendSequenceToJxModal(exportData, label, intro);
 }
 
-// Construct the paired-patch + RATE-slider + note reminder block reused
-// by the sequence-send modal. Pulled out of the old showLoadSequenceModal
-// so the new flow can drop it in as an intro DOM node.
+// Construct the paired-patch + note reminder block reused by the
+// sequence-send modal. Pulled out of the old showLoadSequenceModal so the
+// new flow can drop it in as an intro DOM node.
 function buildSequenceIntro(seq) {
   const pp = (seq.app && seq.app.pairedPatch) || {};
   const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
   const pName = pp.patchName || '(unnamed)';
   const note = (seq.app && seq.app.patchNote) || '';
-  const ratePct = seq.app && seq.app.rate && typeof seq.app.rate.sliderPercent === 'number'
-    ? seq.app.rate.sliderPercent
-    : null;
 
   const wrap = document.createElement('div');
   wrap.className = 'seq-modal-intro';
@@ -1643,57 +1640,6 @@ function buildSequenceIntro(seq) {
   ppSec.appendChild(ppLabel);
   ppSec.appendChild(ppValue);
   wrap.appendChild(ppSec);
-
-  // RATE slider reminder — drawn as a custom JX-3P-style horizontal slider
-  // with 11 tick marks (0..10) and "0 / 5 / 10" labels underneath, instead
-  // of a native <input type="range"> which can't be styled to match.
-  const rateSec = document.createElement('div');
-  rateSec.className = 'seq-modal-section';
-  const rateLabel = document.createElement('label');
-  rateLabel.textContent = ratePct === null
-    ? 'RATE slider (not captured at save time)'
-    : `Set the RATE slider to roughly ${ratePct}%`;
-  rateSec.appendChild(rateLabel);
-
-  const sliderVisual = document.createElement('div');
-  sliderVisual.className = 'rate-slider-visual vertical' + (ratePct == null ? ' uncaptured' : '');
-
-  // Track + thumb sit centered; tick rows are absolutely positioned by
-  // bottom% along the same parent. Each row has [label-L | tick-L | (gap
-  // bridged by the centered track) | tick-R | label-R]. Major rows
-  // (i % 5 === 0) get number labels and longer/brighter tick marks,
-  // mirroring the physical JX RATE slider where 0 is bottom, 10 is top.
-  const track = document.createElement('div');
-  track.className = 'rate-slider-track';
-  const thumb = document.createElement('div');
-  thumb.className = 'rate-slider-thumb';
-  thumb.style.bottom = `${ratePct == null ? 50 : ratePct}%`;
-  sliderVisual.appendChild(track);
-  sliderVisual.appendChild(thumb);
-
-  for (let i = 0; i <= 10; i++) {
-    const row = document.createElement('div');
-    row.className = 'rate-tick-row' + (i % 5 === 0 ? ' major' : '');
-    row.style.bottom = `${i * 10}%`;
-    const labelL = document.createElement('span');
-    labelL.className = 'rate-tick-label left';
-    labelL.textContent = (i % 5 === 0) ? String(i) : '';
-    const tickL = document.createElement('span');
-    tickL.className = 'rate-tick-mark left';
-    const tickR = document.createElement('span');
-    tickR.className = 'rate-tick-mark right';
-    const labelR = document.createElement('span');
-    labelR.className = 'rate-tick-label right';
-    labelR.textContent = (i % 5 === 0) ? String(i) : '';
-    row.appendChild(labelL);
-    row.appendChild(tickL);
-    row.appendChild(tickR);
-    row.appendChild(labelR);
-    sliderVisual.appendChild(row);
-  }
-
-  rateSec.appendChild(sliderVisual);
-  wrap.appendChild(rateSec);
 
   // Optional note.
   if (note) {
@@ -1717,9 +1663,6 @@ function showLoadSequenceModal({ seq, onSend }) {
   const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
   const pName = pp.patchName || '(unnamed)';
   const note = (seq.app && seq.app.patchNote) || '';
-  const ratePct = seq.app && seq.app.rate && typeof seq.app.rate.sliderPercent === 'number'
-    ? seq.app.rate.sliderPercent
-    : null;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -1747,40 +1690,8 @@ function showLoadSequenceModal({ seq, onSend }) {
   ppSec.appendChild(ppLabel);
   ppSec.appendChild(ppValue);
 
-  // Rate slider reminder (read-only).
-  const rateSec = document.createElement('div');
-  rateSec.className = 'seq-modal-section';
-  const rateLabel = document.createElement('label');
-  rateLabel.textContent = ratePct === null
-    ? 'RATE slider (not captured at save time)'
-    : 'Set the JX-3P RATE slider to roughly this position';
-  const rateRow = document.createElement('div');
-  rateRow.className = 'seq-modal-rate-row';
-  const slowEnd = document.createElement('span');
-  slowEnd.className = 'seq-modal-rate-end';
-  slowEnd.textContent = 'SLOW';
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = String(ratePct == null ? 50 : ratePct);
-  slider.className = 'seq-modal-rate-slider';
-  slider.disabled = true;
-  const fastEnd = document.createElement('span');
-  fastEnd.className = 'seq-modal-rate-end';
-  fastEnd.textContent = 'FAST';
-  const pctLabel = document.createElement('span');
-  pctLabel.className = 'seq-modal-rate-pct';
-  pctLabel.textContent = ratePct == null ? '—' : `${ratePct}%`;
-  rateRow.appendChild(slowEnd);
-  rateRow.appendChild(slider);
-  rateRow.appendChild(fastEnd);
-  rateRow.appendChild(pctLabel);
-  rateSec.appendChild(rateLabel);
-  rateSec.appendChild(rateRow);
-
   // Patch note reminder (if present). Built here, appended below in
-  // proper document order (after rateSec, before actions).
+  // proper document order (after the paired-patch section, before actions).
   let noteSec = null;
   if (note) {
     noteSec = document.createElement('div');
@@ -1806,7 +1717,6 @@ function showLoadSequenceModal({ seq, onSend }) {
   modal.appendChild(h);
   modal.appendChild(intro);
   modal.appendChild(ppSec);
-  modal.appendChild(rateSec);
   if (noteSec) modal.appendChild(noteSec);
   modal.appendChild(actions);
   actions.appendChild(cancelBtn);
@@ -2510,9 +2420,10 @@ function showSendToJxFlow(opts) {
 
 // ── Sequencer mode ─────────────────────────────────────────────────────
 // Save: prompt for the sequencer-dump WAV file, decode it via the bundled
-// jx3p tool, then show the Layout A modal so the user can attach metadata
-// (paired patch, RATE slider position, optional note) before persisting to
-// library.sequences[].
+// jx3p tool, then show the save modal so the user can attach an optional
+// note before persisting to library.sequences[]. The paired patch is
+// auto-captured from the active selection at save time (not surfaced to the
+// user). The new entry's default name is the source WAV's filename.
 
 async function handleSequencerSave() {
   if (!activeBankPatch()) {
@@ -2527,8 +2438,13 @@ async function handleSequencerSave() {
   showSaveSequenceModal({
     tapeData: result.data,
     sourcePath: result.path,
-    onConfirm: ({ patchNote, sliderPercent }) => {
-      saveSequenceEntry({ tapeData: result.data, patchNote, sliderPercent });
+    onConfirm: ({ patchNote, defaultName, customName }) => {
+      saveSequenceEntry({
+        tapeData: result.data,
+        patchNote,
+        defaultName,
+        customName,
+      });
     },
   });
 }
@@ -2551,9 +2467,13 @@ function summarizeSeqTape(data) {
 }
 
 function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
-  const { bank, slot } = activeBankSelection();
-  const pName = patchName(bank, slot);
   const summary = summarizeSeqTape(tapeData);
+  // Pre-fill the name field with the source filename (sans extension); fall
+  // back to a date-stamped default if for some reason the path can't be
+  // parsed. We track the initial value so we can tell whether the user
+  // actually edited it — if not, we store an empty customName so the entry
+  // stays cleanly date/file-named with no redundant override.
+  const initialName = labelFromPath(sourcePath) || sequenceDefaultName(new Date());
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -2570,59 +2490,31 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
     `Captured ${summary.pagesWithContent} page${summary.pagesWithContent === 1 ? '' : 's'}` +
     ` with content · ${summary.activeSteps} active step${summary.activeSteps === 1 ? '' : 's'}`;
 
-  // Paired patch section.
-  const ppSec = document.createElement('div');
-  ppSec.className = 'seq-modal-section';
-  const ppLabel = document.createElement('label');
-  ppLabel.textContent = 'Paired patch';
-  const ppValue = document.createElement('div');
-  ppValue.className = 'seq-modal-paired';
-  ppValue.textContent = pName
-    ? `${slotKey(bank, slot)}: ${pName}`
-    : `${slotKey(bank, slot)} (unnamed)`;
-  ppSec.appendChild(ppLabel);
-  ppSec.appendChild(ppValue);
-
-  // RATE slider section.
-  const rateSec = document.createElement('div');
-  rateSec.className = 'seq-modal-section';
-  const rateLabel = document.createElement('label');
-  rateLabel.textContent = 'RATE slider position (match the physical slider on your JX-3P)';
-  const rateRow = document.createElement('div');
-  rateRow.className = 'seq-modal-rate-row';
-  const slowEnd = document.createElement('span');
-  slowEnd.className = 'seq-modal-rate-end';
-  slowEnd.textContent = 'SLOW';
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = '50';
-  slider.className = 'seq-modal-rate-slider';
-  const fastEnd = document.createElement('span');
-  fastEnd.className = 'seq-modal-rate-end';
-  fastEnd.textContent = 'FAST';
-  const pctLabel = document.createElement('span');
-  pctLabel.className = 'seq-modal-rate-pct';
-  pctLabel.textContent = '50%';
-  slider.addEventListener('input', () => { pctLabel.textContent = `${slider.value}%`; });
-  rateRow.appendChild(slowEnd);
-  rateRow.appendChild(slider);
-  rateRow.appendChild(fastEnd);
-  rateRow.appendChild(pctLabel);
-  rateSec.appendChild(rateLabel);
-  rateSec.appendChild(rateRow);
+  // Name section — pre-filled, editable. Stays single-line.
+  const nameSec = document.createElement('div');
+  nameSec.className = 'seq-modal-section';
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = 'NAME:';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'seq-modal-name';
+  nameInput.maxLength = 60;
+  nameInput.spellcheck = false;
+  nameInput.autocomplete = 'off';
+  nameInput.value = initialName;
+  nameSec.appendChild(nameLabel);
+  nameSec.appendChild(nameInput);
 
   // Patch note section.
   const noteSec = document.createElement('div');
   noteSec.className = 'seq-modal-section';
   const noteLabel = document.createElement('label');
-  noteLabel.textContent = 'Note (optional)';
+  noteLabel.textContent = 'ADD NOTES (optional):';
   const noteInput = document.createElement('textarea');
   noteInput.className = 'seq-modal-note';
   noteInput.rows = 2;
   noteInput.maxLength = 200;
-  noteInput.placeholder = 'e.g. Try with chorus on, light reverb';
+  noteInput.placeholder = 'e.g. tempo at 40%, turn Attack knob for drama!';
   noteSec.appendChild(noteLabel);
   noteSec.appendChild(noteInput);
 
@@ -2640,8 +2532,7 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
 
   modal.appendChild(h);
   modal.appendChild(captured);
-  modal.appendChild(ppSec);
-  modal.appendChild(rateSec);
+  modal.appendChild(nameSec);
   modal.appendChild(noteSec);
   modal.appendChild(actions);
   overlay.appendChild(modal);
@@ -2656,27 +2547,40 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
   };
   cancelBtn.addEventListener('click', close);
   saveBtn.addEventListener('click', () => {
+    const finalName = nameInput.value.trim();
+    // If the user didn't change the name (or cleared it back to the default),
+    // store an empty customName so the entry reads as the filename alone.
+    // Otherwise the user's edit becomes the customName override.
+    const customName = (finalName && finalName !== initialName) ? finalName : '';
     onConfirm({
       patchNote: noteInput.value.trim(),
-      sliderPercent: parseInt(slider.value, 10),
+      defaultName: initialName,
+      customName,
     });
     close();
   });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
 
-  // Focus the note input so the user can start typing immediately.
+  // Focus the note input so the user can start adding annotations
+  // immediately. The pre-filled name is visible; user can click in to edit.
   setTimeout(() => noteInput.focus(), 0);
 }
 
-function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = null } = {}) {
+function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '' } = {}) {
   if (!library) return;
   const now = new Date();
   const { bank, slot } = activeBankSelection();
   const entry = {
     id: now.toISOString(),
-    defaultName: sequenceDefaultName(now),
-    customName: '',
+    // Prefer a name derived from the source filename ("Sequence 2", etc.) so
+    // imports stay recognizable at a glance. Falls back to the date-stamped
+    // default when the caller can't supply one (e.g. unknown source).
+    defaultName: defaultName || sequenceDefaultName(now),
+    // customName is the optional user override, set in the import modal
+    // when the user edits the pre-filled name. Empty = no override, display
+    // shows defaultName.
+    customName: customName || '',
     savedAt: now.toISOString(),
     tape: {
       pages: tapeData && Array.isArray(tapeData.pages) ? tapeData.pages : null,
@@ -2688,10 +2592,6 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', sliderPercent = nu
         slot,
         params:    JSON.parse(JSON.stringify(activeBankPatch() || {})),
         patchName: patchName(bank, slot),
-      },
-      rate: {
-        sliderPercent: typeof sliderPercent === 'number' ? sliderPercent : null,
-        bpm:           null,
       },
     },
   };
@@ -3292,8 +3192,9 @@ function setupTabs() {
 //
 // Dropping a .wav from the desktop onto the patch-list area imports it,
 // routed by which tab + sub-tab is currently active:
-//   - Library > Sequences  → open the Layout A save modal (paired patch,
-//                            rate slider, note)
+//   - Library > Sequences  → open the save modal (optional note);
+//                            paired patch is auto-captured from active
+//                            selection, default name = source filename
 //   - Library > Tones      → create a new library package directly,
 //                            non-destructive (active C/D banks stay put)
 //   - Bank C / Bank D      → confirmation modal: snapshot current banks
@@ -3369,8 +3270,13 @@ async function handleSequenceDropImport(filePath) {
   showSaveSequenceModal({
     tapeData: result.data,
     sourcePath: filePath,
-    onConfirm: ({ patchNote, sliderPercent }) => {
-      saveSequenceEntry({ tapeData: result.data, patchNote, sliderPercent });
+    onConfirm: ({ patchNote, defaultName, customName }) => {
+      saveSequenceEntry({
+        tapeData: result.data,
+        patchNote,
+        defaultName,
+        customName,
+      });
     },
   });
 }

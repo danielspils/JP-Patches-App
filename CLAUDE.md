@@ -192,7 +192,7 @@ onZoomChanged:       (cb)            → main → renderer push when View menu z
   "names":     { /* legacy: bank slot → custom name */ },
   "slotMeta":  { /* per-slot { customName, defaultName, originSlot, originLibrary, ... } */ },
   "packages":  [ /* Tones snapshots: { name, customName, createdAt, banks: {C: [...], D: [...]} } */ ],
-  "sequences": [ /* Sequences:       { name, customName, createdAt, tape: {...}, app: {pairedPatch, ratePct, note} } */ ],
+  "sequences": [ /* Sequences:       { name, customName, createdAt, tape: {...}, app: {pairedPatch, patchNote} } */ ],
   "customBanks": { /* persistent Custom Bank Builder buckets across restarts */ },
   "tapeMode":  "tape" | "midi",
   "zoom":      1.0,           // last View-menu zoom factor

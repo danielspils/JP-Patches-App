@@ -916,8 +916,8 @@ body {
 }
 .modal-btn-confirm:hover { background: #233525; border-color: #5d8a62; }
 
-/* Save Sequence modal (Layout A) — wider than the default confirm dialog to
-   accommodate the RATE slider widget at a useful size. */
+/* Save Sequence modal — slightly wider than the default confirm dialog so
+   the captured-summary line and the note textarea both have breathing room. */
 .seq-save-modal {
   max-width: 520px;
 }
@@ -949,95 +949,7 @@ body {
   border: 1px solid var(--border-dim);
   border-radius: 3px;
 }
-/* JX-3P-style VERTICAL slider visualization (read-only).
-   Track is centered; tick marks + numeric labels (10/5/0 top→bottom)
-   on BOTH sides match the physical synth panel. Slider cap has a
-   center groove via ::after.
-
-   Coordinates: bottom% rises with the captured rate — 0 at bottom =
-   SLOW, 100 at top = FAST. */
-.rate-slider-visual.vertical {
-  display: block;
-  position: relative;
-  width: 110px;
-  height: 160px;
-  margin: 6px auto 0;
-}
-.seq-modal-section:has(.rate-slider-visual) label { text-align: center; }
-.rate-slider-visual.uncaptured { opacity: 0.5; }
-.rate-slider-visual.vertical .rate-slider-track {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  margin-left: -3px;
-  background: #0e0e0e;
-  border: 1px solid var(--border-dim);
-  border-radius: 2px;
-}
-.rate-slider-visual.vertical .rate-slider-thumb {
-  position: absolute;
-  left: 50%;
-  width: 24px;
-  height: 14px;
-  margin-left: -12px;
-  margin-bottom: -7px;
-  background: linear-gradient(180deg, #d4d4d4 0%, #9c9c9c 50%, #5a5a5a 100%);
-  border: 1px solid #1a1a1a;
-  border-radius: 2px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-  z-index: 2;
-}
-.rate-slider-visual.vertical .rate-slider-thumb::after {
-  /* Center groove — the finger-grip notch on the JX cap. */
-  content: '';
-  position: absolute;
-  left: 3px;
-  right: 3px;
-  top: 50%;
-  margin-top: -1px;
-  height: 2px;
-  background: #2a2a2a;
-  border-radius: 1px;
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6);
-}
-
-/* Each tick row is absolutely positioned at its bottom % and spans the
-   full width. The track sits behind in the middle, and the row's tick
-   marks visually extend out from the track's left and right edges. */
-.rate-tick-row {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-}
-.rate-tick-mark {
-  display: inline-block;
-  height: 1px;
-  width: 6px;
-  background: #aea696;
-}
-.rate-tick-mark.left  { margin-right: auto; }
-.rate-tick-mark.right { margin-left: auto; }
-.rate-tick-row.major .rate-tick-mark {
-  width: 12px;
-  background: #f7f1e6;
-}
-.rate-tick-label {
-  display: inline-block;
-  width: 16px;
-  text-align: center;
-  color: var(--text-mid);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.rate-tick-row.major .rate-tick-label { color: #f7f1e6; }
+.seq-modal-name,
 .seq-modal-note {
   width: 100%;
   background: #0e0e0e;
@@ -1047,10 +959,11 @@ body {
   font-family: inherit;
   font-size: 12px;
   padding: 7px 10px;
-  resize: vertical;
   outline: none;
   box-sizing: border-box;
 }
+.seq-modal-note { resize: vertical; }
+.seq-modal-name:focus,
 .seq-modal-note:focus { border-color: var(--green-sel-bdr); }
 
 .package-item {
