@@ -2486,8 +2486,7 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
   const captured = document.createElement('div');
   captured.className = 'seq-modal-captured';
   captured.textContent =
-    `Captured ${summary.pagesWithContent} page${summary.pagesWithContent === 1 ? '' : 's'}` +
-    ` with content · ${summary.activeSteps} active step${summary.activeSteps === 1 ? '' : 's'}`;
+    `Captured sequence with ${summary.activeSteps} step${summary.activeSteps === 1 ? '' : 's'}`;
 
   // Name section — pre-filled, editable. Stays single-line.
   const nameSec = document.createElement('div');

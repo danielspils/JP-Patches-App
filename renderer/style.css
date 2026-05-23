@@ -925,10 +925,6 @@ body {
   color: var(--text-mid);
   font-size: 12px;
   margin-bottom: 18px;
-  padding: 8px 12px;
-  background: #0e0e0e;
-  border-left: 2px solid var(--green-sel-bdr);
-  border-radius: 2px;
 }
 .seq-modal-section {
   margin-bottom: 16px;
