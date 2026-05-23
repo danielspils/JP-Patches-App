@@ -257,12 +257,66 @@ function recordAllNamedToHistory() {
   });
 }
 
+// Record (params → name) for a library package's stored slotMeta+banks pair.
+// Used when sending a package directly to the JX-3P without first loading it
+// into active banks: without this, an audio roundtrip (Electron → JX → tape
+// dump → reimport) won't find the package's names in library.history and the
+// reimported patches show as nameless. Works the same way as recordToHistory
+// but reads from explicit args instead of the active library/patches globals.
+function recordSlotMetaToHistory(slotMeta, banks, { noClobber = false } = {}) {
+  if (!slotMeta || !Array.isArray(banks) || banks.length < 2) return;
+  ['C', 'D'].forEach((bank) => {
+    const bankIdx  = bank === 'D' ? 1 : 0;
+    const slotsArr = slotMeta[bank] || [];
+    const bankArr  = banks[bankIdx]  || [];
+    for (let s = 0; s < 16; s++) {
+      const meta = slotsArr[s];
+      if (!meta || !meta.name) continue;
+      const fp = paramsFingerprint(bankArr[s]);
+      if (!fp) continue;
+      // noClobber: used by the backfill on library load so we never overwrite
+      // a more-recent rename from the active banks with an older package name.
+      if (noClobber && library.history[fp]) continue;
+      library.history[fp] = {
+        name:   meta.name,
+        origin: meta.origin || slotKey(bank, s),
+        ts:     Date.now(),
+      };
+    }
+  });
+}
+
 // Look up a patch by fingerprint and return its remembered { name, origin },
 // or null if we haven't seen these params before.
 function lookupInHistory(params) {
   const fp = paramsFingerprint(params);
   if (!fp) return null;
   return library.history[fp] || null;
+}
+
+// For each slot whose name is null, look up the slot's params in
+// library.history and apply the remembered name (and origin if missing).
+// Used by import paths that build a slotMeta with no explicit names —
+// notably the Library → Tones drop of a JX-3P audio dump, where the
+// WAV's RIFF chunk doesn't survive an audio roundtrip but the patch
+// params do. With history pre-populated by the backfill in
+// ensureLibraryShape, this restores the original names on import.
+function restoreNamesFromHistory(slotMeta, banks) {
+  if (!slotMeta || !Array.isArray(banks) || banks.length < 2) return;
+  ['C', 'D'].forEach((bank) => {
+    const bankIdx  = bank === 'D' ? 1 : 0;
+    const slotsArr = slotMeta[bank] || [];
+    const bankArr  = banks[bankIdx]  || [];
+    for (let s = 0; s < 16; s++) {
+      const meta = slotsArr[s];
+      if (!meta || meta.name) continue;  // already named — leave alone
+      const remembered = lookupInHistory(bankArr[s]);
+      if (remembered && remembered.name) {
+        meta.name = remembered.name;
+        if (!meta.origin) meta.origin = remembered.origin;
+      }
+    }
+  });
 }
 
 // Ensure library.slotMeta has 16 entries per bank, each shaped { name, origin }.
@@ -292,6 +346,28 @@ function ensureLibraryShape() {
   if ('names' in library) delete library.names;
   if (Array.isArray(library.packages)) library.packages.forEach(migratePackageShape);
   if (Array.isArray(library.sequences)) library.sequences.forEach(migrateSequenceShape);
+  // Backfill library.history from any package's slotMeta + banks pair so that
+  // packages saved before the recordSlotMetaToHistory fix landed (or any
+  // package that's ever been imported without first being routed through
+  // active C/D) still resolve names on an audio roundtrip through the JX-3P.
+  // noClobber: don't overwrite a more-recent direct rename in active banks.
+  if (Array.isArray(library.packages)) {
+    library.packages.forEach((pkg) => {
+      if (pkg && pkg.slotMeta && Array.isArray(pkg.banks)) {
+        recordSlotMetaToHistory(pkg.slotMeta, pkg.banks, { noClobber: true });
+      }
+    });
+    // Reverse direction: retrofit any package slot that's nameless but whose
+    // params do match a history fingerprint. Catches packages created via
+    // the Library → Tones drop of a JX-dumped WAV before that path was
+    // taught to consult history. Pure backfill — never overwrites an
+    // existing name, only fills in nulls.
+    library.packages.forEach((pkg) => {
+      if (pkg && pkg.slotMeta && Array.isArray(pkg.banks)) {
+        restoreNamesFromHistory(pkg.slotMeta, pkg.banks);
+      }
+    });
+  }
   ensureCustomBucketsShape();
 }
 
@@ -2046,7 +2122,7 @@ function applyImportData(data, sourceLabel = null) {
 // incoming slot we look up the param fingerprint in library.history and
 // restore the prior name/origin if seen before; otherwise the slot starts
 // fresh with origin = current slot.
-function applyWavData(data, sourceLabel = null) {
+function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
   if (!data || !Array.isArray(data.banks) || data.banks.length < 2) {
     throw new Error('invalid jx3p output: expected banks: [[...], [...]]');
   }
@@ -2058,8 +2134,15 @@ function applyWavData(data, sourceLabel = null) {
     library.slotMeta[bank].forEach((m, s) => {
       const params = patches.banks[bankIdx] && patches.banks[bankIdx][s];
       const remembered = lookupInHistory(params);
-      m.name   = (remembered && remembered.name)   || null;
-      m.origin = (remembered && remembered.origin) || slotKey(bank, s);
+      // Name/origin resolution priority:
+      //   1. Local fingerprint history (user's own remembered name for these
+      //      params — wins so the user's own naming choices stick).
+      //   2. Embedded slotMeta from the WAV's "jPpS" RIFF chunk (sender's
+      //      name, when sharing a WAV between JP Patches users).
+      //   3. Null (slot stays unnamed, just an "imported as X" placeholder).
+      const embedded = embeddedSlotMeta && embeddedSlotMeta[bank] && embeddedSlotMeta[bank][s];
+      m.name   = (remembered && remembered.name)   || (embedded && embedded.name)   || null;
+      m.origin = (remembered && remembered.origin) || (embedded && embedded.origin) || slotKey(bank, s);
     });
   });
 }
@@ -2077,7 +2160,7 @@ async function handleToneSave() {
   }
   try {
     const label = labelFromPath(result.path);
-    if (result.kind === 'wav') applyWavData(result.data, label);
+    if (result.kind === 'wav') applyWavData(result.data, label, result.slotMeta);
     else                       applyImportData(result.data, label);
     saveLibraryDebounced();
     renderPatchList();
@@ -2097,6 +2180,11 @@ async function handleToneLoad() {
   // user first round-trip it through the active banks.
   let exportData = patches;
   let label = activeBanksSourceLabel || null;
+  // slotMeta captured alongside the export — main.js will embed this as a
+  // custom RIFF chunk in the WAV so a recipient JP Patches install can
+  // restore the original custom names. JX-3P hardware ignores the chunk.
+  let slotMeta = library && library.slotMeta ? library.slotMeta : null;
+  let sendingPackage = false;
   if (selBank === 'L' && selLibTab === 'tones' && selPackage !== null
       && library && Array.isArray(library.packages) && library.packages[selPackage]) {
     const pkg = library.packages[selPackage];
@@ -2108,7 +2196,9 @@ async function handleToneLoad() {
         format_version: (patches && patches.format_version) || '1.0',
         banks: pkg.banks,
       };
-      label = pkg.customName || pkg.defaultName || null;
+      label          = pkg.customName || pkg.defaultName || null;
+      slotMeta       = pkg.slotMeta   || null;
+      sendingPackage = true;
     }
   }
   if (!exportData || !Array.isArray(exportData.banks) || exportData.banks.length < 2) {
@@ -2119,7 +2209,19 @@ async function handleToneLoad() {
   // before the data leaves the app. On a future re-import, matching params
   // will restore the name no matter what slot they come back in.
   recordAllNamedToHistory();
+  // When sending a library package *directly* (not via the active C/D banks),
+  // the package's slotMeta isn't reflected in library.slotMeta, so
+  // recordAllNamedToHistory above wouldn't capture the package's names.
+  // Record them explicitly so an audio roundtrip through the JX-3P (which
+  // strips the RIFF chunk that would otherwise carry names) still restores
+  // them on reimport via fingerprint match.
+  if (sendingPackage) recordSlotMetaToHistory(slotMeta, exportData.banks);
   saveLibraryDebounced();
+  // Attach the slot metadata under a private key so main.js can pull it out
+  // and embed it in the output WAV's RIFF "jPpS" chunk. The underscore
+  // prefix marks it as our own extension; main.js strips it before passing
+  // the bank JSON to jx3p (which would otherwise reject the extra field).
+  if (slotMeta) exportData = { ...exportData, _slotMeta: slotMeta };
   showSendToJxModal(exportData, label);
 }
 
@@ -3289,11 +3391,21 @@ async function handleTonesDropImport(filePath) {
   // active C/D banks. Default name uses an "Imported" prefix to distinguish
   // these from "Saved" snapshots.
   const banks = decodedToInMemoryBanks(result.data);
-  const slotMeta = decodedToSlotMeta(result.data);
+  // Prefer the slotMeta embedded in the WAV's "jPpS" chunk (set by another
+  // JP Patches install on export) so cross-user shares preserve custom names.
+  // Fall back to decodedToSlotMeta when the WAV carries no chunk — gives
+  // blank slot names that the user can fill in via inline rename.
+  const slotMeta = result.slotMeta || decodedToSlotMeta(result.data);
   if (!banks) {
     showImportError('This WAV does not contain any patch data. Try dropping it on the Sequences sub-tab if it is a sequencer dump.');
     return;
   }
+  // Fingerprint-history fallback: if no chunk supplied names, walk each
+  // slot's params and try library.history. This is what makes a JX-3P
+  // audio roundtrip (Electron → tape → JX → tape dump → import) restore
+  // names — the chunk gets stripped by the audio path but the params come
+  // back byte-identical so the fingerprint lookup hits.
+  restoreNamesFromHistory(slotMeta, banks);
   const now = new Date();
   // Default to the dropped file's name (sans .wav/.json extension) so the
   // library entry is recognizable at a glance. Fall back to a date-stamped
@@ -3333,7 +3445,7 @@ function handleBankDropImport(filePath) {
         return;
       }
       try {
-        applyWavData(result.data, labelFromPath(filePath));
+        applyWavData(result.data, labelFromPath(filePath), result.slotMeta);
         saveLibraryDebounced();
         renderPatchList();
         updateSvgPatchName();

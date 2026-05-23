@@ -246,9 +246,98 @@ ipcMain.handle('save-library', (_e, data) => {
 });
 ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
 
+// ── Custom RIFF chunk for embedding slot metadata in exported WAVs ─────────
+//
+// The JX-3P tape format only carries the 32 patch parameter bytes per slot —
+// no name field. So a WAV exported from JP Patches and shared with another
+// user normally loses all the custom names the sender had given the patches.
+//
+// To preserve names across cross-user sharing, we tack a custom RIFF chunk
+// onto the end of the WAV file after `jx3p json-to-wav` writes it. The chunk
+// uses ID "jPpS" and contains a UTF-8 JSON payload with the bank's slotMeta.
+// The JX-3P hardware (and Bruce's jx3p decoder) ignore any RIFF chunk they
+// don't recognize, so the file remains a fully valid tape dump — the chunk
+// is invisible unless another JP Patches instance is reading it.
+//
+// On import (`decodeTapeFile`), we scan the WAV for our chunk and, if found,
+// surface the embedded slotMeta in the IPC result so the renderer can use
+// the original names instead of falling back to blank slots.
+const JP_CHUNK_ID = 'jPpS';
+
+function embedSlotMetaInWav(wavPath, slotMeta) {
+  if (!slotMeta || typeof slotMeta !== 'object') return;
+  const payload = Buffer.from(JSON.stringify({
+    v:        1,
+    app:      'JP Patches',
+    slotMeta,
+  }), 'utf8');
+  const size = payload.length;
+  // RIFF requires chunk sizes to be word-aligned; pad with one zero byte if odd.
+  const padByte = size & 1 ? 1 : 0;
+
+  const fd = fs.openSync(wavPath, 'r+');
+  try {
+    // Validate RIFF/WAVE header before mutating anything.
+    const hdr = Buffer.alloc(12);
+    fs.readSync(fd, hdr, 0, 12, 0);
+    if (hdr.slice(0, 4).toString('ascii') !== 'RIFF' ||
+        hdr.slice(8, 12).toString('ascii') !== 'WAVE') {
+      throw new Error('not a valid WAVE file');
+    }
+    const oldMasterSize = hdr.readUInt32LE(4);
+    const fileSize = fs.fstatSync(fd).size;
+
+    // Append [4-byte ID]["jPpS"] + [4-byte size LE] + payload + optional pad.
+    const chunkHeader = Buffer.alloc(8);
+    chunkHeader.write(JP_CHUNK_ID, 0, 4, 'ascii');
+    chunkHeader.writeUInt32LE(size, 4);
+    fs.writeSync(fd, chunkHeader, 0, 8, fileSize);
+    fs.writeSync(fd, payload, 0, size, fileSize + 8);
+    if (padByte) {
+      fs.writeSync(fd, Buffer.alloc(1), 0, 1, fileSize + 8 + size);
+    }
+
+    // Update RIFF master size to cover the appended bytes.
+    const newMasterSize = oldMasterSize + 8 + size + padByte;
+    const newSizeBuf = Buffer.alloc(4);
+    newSizeBuf.writeUInt32LE(newMasterSize, 0);
+    fs.writeSync(fd, newSizeBuf, 0, 4, 4);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readSlotMetaFromWav(wavPath) {
+  let buf;
+  try { buf = fs.readFileSync(wavPath); } catch { return null; }
+  if (buf.length < 12) return null;
+  if (buf.slice(0, 4).toString('ascii')  !== 'RIFF') return null;
+  if (buf.slice(8, 12).toString('ascii') !== 'WAVE') return null;
+
+  // Walk top-level chunks starting at offset 12 looking for ours.
+  let off = 12;
+  while (off + 8 <= buf.length) {
+    const id   = buf.slice(off, off + 4).toString('ascii');
+    const size = buf.readUInt32LE(off + 4);
+    if (id === JP_CHUNK_ID) {
+      try {
+        const json   = buf.slice(off + 8, off + 8 + size).toString('utf8');
+        const parsed = JSON.parse(json);
+        return (parsed && parsed.slotMeta) || null;
+      } catch { return null; }
+    }
+    // Skip to next chunk, honouring the trailing pad byte on odd-sized chunks.
+    off += 8 + size + (size & 1);
+  }
+  return null;
+}
+
 // tape-save: SAVE on the JX-3P dumps patch memory OUT of the synth as audio.
 // The app is on the receiving side: this handler imports a WAV recorded from
 // the synth (decoded via `jx3p wav-to-json`) or a previously-exported JSON.
+// If the WAV carries a "jPpS" chunk (embedded by another JP Patches export),
+// the slotMeta inside it is surfaced alongside the decoded data so the
+// renderer can restore the original custom names.
 async function decodeTapeFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.wav') {
@@ -257,7 +346,8 @@ async function decodeTapeFile(filePath) {
       const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
       await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
       const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-      return { loaded: true, kind: 'wav', data, path: filePath };
+      const slotMeta = readSlotMetaFromWav(filePath);
+      return { loaded: true, kind: 'wav', data, slotMeta, path: filePath };
     } finally {
       try { fs.unlinkSync(outputPath); } catch {}
     }
@@ -307,11 +397,20 @@ ipcMain.handle('tape-load', async (e, data, suggestedName) => {
   });
   if (dlg.canceled || !dlg.filePath) return { saved: false };
 
+  // Renderer may attach `_slotMeta` to the export payload so we can preserve
+  // custom names via a RIFF chunk. Strip it before passing to jx3p (whose
+  // bank.schema.json doesn't know about it) and embed it after the WAV writes.
+  const { _slotMeta, ...jx3pData } = data || {};
   const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
   try {
-    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${dlg.filePath}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedSlotMetaInWav(dlg.filePath, _slotMeta); } catch (e2) {
+      // Best-effort: a chunk failure shouldn't fail the whole export. The WAV
+      // is still a valid tape dump without the embedded names.
+      console.warn('embedSlotMetaInWav failed:', e2 && e2.message);
+    }
     return { saved: true, path: dlg.filePath };
   } catch (err) {
     return { saved: false, error: err.stderr || err.message };
@@ -327,10 +426,19 @@ ipcMain.handle('tape-load', async (e, data, suggestedName) => {
 ipcMain.handle('tape-encode-to-temp', async (_e, data) => {
   const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
   const tempWav  = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.wav`);
+  // Strip _slotMeta before handing to jx3p, embed it after (same pattern as
+  // tape-load). The chunk is harmless during in-app playback to the JX-3P,
+  // but it also means a user who later does "Save WAV file" from the send
+  // modal still gets a names-preserving WAV (since we're operating on the
+  // same temp WAV that may be saved out).
+  const { _slotMeta, ...jx3pData } = data || {};
   try {
-    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${tempWav}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedSlotMetaInWav(tempWav, _slotMeta); } catch (e2) {
+      console.warn('embedSlotMetaInWav failed:', e2 && e2.message);
+    }
     return { ok: true, path: tempWav };
   } catch (err) {
     try { fs.unlinkSync(tempWav); } catch {}

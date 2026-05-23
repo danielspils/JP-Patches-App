@@ -220,6 +220,8 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
 **Patch identity by parameters**: in the app's mental model a patch's identity is its 32 params, not its name. So if you name a patch in the app, export to the synth, move it around on the JX, and import the tape dump back, the app recognizes the patch and restores the name automatically. Edit knobs on the JX → identity changes → name resets. By design.
 
+**Custom-name embedding in exported WAVs ("jPpS" RIFF chunk)**: To preserve custom names across cross-user WAV sharing (the JX-3P tape format has no name field, so a WAV emailed to a friend would normally lose all names), `main.js` appends a custom RIFF chunk with ID `"jPpS"` after `jx3p json-to-wav` writes the file. The chunk contains a UTF-8 JSON payload `{ v: 1, app: "JP Patches", slotMeta: {...} }`. JX-3P hardware (and Bruce's `jx3p` decoder) ignore any chunk they don't recognize, so the WAV remains a fully valid tape dump. On import (`decodeTapeFile`), the chunk is parsed and the embedded slotMeta is surfaced in the IPC result; the renderer prefers fingerprint-history (the user's own remembered names) over the chunk's names, falling back to the chunk when history is silent — so a friend's WAV repopulates names but doesn't clobber the receiver's own renames. The renderer attaches `_slotMeta` (underscore-prefixed to mark as JP Patches-only) on the bank JSON sent to `tape-load`/`tape-encode-to-temp`; `main.js` strips this private field before handing to jx3p (whose schema would reject it) and embeds it after the WAV is written.
+
 ## Recent themes
 
 `git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–22 burst:
