@@ -1431,8 +1431,7 @@ function renderSequencesList(list) {
     item.appendChild(inp);
     item.appendChild(buildLoadToAppIcon(
       () => handleLoadLibrarySequence(idx),
-      'Load the paired patch for this sequence to app',
-      'paired patch',
+      'Load this sequence (and its original paired patch) to app',
     ));
     item.appendChild(buildSequenceTrashIcon(idx));
     list.appendChild(item);
@@ -1577,9 +1576,9 @@ function handleLoadLibrarySequence(idx) {
   migrateSequenceShape(seq);
   const seqName = seq.customName || seq.defaultName || 'this sequence';
   showConfirmModal({
-    title: 'Loading Paired Patch to JP Patches',
+    title: 'Loading Sequence to JP Patches',
     body:
-      `This will load the patch that the person who made *${seqName}* recommends.\n\n` +
+      `*${seqName}* will load to the app — it will recall the original sequence patch.\n\n` +
       'To load the sequence into your synth, use the **Sequencer → Load to JX-3P** button.',
     confirmLabel: 'Load',
     onConfirm: () => loadSequenceIntoActivePatch(seq),
