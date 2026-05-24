@@ -91,6 +91,10 @@
 
 </div>
 
+<!-- Pure-math helpers extracted from app.js for unit-testability. Loads
+     first so app.js's inline closures (currently kept for safety during
+     the transition) and any other consumers can see the global helpers. -->
+<script src="calibration-math.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

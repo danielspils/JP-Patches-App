@@ -35,6 +35,8 @@ The green/blue/red trio is the canonical **"good / informational / warning"** tr
 | **Button face** | `#cbc4b4` | Active button surface (the cream face of Manual/Write/Save/Load and all knob bodies) |
 | **Button highlight** | `#dbd4c4` | Top-edge gloss strip on button LEDs (the 4px-tall highlight overlay) |
 | **Switch top** | `#d3ccbc` | "On" / first-position segment of a 3-segment switch (lightest, looks like white plastic) |
+| **Switch highlight (dynamic)** | `#d0d0d0` | Slightly lighter variant used by app.js's runtime switch repainting (`updateSwitches`). Functionally the same as `#d3ccbc`; the drift is pre-existing — don't fork it further |
+| **Duo-enum gold** | `#c8a020` | Active position of 2-segment switches (panel.svg switches that toggle between two states only, vs. the 3-position default) |
 | **Text bright** | `#e8e2d3` | Primary modal text, list-row primary labels |
 
 ### Dark surfaces (greyscale)

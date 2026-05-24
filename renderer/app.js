@@ -3520,7 +3520,10 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   // Formula: gain = 0.1 × 300^(slider/100). At slider=0 → 0.1×, slider=20
   // → ~1×, slider=100 → 30×.
   const sliderToGain = (s) => 0.1 * Math.pow(300, s / 100);
-  const gainToSlider = (g) => Math.max(0, Math.min(100, Math.round(Math.log(g / 0.1) / Math.log(300) * 100)));
+  // Clamp g ≥ 0.001 inside Math.max so negative/zero gain doesn't crash
+  // into Math.log(negative) = NaN. (Defensive — in practice gain comes
+  // from the slider or knob, both of which clamp positive.)
+  const gainToSlider = (g) => Math.max(0, Math.min(100, Math.round(Math.log(Math.max(g, 0.001) / 0.1) / Math.log(300) * 100)));
   const formatGain   = (g) => g >= 10 ? `${g.toFixed(0)}×` : g >= 1 ? `${g.toFixed(1)}×` : `${g.toFixed(2)}×`;
 
   // Structure timeline — reuses the .send-jx-* classes from the export modal
