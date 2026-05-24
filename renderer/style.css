@@ -666,59 +666,29 @@ body {
 .patch-info-btn:hover { color: var(--text-bright); }
 .patch-item.selected .patch-info-btn { color: #c4dec0; }
 
-/* Cross-bank swap icon — visible on row hover. Shifts the patch to the same
-   slot in the other bank (C ⇄ D). */
-.patch-swap-btn {
-  flex-shrink: 0;
-  background: transparent;
-  border: 1px solid #2c2c2c;
-  border-radius: 3px;
-  color: #6a6a6a;
-  font-size: 10px;
-  font-family: inherit;
-  padding: 1px 5px;
-  margin-left: auto;
-  cursor: pointer;
-  line-height: 1.2;
-  display: none;
-}
-.patch-item:hover .patch-swap-btn { display: inline-block; }
-.patch-swap-btn:hover {
-  color: var(--text-bright);
-  border-color: #4a4a4a;
-  background: #1f1f1f;
-}
-.patch-item.selected .patch-swap-btn { color: #c4dec0; border-color: var(--green-sel-bdr); }
+/* (Cross-bank swap CSS removed 2026-05-24 along with the JS handler.
+   Custom Banks builder covers cross-bank cherry-picking. Recover from
+   git history at SHA 3cc501e^ if ever needed.) */
 
 /* Drag-and-drop reorder indicators. */
 .patch-item.dragging { opacity: 0.4; }
 .patch-item.drag-over {
   box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
 }
-
-/* Cross-bank swap animation — the outgoing patch slides toward the other
-   bank's tab direction and fades; the incoming patch arrives from the same
-   side. --swap-dir is set in JS: +1 (C→D, rightward) or -1 (D→C, leftward). */
-/* Cross-bank swap animation — the outgoing row's content clones into a ghost
-   that slides toward the other bank's tab while the replacement row slides in
-   from the same direction. The two cross paths visibly in the middle.
-   --swap-dir is set in JS: +1 (C→D, rightward) or -1 (D→C, leftward). */
-/* Only the name span animates during a C↔D swap; the slot prefix
-   (C7:/D7:) stays put so it's clear the SLOT is the anchor and the
-   PATCHES are what cross over. */
-.patch-name-span.swap-out {
-  animation: patch-swap-out 0.7s ease-in forwards;
+/* Post-reorder destination flash — the row that received the moved patch
+   gets a brief cream-tint wash so the user can see exactly where it
+   landed. Uses vintage cream rather than the .selected green so the two
+   visuals layer cleanly on a selected-and-just-moved row. Applies to
+   both the active-bank patch list (.patch-item) AND the Custom Banks
+   builder bucket rows (.cb-slot). */
+.patch-item.just-moved,
+.cb-slot.just-moved {
+  animation: patch-just-moved 850ms ease-out;
 }
-.patch-name-span.swap-in {
-  animation: patch-swap-in 0.75s ease-out;
-}
-@keyframes patch-swap-out {
-  from { transform: translateX(0);                                opacity: 1; }
-  to   { transform: translateX(calc(110px * var(--swap-dir, 1))); opacity: 0; }
-}
-@keyframes patch-swap-in {
-  from { transform: translateX(calc(110px * var(--swap-dir, 1))); opacity: 0; }
-  to   { transform: translateX(0);                                opacity: 1; }
+@keyframes patch-just-moved {
+  0%   { background: rgba(247, 241, 230, 0.30); }
+  60%  { background: rgba(247, 241, 230, 0.15); }
+  100% { background: transparent; }
 }
 
 .write-banner {
@@ -895,26 +865,62 @@ body {
   box-shadow: 0 0 4px rgba(247, 241, 230, 0.6);
 }
 .send-jx-timeline.complete .send-jx-indicator { display: none; }
+/* ───────────────────────────────────────────────────────────────────────
+   Modal buttons — brand-aligned design system (2026-05-24)
+   See docs/design-system.md §4.1 (Modal layout) for the broader context.
+   Four semantic variants mapped to JP brand colors:
+     .modal-btn-cancel   neutral dismiss — cream-on-dark outline only
+     .modal-btn-confirm  primary positive — Roland green solid
+     .modal-btn-alt      secondary alternative — Roland blue solid
+     .modal-btn-danger   destructive — Roland red solid
+   Shared style: 2px radius (matches panel button rx=2), weight 600,
+   cream text on filled variants for panel-label consistency, hover
+   lightens the fill, active does a 1px press.
+   ─────────────────────────────────────────────────────────────────────── */
 .modal-btn {
-  padding: 7px 16px;
+  padding: 8px 18px;
   background: none;
-  border: 1px solid var(--border-dim);
-  border-radius: 3px;
-  color: var(--text-bright);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: #f7f1e6;                    /* vintage cream — matches panel labels */
   font-family: inherit;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;               /* button labels are short; never wrap */
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
   outline: none;
 }
-.modal-btn:focus-visible { border-color: var(--green-sel-bdr); }
-.modal-btn-cancel:hover  { background: #262626; }
-.modal-btn-confirm {
-  background: #1a2a1c;
-  border-color: var(--green-sel-bdr);
+.modal-btn:active                { transform: translateY(1px); }
+.modal-btn:focus-visible         { box-shadow: 0 0 0 2px rgba(247, 241, 230, 0.4); }
+
+/* Cancel — inverted cream pill, mirrors the JX-3P front-panel white-on-
+   dark menu rectangles AND the .package-load-btn:hover style on Library
+   rows. Cream background, panel-black text, panel-black border. Visually
+   neutral but distinct from the colored primary/alt/danger fills. */
+.modal-btn-cancel {
+  background: #f7f1e6;
+  border-color: #1a1a1a;
+  color: #1a1a1a;
 }
-.modal-btn-confirm:hover { background: #233525; border-color: #5d8a62; }
+.modal-btn-cancel:hover          { background: #dbd4c4; border-color: #1a1a1a; }
+
+/* Primary positive — Roland green. The default "recommended action". */
+.modal-btn-confirm {
+  background: #1f6e5b;
+  border-color: #1f6e5b;
+}
+.modal-btn-confirm:hover         { background: #2a8870; border-color: #2a8870; }
+
+/* Secondary alternative — Roland blue. Same level of importance as
+   confirm but a different path to the same goal (e.g. "Open WAV file"
+   vs "Record from JX-3P"). */
+.modal-btn-alt {
+  background: #33508f;
+  border-color: #33508f;
+}
+.modal-btn-alt:hover             { background: #4264a8; border-color: #4264a8; }
 
 /* Save Sequence modal — slightly wider than the default confirm dialog so
    the captured-summary line and the note textarea both have breathing room. */
@@ -967,6 +973,13 @@ body {
    the Send-to-JX modal layout: instructions on top, device picker + level
    meter in the middle, Record/Stop in the action row. */
 .record-jx-modal { max-width: 540px; }
+/* Capture-source chooser modal (Save Patches / Save Sequence from JX-3P)
+   — three buttons (Cancel + Open WAV file… + Record from JX-3P). Body
+   sentence + buttons are both center-justified so the layout reads as a
+   tidy stacked composition. Modal bumped to 480px (just enough for the
+   3 buttons + cancel on one row with white-space: nowrap). */
+.capture-source-chooser-modal { max-width: 480px; }
+.capture-source-chooser-modal .modal-actions { justify-content: center; }
 .record-jx-instr {
   font-size: 12px;
   color: var(--text-bright);
@@ -996,56 +1009,12 @@ body {
   box-sizing: border-box;
 }
 .record-jx-device:focus { border-color: var(--green-sel-bdr); }
-.record-jx-meter-outer {
-  position: relative;
-  width: 100%;
-  height: 14px;
-  background: #0e0e0e;
-  border: 1px solid var(--border-dim);
-  border-radius: 2px;
-  overflow: hidden;
-}
-/* Shaded "target peak zone" behind the live meter bar. Width spans 30%–70%
-   of the meter — the sweet spot where FSK decodes cleanest and there's
-   still healthy headroom above the clipping threshold. Dashed boundaries
-   make the edges visible without competing with the bar itself. */
-.record-jx-meter-target {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 30%;
-  width: 40%;
-  background: rgba(31, 110, 91, 0.22);
-  border-left:  1px dashed rgba(31, 110, 91, 0.65);
-  border-right: 1px dashed rgba(31, 110, 91, 0.65);
-  pointer-events: none;
-  z-index: 0;
-}
-.record-jx-meter-bar {
-  position: relative;
-  height: 100%;
-  width: 0%;
-  background: #1f6e5b;  /* default = green; JS adjusts to amber/red on peak */
-  transition: width 80ms linear, background 120ms linear;
-  z-index: 1;
-}
-.record-jx-meter-hint {
-  color: var(--text-mid);
-  font-size: 11px;
-  margin-top: 4px;
-  font-style: italic;
-}
-.record-jx-fsk-peak {
-  color: var(--text-mid);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  margin-top: 6px;
-  padding: 4px 8px;
-  background: #0e0e0e;
-  border: 1px solid var(--border-dim);
-  border-radius: 2px;
-  letter-spacing: 0.02em;
-}
+/* (Removed 2026-05-24: .record-jx-meter-outer / .record-jx-meter-target
+   / .record-jx-meter-bar / .record-jx-meter-hint / .record-jx-fsk-peak —
+   all CSS for the legacy horizontal HTML level meter + target zone +
+   FSK peak badge + meter hint. The new SVG vertical meter in calRow
+   replaced all of them; the elements were removed in the same cleanup
+   pass.) */
 .record-jx-cal-progress-section {
   margin-top: 14px;
 }
@@ -1113,9 +1082,10 @@ body {
 .record-jx-status {
   font-size: 12px;
   color: var(--text-mid);
-  text-align: center;
-  margin-top: 8px;
-  min-height: 1.2em;   /* reserve a line so action row doesn't jump on populate */
+  text-align: right;       /* aligns visually with the meter column above */
+  margin: 0 0 10px 0;      /* tight under calRow; small gap before deviceSection */
+  padding-right: 30px;     /* small inset so the text doesn't kiss the modal's right edge */
+  min-height: 1.2em;       /* reserve a line so the layout doesn't jump on populate/clear */
 }
 
 /* ───────────────────────────────────────────────────────────────────────
@@ -1346,11 +1316,13 @@ body {
   border-color: #1a1a1a;
 }
 
+/* Destructive — Roland red solid. Same brand-aligned treatment as
+   confirm/alt above. Reserved for delete/remove/force-overwrite. */
 .modal-btn-danger {
-  background: #2a1717;
-  border-color: #8a4a4a;
+  background: #b94a2e;
+  border-color: #b94a2e;
 }
-.modal-btn-danger:hover { background: #3a1f1f; border-color: #b06060; }
+.modal-btn-danger:hover { background: #d05a3a; border-color: #d05a3a; }
 .package-item:hover    { background: #1c1c1c; }
 .package-item.selected { background: var(--green-sel-bg); }
 .package-item.dragging { opacity: 0.4; }

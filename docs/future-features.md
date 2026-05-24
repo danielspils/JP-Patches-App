@@ -10,6 +10,29 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **README screenshots refresh.** Current screenshots predate the vintage cream palette and the Custom Banks redesign. Capture fresh screenshots and embed in the README.
 
+- **Modal animation: two-state Record-from-JX Step 2.** Today the capture modal (Step 2 of 2: Data dump from JX-3P) shows a static layout: `[JX key diagram] [arrow] [JP logo] [level meter]`. Once the user presses Save on the JX and FSK signal starts arriving, the diagram is no longer informational (the user has already done their part) and the JP logo isn't carrying its weight (it's just there). A cleaner two-state design would shift focus as the transfer progresses:
+
+  - **State A — waiting**: `[JX key diagram visible] [arrow] [level meter]`. JP logo hidden. Emphasizes "press these keys on the JX."
+  - **State B — receiving**: `[JP logo fades in / diagram fades out, same slot] [arrow] [level meter]`. Emphasizes "transfer is happening, JP is receiving."
+
+  **Trigger**: `firstSignalMs` becomes non-null in `tickMeter` (i.e. peak first crosses `SIGNAL_THRESHOLD_LIVE`). Already wired for other things — adding a CSS class toggle is one line.
+
+  **Implementation** (Option B from the 2026-05-24 design discussion):
+  - Wrap `jxKeyDiagram` and `record-jx-jp-logo` in a shared `record-jx-leftstage` div (`position: relative; width: 180px`).
+  - Both children get `position: absolute; inset: 0; transition: opacity 0.5s ease`.
+  - Default: diagram opacity 1, logo opacity 0.
+  - When `calRow.classList.add('transmitting')` fires, opacities swap.
+  - Level meter and arrow are NOT in the stage — they stay physically anchored so the user's eye stays focused on the live meter during the actual transfer.
+
+  **Edge cases**:
+  - Cancel mid-transmission: next modal open resets to State A (fresh DOM).
+  - Pre-roll noise crossing threshold before Save: gate the `.transmitting` toggle on `fskStartMs !== null` (silence-then-signal pattern) rather than `firstSignalMs` alone, so loose noise doesn't fire the transition prematurely.
+  - Sequencer captures: same component, same animation — no kind-specific changes needed.
+
+  **Effort**: ~30–45 min. Most of the cost is restructuring the left-slot DOM + CSS; the trigger wiring is trivial.
+
+  **Why deferred**: nice polish but not blocking — the current 4-element layout already works, just isn't telling a story about transfer progress. Pick up alongside any other Record-from-JX UX work.
+
 ## Distribution
 
 - **Apple Developer ID + notarization.** Drop the "damaged" Gatekeeper dialog on download. $99/yr, one-time setup of signing/notarization in `electron-builder` + Apple's `notarytool`. After setup, every release auto-signs.

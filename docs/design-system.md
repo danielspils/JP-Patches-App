@@ -322,6 +322,21 @@ Use this when you need to visualize an audio level or any single-value indicator
 - **Modal body:** `font-size: 12px`, `line-height: 1.6`, color `--text-mid`.
 - **Modal actions:** flex row, right-aligned by default, `gap: 10px`.
 
+### 4.1a Modal buttons (brand-aligned system)
+
+Four semantic variants mapped to the JP brand colors. Shared style: `border-radius: 2px` (matches panel button `rx=2`), `padding: 8px 18px`, `font-weight: 600`, vintage cream `#f7f1e6` text on filled variants for panel-label consistency. Hover lightens the fill; active presses 1px down.
+
+| Class | Color | Use | Examples |
+|---|---|---|---|
+| `.modal-btn-cancel` | Cream outline only on dark background | Neutral dismiss | Cancel, Close, "back" |
+| `.modal-btn-confirm` | **Roland green** `#1f6e5b` solid | Primary positive / recommended action | Save, Continue, Record from JX-3P, Try again |
+| `.modal-btn-alt` | **Roland blue** `#33508f` solid | Secondary alternative — same level of importance, different path to the goal | Open WAV file, Save WAV file, Use anyway |
+| `.modal-btn-danger` | **Roland red** `#b94a2e` solid | Destructive | Delete, Remove, Force-overwrite |
+
+Hover shades (~12% lighter): green `#2a8870`, blue `#4264a8`, red `#d05a3a`.
+
+When designing a new modal: pick exactly one `.modal-btn-confirm` (the primary CTA), 0–1 `.modal-btn-alt` (the alternative path if relevant), 0–1 `.modal-btn-danger` (only if there's a destructive action), and one `.modal-btn-cancel`. Don't stack multiple confirms — the user shouldn't have to choose between two equally-recommended actions.
+
 ### 4.2 Section card (inside a modal)
 
 Background-elevated cards for grouping related controls inside a modal. Used for INPUT DEVICE / LEVEL / INPUT GAIN sections in the Record-from-JX modal.

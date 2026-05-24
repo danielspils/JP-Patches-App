@@ -141,6 +141,63 @@ let pendingSaveAnimationId = null;
 // the patch was lifted from.
 let activeBanksSourceLabel = null;
 
+// ═══════════════════════════════════════════════════════════════
+// Undo / Redo (Cmd+Z / Cmd+Shift+Z)
+// ═══════════════════════════════════════════════════════════════
+// Lightweight action-history stacks. Each entry carries an undo() and
+// redo() closure that captures whatever state is needed to reverse and
+// re-apply the operation. isReplayingUndo guards against an action
+// pushing a NEW entry when it's invoked from the stack itself (e.g.
+// reorderBankSlot's undo calls reorderBankSlot in reverse, which would
+// otherwise push a duplicate entry).
+//
+// Current coverage (~2026-05-24): reorder + delete + rename for the
+// patch list, custom-bank buckets, library packages, and library
+// sequences. Future expansion would add knob twists, patch loads,
+// package saves — see docs/future-features.md "App-level Undo/Redo".
+//
+// Text-field guard: when an <input>/<textarea>/contenteditable has
+// focus the keyboard handler skips so the browser's native character-
+// level undo keeps working in name-edit fields.
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO_DEPTH = 50;
+let isReplayingUndo = false;
+
+function pushUndo(action) {
+  if (isReplayingUndo) return;
+  undoStack.push(action);
+  if (undoStack.length > MAX_UNDO_DEPTH) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function performUndo() {
+  const action = undoStack.pop();
+  if (!action) return;
+  isReplayingUndo = true;
+  try { action.undo(); } finally { isReplayingUndo = false; }
+  redoStack.push(action);
+}
+
+function performRedo() {
+  const action = redoStack.pop();
+  if (!action) return;
+  isReplayingUndo = true;
+  try { action.redo(); } finally { isReplayingUndo = false; }
+  undoStack.push(action);
+}
+
+document.addEventListener('keydown', (e) => {
+  const ae = document.activeElement;
+  const inText = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+  if (inText) return;
+  const isMeta = e.metaKey || e.ctrlKey;
+  if (!isMeta || e.key.toLowerCase() !== 'z') return;
+  e.preventDefault();
+  if (e.shiftKey) performRedo();
+  else            performUndo();
+});
+
 function labelFromPath(path) {
   if (!path) return null;
   const basename = path.split(/[\\/]/).pop();
@@ -1362,24 +1419,14 @@ function renderPatchList() {
     });
     info.addEventListener('mousedown', (e) => e.stopPropagation());
 
-    const swap = document.createElement('button');
-    swap.className = 'patch-swap-btn';
-    swap.type = 'button';
-    const otherBank = selBank === 'C' ? 'D' : 'C';
-    swap.textContent = `⇄${otherBank}${slot + 1}`;
-    swap.title = `Swap with ${otherBank}${slot + 1}`;
-    swap.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (writePending) return;
-      swapAcrossBanks(slot);
-    });
-    swap.addEventListener('mousedown', (e) => e.stopPropagation());
+    // (Cross-bank ⇄ swap button removed 2026-05-24. The Custom Banks
+    // builder now covers cross-bank cherry-picking with more control
+    // and a better UX; the per-row swap shortcut was redundant.)
 
     item.appendChild(num);
     item.appendChild(nm);
     item.appendChild(inp);
     item.appendChild(info);
-    item.appendChild(swap);
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
@@ -1404,7 +1451,7 @@ function renderPatchList() {
     // is in write-pending mode (clicks there mean "write current patch here").
     if (!writePending) item.draggable = true;
     item.addEventListener('dragstart', (e) => {
-      if (writePending || e.target.closest('.patch-swap-btn, .patch-info-btn, .patch-name-edit')) {
+      if (writePending || e.target.closest('.patch-info-btn, .patch-name-edit')) {
         e.preventDefault();
         return;
       }
@@ -1667,6 +1714,12 @@ function reorderPackage(fromIdx, toIdx) {
   }
   saveLibraryDebounced();
   renderPatchList();
+
+  // Undo: reverse the splice.
+  pushUndo({
+    undo: () => reorderPackage(toIdx, fromIdx),
+    redo: () => reorderPackage(fromIdx, toIdx),
+  });
 }
 
 function handleLoadLibraryBanks(idx) {
@@ -1837,11 +1890,28 @@ function handleDeletePackage(idx) {
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
+      const removed = library.packages[idx];
       library.packages.splice(idx, 1);
+      const prevSelPackage = selPackage;
       if (selPackage === idx) selPackage = null;
       else if (selPackage !== null && selPackage > idx) selPackage -= 1;
       saveLibraryDebounced();
       renderPatchList();
+      pushUndo({
+        undo: () => {
+          library.packages.splice(idx, 0, removed);
+          selPackage = prevSelPackage;
+          saveLibraryDebounced();
+          renderPatchList();
+        },
+        redo: () => {
+          library.packages.splice(idx, 1);
+          if (selPackage === idx) selPackage = null;
+          else if (selPackage !== null && selPackage > idx) selPackage -= 1;
+          saveLibraryDebounced();
+          renderPatchList();
+        },
+      });
     },
   });
 }
@@ -1857,11 +1927,19 @@ function startPackageNameEdit(idx, nm, def, inp) {
 function commitPackageNameEdit(idx, nm, def, inp) {
   if (inp.style.display !== 'block') return;
   const val = inp.value.trim();
-  library.packages[idx].customName = val;
+  const oldName = library.packages[idx].customName || '';
+  const newName = val;
+  library.packages[idx].customName = newName;
   inp.style.display = 'none';
   nm.style.display  = '';
   saveLibraryDebounced();
   renderPatchList();
+  if (oldName !== newName) {
+    pushUndo({
+      undo: () => { if (library.packages[idx]) { library.packages[idx].customName = oldName; saveLibraryDebounced(); renderPatchList(); } },
+      redo: () => { if (library.packages[idx]) { library.packages[idx].customName = newName; saveLibraryDebounced(); renderPatchList(); } },
+    });
+  }
 }
 
 function cancelPackageNameEdit(nm, inp) {
@@ -2019,11 +2097,28 @@ function handleDeleteSequence(idx) {
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
+      const removed = library.sequences[idx];
       library.sequences.splice(idx, 1);
+      const prevSelSequence = selSequence;
       if (selSequence === idx) selSequence = null;
       else if (selSequence !== null && selSequence > idx) selSequence -= 1;
       saveLibraryDebounced();
       renderPatchList();
+      pushUndo({
+        undo: () => {
+          library.sequences.splice(idx, 0, removed);
+          selSequence = prevSelSequence;
+          saveLibraryDebounced();
+          renderPatchList();
+        },
+        redo: () => {
+          library.sequences.splice(idx, 1);
+          if (selSequence === idx) selSequence = null;
+          else if (selSequence !== null && selSequence > idx) selSequence -= 1;
+          saveLibraryDebounced();
+          renderPatchList();
+        },
+      });
     },
   });
 }
@@ -2039,11 +2134,19 @@ function startSequenceNameEdit(idx, nm, def, inp) {
 function commitSequenceNameEdit(idx, nm, def, inp) {
   if (inp.style.display !== 'block') return;
   const val = inp.value.trim();
-  library.sequences[idx].customName = val;
+  const oldName = library.sequences[idx].customName || '';
+  const newName = val;
+  library.sequences[idx].customName = newName;
   inp.style.display = 'none';
   nm.style.display  = '';
   saveLibraryDebounced();
   renderPatchList();
+  if (oldName !== newName) {
+    pushUndo({
+      undo: () => { if (library.sequences[idx]) { library.sequences[idx].customName = oldName; saveLibraryDebounced(); renderPatchList(); } },
+      redo: () => { if (library.sequences[idx]) { library.sequences[idx].customName = newName; saveLibraryDebounced(); renderPatchList(); } },
+    });
+  }
 }
 
 function cancelSequenceNameEdit(nm, inp) {
@@ -2353,10 +2456,31 @@ function commitListEdit(slot, nm, inp) {
   if (inp.style.display !== 'block') return;
   const val = inp.value.trim();
   const arr = slotMetaArr(selBank);
-  if (arr && arr[slot]) arr[slot].name = val || null;
+  // Capture for undo BEFORE mutating.
+  const bankAtEdit = selBank;
+  const oldName    = (arr && arr[slot] && arr[slot].name) || null;
+  const newName    = val || null;
+  if (arr && arr[slot]) arr[slot].name = newName;
   recordToHistory(selBank, slot);
   inp.style.display = 'none';
   nm.style.display  = '';
+  saveLibraryDebounced();
+  renderPatchList();
+  updateSvgPatchName();
+  if (oldName !== newName) {
+    pushUndo({
+      undo: () => setPatchSlotName(bankAtEdit, slot, oldName),
+      redo: () => setPatchSlotName(bankAtEdit, slot, newName),
+    });
+  }
+}
+
+// Small helper used by undo/redo of patch renames so the inverse
+// operation can run without going through the DOM edit-field flow.
+function setPatchSlotName(bank, slot, name) {
+  const arr = slotMetaArr(bank);
+  if (arr && arr[slot]) arr[slot].name = name;
+  recordToHistory(bank, slot);
   saveLibraryDebounced();
   renderPatchList();
   updateSvgPatchName();
@@ -2384,6 +2508,22 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
   const metaArr   = slotMetaArr(bank);
   if (!Array.isArray(paramsArr) || !Array.isArray(metaArr)) return;
 
+  // FLIP animation prep — capture each visible row's pre-move top position
+  // BEFORE we mutate the data and re-render. Only fires when we're looking
+  // at the bank that's reordering (otherwise the new state would already
+  // be on-screen with nothing to animate from).
+  let prePositions = null;
+  if (bank === selBank) {
+    const list = document.getElementById('patch-list');
+    if (list) {
+      prePositions = new Map();
+      list.querySelectorAll('.patch-item').forEach((el) => {
+        const idx = parseInt(el.dataset.slot, 10);
+        if (!Number.isNaN(idx)) prePositions.set(idx, el.getBoundingClientRect().top);
+      });
+    }
+  }
+
   const [paramsMoved] = paramsArr.splice(fromIdx, 1);
   paramsArr.splice(toIdx, 0, paramsMoved);
   const [metaMoved] = metaArr.splice(fromIdx, 1);
@@ -2404,82 +2544,71 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
   saveLibraryDebounced();
   renderPatchList();
   updateSvgPatchName();
+
+  // Undo: reverse the splice by reordering back.
+  pushUndo({
+    undo: () => reorderBankSlot(bank, toIdx, fromIdx),
+    redo: () => reorderBankSlot(bank, fromIdx, toIdx),
+  });
+
+  // FLIP animation play — for each rendered row, compute the delta from
+  // its old position to its new one, transform it instantly back to where
+  // it was, force a reflow, then transition transform back to 0. The
+  // browser animates the slide smoothly. Plus a cream-tint flash on the
+  // moved row so the destination is unmistakable.
+  if (prePositions) {
+    const newList = document.getElementById('patch-list');
+    if (newList) {
+      // Map each new-slot-index back to its old-slot-index, based on the
+      // splice pattern (move from F to T):
+      //   F < T: items at F+1..T shift up by 1; T receives the moved item.
+      //   F > T: items at T..F-1 shift down by 1; T receives the moved item.
+      const newToOld = (newIdx) => {
+        if (newIdx === toIdx) return fromIdx;
+        if (fromIdx < toIdx && newIdx >= fromIdx && newIdx < toIdx) return newIdx + 1;
+        if (fromIdx > toIdx && newIdx > toIdx  && newIdx <= fromIdx)   return newIdx - 1;
+        return newIdx;
+      };
+      const movedRows = [];
+      newList.querySelectorAll('.patch-item').forEach((el) => {
+        const newIdx = parseInt(el.dataset.slot, 10);
+        if (Number.isNaN(newIdx)) return;
+        const oldIdx = newToOld(newIdx);
+        const oldTop = prePositions.get(oldIdx);
+        if (oldTop === undefined) return;
+        const newTop = el.getBoundingClientRect().top;
+        const delta  = oldTop - newTop;
+        if (Math.abs(delta) < 0.5) return;
+        el.style.transition = 'none';
+        el.style.transform  = `translateY(${delta}px)`;
+        movedRows.push(el);
+      });
+      // Force a reflow so the pre-animation transform commits before we
+      // swap in the transition + zero transform.
+      void newList.offsetWidth;
+      movedRows.forEach((el) => {
+        el.style.transition = 'transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+        el.style.transform  = 'translateY(0)';
+        el.addEventListener('transitionend', () => {
+          el.style.transition = '';
+          el.style.transform  = '';
+        }, { once: true });
+      });
+      // Cream-tint flash on the row that received the moved patch — distinct
+      // from the green .selected state so the two visuals layer cleanly.
+      const movedEl = newList.querySelector(`.patch-item[data-slot="${toIdx}"]`);
+      if (movedEl) {
+        movedEl.classList.add('just-moved');
+        setTimeout(() => movedEl.classList.remove('just-moved'), 850);
+      }
+    }
+  }
 }
 
-function swapAcrossBanks(slot) {
-  if (slot < 0 || slot > 15) return;
-  const list = document.getElementById('patch-list');
-  const row = list && list.querySelector(`.patch-item[data-slot="${slot}"]`);
-  if (!row || selBank === 'L') {
-    performSwap(slot);
-    return;
-  }
-  const dir = selBank === 'C' ? 1 : -1;
-
-  // Snapshot the outgoing NAME span only — the slot prefix (C7: / D7:)
-  // represents the slot, not the patch, so it stays put while the patch
-  // names cross-fade past each other.
-  const outgoingName = row.querySelector('.patch-name-span');
-  if (!outgoingName) {
-    performSwap(slot);
-    return;
-  }
-  const rect     = outgoingName.getBoundingClientRect();
-  const listRect = list.getBoundingClientRect();
-  const ghost = outgoingName.cloneNode(true);
-  ghost.classList.remove('swap-in');
-  ghost.style.position      = 'absolute';
-  ghost.style.top           = `${rect.top - listRect.top + list.scrollTop}px`;
-  ghost.style.left          = `${rect.left - listRect.left + list.scrollLeft}px`;
-  ghost.style.width         = `${rect.width}px`;
-  ghost.style.height        = `${rect.height}px`;
-  ghost.style.boxSizing     = 'border-box';
-  ghost.style.pointerEvents = 'none';
-  ghost.style.zIndex        = '2';
-  ghost.style.setProperty('--swap-dir', String(dir));
-
-  performSwap(slot);
-
-  // After re-render the new row carries the incoming patch. Float the ghost
-  // over the list and animate just the names — the slot prefix on either
-  // row never moves.
-  list.appendChild(ghost);
-  const newRow  = list.querySelector(`.patch-item[data-slot="${slot}"]`);
-  const newName = newRow && newRow.querySelector('.patch-name-span');
-  if (newName) {
-    newName.style.setProperty('--swap-dir', String(dir));
-    newName.classList.add('swap-in');
-    newName.addEventListener('animationend', () => {
-      newName.classList.remove('swap-in');
-      newName.style.removeProperty('--swap-dir');
-    }, { once: true });
-  }
-  // Force a reflow so the starting state is committed before adding swap-out.
-  // eslint-disable-next-line no-unused-expressions
-  ghost.offsetWidth;
-  ghost.classList.add('swap-out');
-  ghost.addEventListener('animationend', () => ghost.remove(), { once: true });
-}
-
-function performSwap(slot) {
-  const cArr = patches && patches.banks && patches.banks[0];
-  const dArr = patches && patches.banks && patches.banks[1];
-  const cMeta = slotMetaArr('C');
-  const dMeta = slotMetaArr('D');
-  if (!Array.isArray(cArr) || !Array.isArray(dArr)) return;
-  if (!Array.isArray(cMeta) || !Array.isArray(dMeta)) return;
-
-  [cArr[slot],  dArr[slot]]  = [dArr[slot],  cArr[slot]];
-  [cMeta[slot], dMeta[slot]] = [dMeta[slot], cMeta[slot]];
-
-  recordToHistory('C', slot);
-  recordToHistory('D', slot);
-
-  saveLibraryDebounced();
-  renderPatchList();
-  updateSvgPatchName();
-  if (selBank !== 'L') updateAllControls(currentPatch());
-}
+// (swapAcrossBanks + performSwap removed 2026-05-24 along with the
+// per-row ⇄ swap button. Custom Banks builder covers cross-bank
+// cherry-picking with better UX. If a programmatic swap is ever needed
+// again, recover from git history at SHA 3cc501e^.)
 
 // ═══════════════════════════════════════════════════════════════
 // Tape Memory: Save / Load
@@ -2696,17 +2825,6 @@ async function handleToneLoad() {
   // prefix marks it as our own extension; main.js strips it before passing
   // the bank JSON to jx3p (which would otherwise reject the extra field).
   if (slotMeta) exportData = { ...exportData, _slotMeta: slotMeta };
-  // Diagnostic: log what's actually being sent so we can compare across
-  // C/D-banks-source vs library-package-source paths when investigating
-  // "send didn't reach the JX" bugs. Logs source label, bank slot 0
-  // identity (first patch params), and slotMeta fingerprint.
-  const sourceTag = sendingPackage ? `LIBRARY[${selPackage}]` : 'ACTIVE_C/D';
-  const firstPatch = exportData.banks?.[0]?.[0];
-  console.log(
-    `send-to-jx tone: source=${sourceTag} label="${label}" ` +
-    `bank-C-slot-0 vca=${firstPatch?.vca_level} dco1=${firstPatch?.dco1_waveform}@${firstPatch?.dco1_range} ` +
-    `slotMeta=${slotMeta ? 'present' : 'none'}`
-  );
   showSendToJxModal(exportData, label);
 }
 
@@ -2847,7 +2965,7 @@ function showSendToJxFlow(opts) {
   cancelBtn.className = 'modal-btn modal-btn-cancel';
   cancelBtn.textContent = 'Cancel';
   const saveBtn = document.createElement('button');
-  saveBtn.className = 'modal-btn';
+  saveBtn.className = 'modal-btn modal-btn-alt';      // Roland blue — alternative path (export instead of live-send)
   saveBtn.textContent = 'Save WAV file';
   saveBtn.title = 'Export to a file instead of sending directly';
   const primaryBtn = document.createElement('button');
@@ -3009,7 +3127,12 @@ function showSendToJxFlow(opts) {
     body.innerHTML =
       `<p>Tape dump audio is ready.</p>` +
       `<p style="margin-top: 8px;">${jxStep2}</p>` +
-      `<p style="margin-top: 8px; color: var(--text-mid); font-size: 12px;">Transfer takes about ${dur}. Don’t switch apps or generate audio during transfer.</p>`;
+      `<p style="margin-top: 8px; color: var(--text-mid); font-size: 12px;">Transfer takes about ${dur}. Don't switch apps or generate audio during transfer.</p>` +
+      // Output-device label — shows where the audio is going. Most common
+      // "Send isn't working" cause is the system default output being
+      // something other than the cable to the JX (e.g. internal speakers,
+      // AirPods). Surfacing the device gives the user a one-glance check.
+      `<p id="send-jx-output-label" style="margin-top: 8px; color: var(--text-mid); font-size: 11px; font-style: italic;">Audio output device: <span style="color: var(--text-bright); font-style: normal;">checking…</span></p>`;
     statusText.textContent = '';
     segDurations = computeSegDurations(durationSec);
     applySegProportions(segDurations);
@@ -3018,6 +3141,21 @@ function showSendToJxFlow(opts) {
     // is when the user actually needs to know which key to press and watch
     // the output level during playback.
     sendRow.style.display = '';
+    // Query the OS for the current default audio output and surface its
+    // label. enumerateDevices requires a prior getUserMedia grant in some
+    // browsers; falls back to a generic label if blocked.
+    (async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter((d) => d.kind === 'audiooutput');
+        const def     = outputs.find((d) => d.deviceId === 'default') || outputs[0];
+        const labelEl = document.getElementById('send-jx-output-label');
+        if (labelEl) {
+          const span = labelEl.querySelector('span');
+          if (span) span.textContent = (def && def.label) || 'System default (label unavailable)';
+        }
+      } catch {}
+    })();
   };
 
   const startPlayback = async () => {
@@ -3344,10 +3482,11 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
   h.textContent = kind === 'sequence'
     ? 'Save Sequence from JX-3P'
     : 'Save Patches from JX-3P';
+  modal.classList.add('capture-source-chooser-modal');
 
   const body = document.createElement('div');
   body.className = 'modal-body';
-  body.style.textAlign = 'left';
+  body.style.textAlign = 'center';
   body.innerHTML = kind === 'sequence'
     ? `<p>Where's your sequencer-dump WAV coming from?</p>`
     : `<p>Where's your tape-dump WAV coming from?</p>`;
@@ -3358,7 +3497,7 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
   cancelBtn.className = 'modal-btn modal-btn-cancel';
   cancelBtn.textContent = 'Cancel';
   const fileBtn = document.createElement('button');
-  fileBtn.className = 'modal-btn';
+  fileBtn.className = 'modal-btn modal-btn-alt';      // Roland blue — alternative path to the same goal
   fileBtn.textContent = 'Open WAV file…';
   fileBtn.title = 'Use a WAV you already recorded outside the app';
   const recBtn = document.createElement('button');
@@ -3422,42 +3561,12 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   deviceSection.appendChild(deviceLabel);
   deviceSection.appendChild(devicePicker);
 
-  const meterSection = document.createElement('div');
-  meterSection.className = 'record-jx-section';
-  const meterLabel = document.createElement('label');
-  meterLabel.textContent = 'LEVEL:';
-  const meterOuter = document.createElement('div');
-  meterOuter.className = 'record-jx-meter-outer';
-  // Target-zone overlay: shaded band showing where FSK decodes cleanest.
-  // Sits behind the live bar so the user can see "aim the peak into here".
-  // Bounds match the clean-capture range used by the post-capture warning
-  // (30–95%, but we cap visual at 70% as a "comfortable peak target" —
-  // 70–95% works too, just closer to clipping).
-  const meterTarget = document.createElement('div');
-  meterTarget.className = 'record-jx-meter-target';
-  meterOuter.appendChild(meterTarget);
-  const meterBar = document.createElement('div');
-  meterBar.className = 'record-jx-meter-bar';
-  meterOuter.appendChild(meterBar);
-  meterSection.appendChild(meterLabel);
-  meterSection.appendChild(meterOuter);
-  // Caption under the meter explaining the target band. Crucially: the
-  // JX-3P emits a persistent idle tone *before* you press Save on it, and
-  // the actual FSK transmission may be a different amplitude than the
-  // idle tone. So gain calibrated against the idle tone may not produce
-  // a usable FSK capture. The "FSK PEAK" badge below the meter only
-  // updates once a silence-then-signal pattern is detected (i.e. the
-  // real dump has started) — that's the number to actually optimize.
-  const meterHint = document.createElement('div');
-  meterHint.className = 'record-jx-meter-hint';
-  meterHint.innerHTML =
-    'Aim the FSK peak (badge below) into the shaded zone.<br>' +
-    'The JX\'s idle tone may be a different level than the actual dump — ignore it; only the FSK peak matters.';
-  meterSection.appendChild(meterHint);
-  const fskPeakBadge = document.createElement('div');
-  fskPeakBadge.className = 'record-jx-fsk-peak';
-  fskPeakBadge.textContent = 'FSK PEAK: — (waiting for dump to start)';
-  meterSection.appendChild(fskPeakBadge);
+  // (Removed 2026-05-24: meterSection / meterLabel / meterOuter /
+  // meterTarget / meterBar / meterHint / fskPeakBadge. The new calRow
+  // layout above contains the SVG vertical level meter that replaced all
+  // of these. The horizontal HTML meter + FSK-peak badge + meter-hint
+  // text were already display:none in both calibration and capture
+  // modes — pure dead weight. Removed in the focused cleanup pass.)
 
   // Calibration-mode dump-progress bar. Sits under the level meter,
   // visible only when isCalibrating is true. Fills as cumulative FSK
@@ -3480,7 +3589,6 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   calProgressSection.appendChild(calProgressLabel);
   calProgressSection.appendChild(calProgressOuter);
   calProgressSection.appendChild(calProgressHint);
-  meterSection.appendChild(calProgressSection);
   // Expected total signal duration (cumulative FSK time) per kind. Tones
   // are ~33 s (2 pilots + 2 bank-data sections); sequences are ~21 s
   // (1 pilot + up to 8 pages of data). These are the upper bounds used
@@ -3516,15 +3624,11 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
 
   // Slider position → linear gain mapping. Log scale so the lower half
   // covers 0.1×–1.0× (attenuation) and the upper half covers 1×–30×
-  // (boost), with 1.0× landing around the 20% mark for muscle memory.
-  // Formula: gain = 0.1 × 300^(slider/100). At slider=0 → 0.1×, slider=20
-  // → ~1×, slider=100 → 30×.
-  const sliderToGain = (s) => 0.1 * Math.pow(300, s / 100);
-  // Clamp g ≥ 0.001 inside Math.max so negative/zero gain doesn't crash
-  // into Math.log(negative) = NaN. (Defensive — in practice gain comes
-  // from the slider or knob, both of which clamp positive.)
-  const gainToSlider = (g) => Math.max(0, Math.min(100, Math.round(Math.log(Math.max(g, 0.001) / 0.1) / Math.log(300) * 100)));
-  const formatGain   = (g) => g >= 10 ? `${g.toFixed(0)}×` : g >= 1 ? `${g.toFixed(1)}×` : `${g.toFixed(2)}×`;
+  // sliderToGain / gainToSlider / formatGain — these used to be defined
+  // inline here as closures. They now live in renderer/calibration-math.js
+  // (loaded as a global script before app.js) and are unit-tested in
+  // test/calibration-math.test.js. The inline closures were removed in
+  // 2026-05-24 cleanup after confirming no closure dependency.
 
   // Structure timeline — reuses the .send-jx-* classes from the export modal
   // so the visual matches. Static reference during recording; all segments
@@ -3678,11 +3782,18 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   modal.appendChild(h);
   modal.appendChild(instr);
   modal.appendChild(calRow);          // calibration layout — visibility toggled
+  // statusText sits directly under the calRow and is right-aligned so the
+  // "Recording — Xs elapsed" counter and any warning messages visually
+  // associate with the meter (which is the rightmost element in calRow).
+  // Previous position (bottom of modal, centered) read as floating /
+  // disconnected from the live capture state.
+  modal.appendChild(statusText);
   modal.appendChild(deviceSection);
-  modal.appendChild(meterSection);    // capture layout — visibility toggled
+  // calProgressSection inserted between deviceSection and timelineSection
+  // by configureForCurrentDevice (visible in calibration mode, hidden in
+  // capture). Lives at modal level since meterSection was removed.
   modal.appendChild(gainSection);
   modal.appendChild(timelineSection);
-  modal.appendChild(statusText);
   modal.appendChild(actions);
   overlay.appendChild(modal);
   // NOTE: document.body.appendChild(overlay) happens further down, AFTER
@@ -3777,9 +3888,6 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       if (jxKeyDiagram.parentElement !== calRow) {
         calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
       }
-      // Drop the legacy horizontal LEVEL section — replaced by the SVG
-      // vertical meter inside calRow.
-      meterSection.style.display = 'none';
       timelineSection.style.display = '';
       // Hide the Stop button — capture is fully hands-free now (auto-stop
       // fires when the JX dump completes; Cancel covers the abort case
@@ -3787,8 +3895,6 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       stopBtn.style.display = 'none';
       calProgressSection.style.display = 'none';
       gainSection.style.display = 'none';
-      meterHint.style.display = 'none';
-      fskPeakBadge.style.display = 'none';
       // Wrap the instructions in the boxed style so the visual hierarchy
       // matches the calibration modal (same card styling for the
       // intro/instructions block).
@@ -3812,34 +3918,27 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       h.textContent = 'Step 1 of 2: Calibrate volume';
       // Calibration layout: show the cal-row with BOTH columns (gain knob
       // + level meter). Remove .capture-mode so the .cal-gain-col CSS rule
-      // un-hides the gain column. Hide the legacy meter and gain sections
-      // + segmented timeline. The dump-progress bar lives in meterSection
-      // so we hoist it out below so it survives meterSection display:none.
+      // un-hides the gain column. Hide the segmented timeline.
       calRow.style.display = '';
       calRow.classList.remove('capture-mode');
       if (jxKeyDiagram.parentElement !== calRow) {
         // Insert as first child of calRow (left column).
         calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
       }
-      meterSection.style.display = 'none';
       timelineSection.style.display = 'none';
       // Hide the Stop button — calibration is fully hands-free now.
       // Auto-stop triggers when the dump-progress bar fills (cumulative
       // signal hits the expected duration) or when end-of-dump silence
       // is detected.
       stopBtn.style.display = 'none';
-      // Show the dump-progress bar (re-parented under calRow so it stays
-      // visible even though its host meterSection is hidden) + initialize.
+      // Show the dump-progress bar (now at modal level since meterSection
+      // was removed — insert it before deviceSection on first call).
       if (calProgressSection.parentElement !== modal) {
-        // Move it out of meterSection (its original parent) and place it
-        // directly under calRow so it survives meterSection display:none.
         modal.insertBefore(calProgressSection, deviceSection);
       }
       calProgressSection.style.display = '';
       calProgressBar.style.width = '0%';
       gainSection.style.display = 'none';   // gain knob in calRow replaces the slider
-      meterHint.style.display = 'none';
-      fskPeakBadge.style.display = 'none';
       instr.classList.add('record-jx-instr-box');
       instr.innerHTML =
         `<p style="margin: 0;"><b>Press ${jxSaveLabel} on the JX-3P now.</b></p>` +
@@ -3976,7 +4075,10 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     let lastTickMs   = null;
     let runningPeak  = 0;
     fskPeak = 0;                  // reset between record sessions (modal-scoped)
-    let quietWarningShown = false;
+    // 4-state warning ladder. null = no warning; otherwise one of
+    // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
+    // Priority order is the literal order above — higher-severity wins.
+    let warnLevel = null;
     const recordStartMs = Date.now();
     const tickMeter = () => {
       if (state !== 'recording') return;
@@ -3986,11 +4088,10 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         const v = Math.abs(analyserBuf[i] - 128) / 128;
         if (v > peak) peak = v;
       }
-      meterBar.style.width = `${Math.min(100, peak * 100)}%`;
-      // Color-code: green up to ~70%, amber 70–90%, red above.
-      meterBar.style.background = peak < 0.7 ? '#1f6e5b' : peak < 0.9 ? '#c39a3a' : '#b94a2e';
-      // Calibration-mode SVG vertical level meter (panel-style 3-segment
-      // ladder). setPeak picks grey/blue/green/red zones per the mockups.
+      // SVG vertical level meter (panel-style 7-segment ladder). setPeak
+      // picks cream/blue/green/amber/red zones per the threshold table.
+      // (The old horizontal HTML meter that used to update here was
+      // removed in the 2026-05-24 cleanup.)
       vmeter.setPeak(peak);
       // Arrow between key diagram and gain/meter card pulses when there's
       // any signal coming in — reinforces the visual cause→effect (press
@@ -4038,14 +4139,9 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
             activeMs += dtMs;
             if (peak > fskPeak) {
               fskPeak = peak;
-              const pct = Math.round(fskPeak * 100);
-              const zone = fskPeak < 0.30 ? 'quiet — auto-boost will help, but raise gain for cleaner decode'
-                         : fskPeak > 0.95 ? 'CLIPPING — lower gain immediately or capture will fail'
-                         : 'in target zone ✓';
-              fskPeakBadge.textContent = `FSK PEAK: ${pct}% — ${zone}`;
-              fskPeakBadge.style.color = fskPeak < 0.30 ? '#c39a3a'
-                                        : fskPeak > 0.95 ? '#b94a2e'
-                                        : '#1f6e5b';
+              // (Was updating fskPeakBadge here. That element was removed
+              // in the 2026-05-24 cleanup — the SVG vmeter now shows the
+              // peak directly with its color-zoned segments.)
             }
             // Calibration auto-stop removed: it tore down capture mid-JX-
             // transmission, so pass 2 would start mid-dump (no pilot tone)
@@ -4108,19 +4204,46 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         indicator.style.left = `${pct}%`;
       }
 
-      // After 6 s of recording, if peak has never crossed 15%, surface a
-      // live warning so the user can crank input gain BEFORE wasting the
-      // full recording on an undecodable signal. Auto-clear the warning if
-      // the signal subsequently recovers — stale warnings on a healthy
-      // meter are confusing.
-      if (!quietWarningShown && now - recordStartMs > 6000 && runningPeak < 0.15) {
-        quietWarningShown = true;
-        statusText.textContent = '⚠ Signal looks very quiet — raise INPUT GAIN above or your Mac input gain. Quiet captures often decode as noise.';
-        statusText.style.color = '#c39a3a';
-      } else if (quietWarningShown && runningPeak >= 0.30) {
-        quietWarningShown = false;
-        statusText.textContent = '';
-        statusText.style.color = '';
+      // ── 4-state warning ladder ───────────────────────────────────────
+      // Surface live warnings so the user can fix problems BEFORE the
+      // capture finishes. Each state auto-clears when the underlying
+      // condition resolves (signal recovers, clipping stops, etc.).
+      // Priority order (highest first): clipping → no-signal-escalated
+      // → no-signal → quiet. Higher-priority states pre-empt lower ones.
+      const elapsedMs = now - recordStartMs;
+      let newWarn = null;
+      if (peak >= 0.95) {
+        // Real-time clipping — applies immediately, no settle period.
+        newWarn = 'clipping';
+      } else if (elapsedMs > 20000 && totalSignalMs < 200) {
+        // After 20s of recording, still essentially zero accumulated
+        // signal. Almost certainly wrong device or disconnected cable.
+        newWarn = 'no-signal-escalated';
+      } else if (elapsedMs > 8000 && runningPeak < 0.03) {
+        // After 8s, no peak above the silence floor. Maybe user hasn't
+        // pressed Save yet, or device is dead.
+        newWarn = 'no-signal';
+      } else if (elapsedMs > 6000 && runningPeak < 0.15) {
+        // After 6s, signal is present but very low. User likely needs to
+        // raise input gain.
+        newWarn = 'quiet';
+      }
+      if (newWarn !== warnLevel) {
+        warnLevel = newWarn;
+        const WARN_COPY = {
+          'clipping':              '⚠ CLIPPING — lower INPUT GAIN immediately or capture will decode as noise.',
+          'no-signal-escalated':   '⚠ No audio detected after 20 s. Check that the right INPUT DEVICE is selected, your cable is connected, and the JX is on. Click Cancel to try again.',
+          'no-signal':             '⚠ No audio detected yet. Press Save on the JX-3P, or check your cable / input device selection above.',
+          'quiet':                 '⚠ Signal is very low. Raise INPUT GAIN until the level reaches the target notch (the yellow segment).',
+        };
+        const WARN_COLOR = {
+          'clipping':              '#b94a2e',  // Roland red — severe
+          'no-signal-escalated':   '#b94a2e',  // Roland red — severe
+          'no-signal':             '#c39a3a',  // amber — informational
+          'quiet':                 '#c39a3a',  // amber — informational
+        };
+        statusText.textContent  = warnLevel ? WARN_COPY[warnLevel] : '';
+        statusText.style.color  = warnLevel ? WARN_COLOR[warnLevel] : '';
       }
       levelRaf = requestAnimationFrame(tickMeter);
     };
@@ -4150,9 +4273,9 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     statusText.style.color = '';
     const startMs = Date.now();
     elapsedTimer = setInterval(() => {
-      // Don't clobber a live warning message (e.g. "signal looks too quiet")
+      // Don't clobber a live warning message (any of the 4 ladder states)
       // by overwriting it with the elapsed-time tick.
-      if (quietWarningShown) return;
+      if (warnLevel) return;
       const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
       statusText.textContent = `Recording — ${elapsedSec}s elapsed`;
     }, 250);
@@ -4331,7 +4454,6 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     const WIN_SEC            = 0.2;
     const SIGNAL_THRESHOLD   = Math.max(0.10, 0.025 * thresholdScale);
     const SILENCE_THRESHOLD  = Math.max(0.05, 0.012 * thresholdScale);
-    console.log(`record-jx trim: gain=${currentGainAtTrim.toFixed(2)}× thresholds: silence=${SILENCE_THRESHOLD.toFixed(3)} signal=${SIGNAL_THRESHOLD.toFixed(3)}`);
     const MIN_SILENCE_WINDOWS = Math.ceil(0.30 / WIN_SEC);  // ≥ 300 ms silence
     const MIN_SIGNAL_WINDOWS  = Math.ceil(5.00 / WIN_SEC);  // ≥ 5 s sustained signal after
     const winSize    = Math.floor(WIN_SEC * actualSampleRate);
@@ -4480,10 +4602,10 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     stopBtn.style.display = 'none';
     cancelBtn.disabled = false;
     const tryAgainBtn = document.createElement('button');
-    tryAgainBtn.className = 'modal-btn';
+    tryAgainBtn.className = 'modal-btn modal-btn-confirm';  // green — recommended action (re-record cleanly)
     tryAgainBtn.textContent = 'Try again';
     const useBtn = document.createElement('button');
-    useBtn.className = 'modal-btn';
+    useBtn.className = 'modal-btn modal-btn-alt';           // blue — risky alternative (proceed with marginal capture)
     useBtn.textContent = 'Use anyway';
     actions.appendChild(tryAgainBtn);
     actions.appendChild(useBtn);
@@ -4789,15 +4911,48 @@ function placePatchInBucket(destBank, destIdx, srcBank, srcSlot) {
 function removePatchFromBucket(bank, idx) {
   const arr = bucketsState()[bank];
   if (!arr) return;
+  const removed = arr[idx];
   arr[idx] = null;
   saveLibraryDebounced();
   renderCustomBuilder();
+  if (removed) {
+    pushUndo({
+      undo: () => {
+        const a = bucketsState()[bank];
+        if (!a) return;
+        a[idx] = removed;
+        saveLibraryDebounced();
+        renderCustomBuilder();
+      },
+      redo: () => {
+        const a = bucketsState()[bank];
+        if (!a) return;
+        a[idx] = null;
+        saveLibraryDebounced();
+        renderCustomBuilder();
+      },
+    });
+  }
 }
 
 function reorderBucketSlot(bank, fromIdx, toIdx) {
   if (fromIdx === toIdx) return;
   const arr = bucketsState()[bank];
   if (!arr) return;
+
+  // FLIP animation prep — capture pre-move row positions for this bank's
+  // bucket container, BEFORE we mutate + re-render. Same technique as
+  // reorderBankSlot in the patch list.
+  const bucketEl = document.querySelector(`.cb-bucket[data-bank="${bank}"] .cb-bucket-list`);
+  let prePositions = null;
+  if (bucketEl) {
+    prePositions = new Map();
+    bucketEl.querySelectorAll('.cb-slot').forEach((el) => {
+      const idx = parseInt(el.dataset.idx, 10);
+      if (!Number.isNaN(idx)) prePositions.set(idx, el.getBoundingClientRect().top);
+    });
+  }
+
   const [moved] = arr.splice(fromIdx, 1);
   arr.splice(toIdx, 0, moved);
   // Buckets are always length 16; the splice above can shorten the array
@@ -4806,14 +4961,71 @@ function reorderBucketSlot(bank, fromIdx, toIdx) {
   arr.length = 16;
   saveLibraryDebounced();
   renderCustomBuilder();
+
+  // Undo: reverse the splice by reordering back.
+  pushUndo({
+    undo: () => reorderBucketSlot(bank, toIdx, fromIdx),
+    redo: () => reorderBucketSlot(bank, fromIdx, toIdx),
+  });
+
+  // FLIP play — same logic as reorderBankSlot. Bucket re-render replaces
+  // all .cb-slot rows; we translate each new row back to its old top, then
+  // animate to 0. Cream-tint flash on the destination row.
+  if (prePositions) {
+    const newBucketEl = document.querySelector(`.cb-bucket[data-bank="${bank}"] .cb-bucket-list`);
+    if (newBucketEl) {
+      const newToOld = (newIdx) => {
+        if (newIdx === toIdx) return fromIdx;
+        if (fromIdx < toIdx && newIdx >= fromIdx && newIdx < toIdx) return newIdx + 1;
+        if (fromIdx > toIdx && newIdx > toIdx  && newIdx <= fromIdx)   return newIdx - 1;
+        return newIdx;
+      };
+      const movedRows = [];
+      newBucketEl.querySelectorAll('.cb-slot').forEach((el) => {
+        const newIdx = parseInt(el.dataset.idx, 10);
+        if (Number.isNaN(newIdx)) return;
+        const oldIdx = newToOld(newIdx);
+        const oldTop = prePositions.get(oldIdx);
+        if (oldTop === undefined) return;
+        const newTop = el.getBoundingClientRect().top;
+        const delta  = oldTop - newTop;
+        if (Math.abs(delta) < 0.5) return;
+        el.style.transition = 'none';
+        el.style.transform  = `translateY(${delta}px)`;
+        movedRows.push(el);
+      });
+      void newBucketEl.offsetWidth;
+      movedRows.forEach((el) => {
+        el.style.transition = 'transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+        el.style.transform  = 'translateY(0)';
+        el.addEventListener('transitionend', () => {
+          el.style.transition = '';
+          el.style.transform  = '';
+        }, { once: true });
+      });
+      const movedEl = newBucketEl.querySelector(`.cb-slot[data-idx="${toIdx}"]`);
+      if (movedEl) {
+        movedEl.classList.add('just-moved');
+        setTimeout(() => movedEl.classList.remove('just-moved'), 850);
+      }
+    }
+  }
 }
 
 function renameBucketEntry(bank, idx, newName) {
   const arr = bucketsState()[bank];
   if (!arr || !arr[idx]) return;
-  arr[idx].name = newName || null;
+  const oldName = arr[idx].name || null;
+  const finalName = newName || null;
+  arr[idx].name = finalName;
   saveLibraryDebounced();
   renderCustomBuilder();
+  if (oldName !== finalName) {
+    pushUndo({
+      undo: () => renameBucketEntry(bank, idx, oldName),
+      redo: () => renameBucketEntry(bank, idx, finalName),
+    });
+  }
 }
 
 function renderCustomBuilder() {
