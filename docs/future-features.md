@@ -29,7 +29,62 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **Auto-stop on FSK trailer detection.** The in-app *Record from JX-3P* modal currently requires a manual ■ Stop click after the tape transmission finishes. A more elegant version would watch the captured audio stream for the JX's end-of-data trailer (a sustained run of 1-bits at the FSK long-cycle width) and stop the recording automatically. Sketch: feed the AnalyserNode output through a small FSK envelope detector in JS; when ~200 ms of contiguous long-cycle activity is followed by silence/quiet, trigger Stop. Avoids accidentally truncating the transmission mid-data and prevents over-long recordings that bloat the temp WAV. Estimate ~2 hours.
 
-- **Two-pass calibrated Record from JX-3P.** Tell the user up front that Record-from-JX is a two-dump workflow: the first dump is a calibration pass where the software measures the actual FSK peak amplitude and auto-adjusts the input gain; the second dump is the real capture with confirmed-good levels. This removes the entire class of "I set the gain but it was against the idle tone" failures — users no longer have to eyeball the meter. Modal copy spells it out: "You'll do two tape dumps. First one calibrates the level. Second one captures the patches." Sketch: same modal scaffold, but the Record button kicks off Pass 1, which auto-stops after detecting the silence→signal pattern + ~2 s of FSK; software computes the multiplier needed to land peak at 0.6 (mid target zone), updates the gain slider, transitions modal copy to "Calibration done ✓ — gain set to N×. Press Save on the JX-3P again for the real capture"; user does Pass 2 which captures normally. Estimate ~3 hours. Cost: requires user to perform two physical JX tape dumps (~1.5 min total) — but eliminates the most common failure mode and makes a successful capture a near-certainty.
+- **Auto-calibrated Record from JX-3P (per-device gain memory + failure-triggered recalibration).** Removes the entire class of "I set the gain by eye but it was wrong" Record-from-JX failures. First-time use on a device is a two-pass workflow: a calibration pass measures the actual FSK peak amplitude and auto-sets the input gain; a second pass does the real capture. The calibrated gain is persisted per-input-device, so every subsequent record on the same setup is single-pass. If a future capture decodes empty, the modal offers a one-click recalibrate that loops back to the two-pass flow.
+
+  **State machine** (record-from-JX session):
+
+  ```
+  INIT → device calibration exists?
+       ├─ no  → CALIBRATING → CALIBRATED → CAPTURING → DECODE
+       └─ yes →                              CAPTURING → DECODE
+                                                          │
+                                                          └─ empty patches  → RECALIBRATE_PROMPT → (user) → CALIBRATING
+  ```
+
+  - **INIT** (modal opens): look up `library.record.calibratedGain[deviceId]`. If present → restore gain, transition to CAPTURING. If absent → set gain to 1.0×, transition to CALIBRATING with copy: *"First-time setup: you'll do two tape dumps. The first sets your input level. The second captures your patches. Press Save on the JX-3P now to begin calibration."*
+
+  - **CALIBRATING**: capture with live meter + FSK PEAK badge running. Peak measurement starts ONLY after the silence-then-signal marker fires (so we measure FSK, not idle tone). Auto-stop after ≥2 s of confirmed FSK has been captured. Compute `targetGain = currentGain × 0.6 / measuredPeak` (lands peak mid-target-zone). Transition to CALIBRATED.
+
+  - **CALIBRATED**: display *"Calibration done ✓ — gain set to N×. Saving this level for future imports. Press Save on the JX-3P again for the real capture."* Write `library.record.calibratedGain[deviceId] = { gain: N, label: deviceLabel, calibratedAt: ISO timestamp }`. Update gain slider live.
+
+  - **CAPTURING**: standard record flow. On Stop → DECODE.
+
+  - **DECODE**: trim, call jx3p, get banks. If all 32 slots are JX3PPatch defaults → transition to RECALIBRATE_PROMPT. Otherwise apply normally (active-bank for tones, save-sequence modal for sequences) and close.
+
+  - **RECALIBRATE_PROMPT**: modal — *"This recording didn't decode cleanly. The most common cause is the input level being off. Want to recalibrate?"* [Recalibrate] clears this device's calibration entry and transitions back to INIT. [Cancel] closes.
+
+  **Persistence shape** in `library.json`:
+  ```jsonc
+  { "record": { "calibratedGain": {
+      "<MediaDeviceInfo.deviceId hash>": {
+        "label":        "KT USB Audio (31b2:2024)",
+        "gain":         12.4,
+        "calibratedAt": "2026-05-24T07:30:00.000Z"
+      }
+  } } }
+  ```
+
+  **Manual recalibrate** affordance: small "Recalibrate" link in the record modal near the gain slider, for users whose setup changed deliberately.
+
+  **Edge cases / open questions still to resolve before implementation**:
+
+  1. *Calibration never sees FSK* (cable off, wrong device, JX off, user never presses Save). Auto-stop never fires; modal hangs. **Need**: 60 s timeout in CALIBRATING (and CAPTURING) with a friendly error — *"No FSK signal detected in 60 s. Check your cable + that you pressed Save on the JX-3P."*
+
+  2. *Decode-failure threshold for RECALIBRATE_PROMPT* — all-default-only, or also < N/32 partial decodes? Leaning all-default; partial decodes get a softer non-blocking toast.
+
+  3. *Hardware-level clipping* (user's interface gain physically too high). Software attenuation can't undo distortion. **Need**: during CALIBRATING, detect raw input peak (before software gain) — if rawPeak ≥ 0.95, surface *"Your hardware input gain is too high — lower it on your interface"* instead of computing a sub-1.0 multiplier.
+
+  4. *Wrong-device-picked* (Daniel's AirPods bug). Recalibration won't fix it — same wrong source. **Need**: during CALIBRATING, if < 100 FSK-frequency crossings in 30 s, surface *"No audio signal detected from this input device. Is the right device selected?"* (distinct from "level is off but signal is real").
+
+  5. *Tone vs sequencer*: same audio source, same FSK encoding, one calibration entry per device covers both. ✅
+
+  6. *Sequencer save-modal ordering*: for sequence captures, RECALIBRATE_PROMPT must fire BEFORE the save-sequence modal opens (currently empty `tape.pages` would still get a name+notes prompt for nothing).
+
+  7. *Cancel mid-calibration*: standard modal cancel; no calibration saved.
+
+  8. *Migration*: users upgrading from a build that already had Record-from-JX (v0.5.12+) have no calibration entries. First record post-upgrade triggers the calibration pass automatically. A one-time banner explaining "We've improved Record-from-JX with auto-calibration" is optional polish.
+
+  Estimate: **~4 hours** total. Cost trade-off: first-time use per device requires two physical JX dumps (~1.5 min); every subsequent capture is one dump with near-certain success.
 
 ## Library metadata
 
