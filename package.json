@@ -50,7 +50,10 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "JP Patches needs microphone access to record tape dumps from your JX-3P's CMT (tape) audio output."
+      }
     },
     "dmg": {
       "title": "JP Patches ${version}",

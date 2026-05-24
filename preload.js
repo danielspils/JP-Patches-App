@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('api', {
   tapeSaveFromPath:    (path)    => ipcRenderer.invoke('tape-save-from-path', path),
   tapeEncodeToTemp:    (data)    => ipcRenderer.invoke('tape-encode-to-temp', data),
   tapeCleanupTemp:     (path)    => ipcRenderer.invoke('tape-cleanup-temp', path),
+  // Record-from-JX flow: captured PCM samples (16-bit signed LE) from Web
+  // Audio + sampleRate + channelCount → temp WAV path. The renderer then
+  // hands the path to tapeSaveFromPath / seqTapeSaveFromPath for decoding.
+  recordToWav:         (payload)  => ipcRenderer.invoke('record-to-wav', payload),
   seqTapeEncodeToTemp: (data)    => ipcRenderer.invoke('seq-tape-encode-to-temp', data),
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),

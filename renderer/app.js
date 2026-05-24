@@ -2141,8 +2141,14 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
       //      name, when sharing a WAV between JP Patches users).
       //   3. Null (slot stays unnamed, just an "imported as X" placeholder).
       const embedded = embeddedSlotMeta && embeddedSlotMeta[bank] && embeddedSlotMeta[bank][s];
-      m.name   = (remembered && remembered.name)   || (embedded && embedded.name)   || null;
-      m.origin = (remembered && remembered.origin) || (embedded && embedded.origin) || slotKey(bank, s);
+      m.name        = (remembered && remembered.name)   || (embedded && embedded.name)   || null;
+      m.origin      = (remembered && remembered.origin) || (embedded && embedded.origin) || slotKey(bank, s);
+      // Always refresh sourceLabel to reflect THIS import. Without this,
+      // the per-slot label persists from whatever was previously loaded
+      // (e.g. "Spils Sounds" stays stamped on slots even after they've
+      // been overwritten by a different import) and the user sees a
+      // misleading "imported as X from <stale library>" line.
+      m.sourceLabel = sourceLabel || null;
     });
   });
 }
@@ -2152,24 +2158,63 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
 // after a tape-vs-MIDI mode gate.
 
 // ── Tone (patch bank) tape I/O ──────────────────────────────────────────
-async function handleToneSave() {
+// Entry point for Tape Memory → Tone → Save (button 15 equivalent). Asks the
+// user whether to import a pre-recorded WAV from disk or record a fresh
+// tape dump directly from the JX-3P's audio output via the Mac's mic input.
+function handleToneSave() {
+  showFromJxChooserModal({
+    kind: 'tone',
+    onFile:   () => doToneSaveFromFile(),
+    onRecord: () => showRecordFromJxModal({
+      kind: 'tone',
+      onCaptured: async (tempWavPath) => {
+        await applyToneCapture(tempWavPath);
+      },
+    }),
+  });
+}
+
+async function doToneSaveFromFile() {
   const result = await window.api.tapeSave();
   if (!result || !result.loaded) {
     if (result && result.error) console.error('Save (import) error:', result.error);
     return;
   }
+  await applyToneResult(result, result.path);
+}
+
+// Reused by both the file-dialog Save and the live-record Save: takes the
+// IPC decode result and applies it to the active C/D banks via applyWavData
+// (or applyImportData for the JSON case). Optional labelOverride lets the
+// caller substitute a friendlier source label than the raw filename (the
+// record-from-JX flow uses this to avoid showing a gibberish temp path).
+async function applyToneResult(result, sourcePath, labelOverride = null) {
   try {
-    const label = labelFromPath(result.path);
+    const label = labelOverride || labelFromPath(sourcePath);
     if (result.kind === 'wav') applyWavData(result.data, label, result.slotMeta);
     else                       applyImportData(result.data, label);
     saveLibraryDebounced();
     renderPatchList();
     updateSvgPatchName();
     updateAllControls(currentPatch());
-    console.log(`Saved (imported) ${result.kind} from`, result.path);
+    console.log(`Saved (imported) ${result.kind} from`, sourcePath);
   } catch (err) {
     console.error('Failed to apply imported data:', err.message);
   }
+}
+
+// Record-flow completion: decode the temp WAV produced by the record modal
+// and route through the same applyToneResult path as the file-dialog flow.
+// We pass a friendly label override so the slots' source line reads "from
+// JX-3P tape capture" instead of the temp filename gibberish.
+async function applyToneCapture(tempWavPath) {
+  const result = await window.api.tapeSaveFromPath(tempWavPath);
+  if (!result || !result.loaded) {
+    showImportError(`Couldn't decode the captured audio: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  const stamp = new Date().toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  await applyToneResult(result, tempWavPath, `JX-3P tape capture · ${stamp}`);
 }
 
 async function handleToneLoad() {
@@ -2526,22 +2571,51 @@ function showSendToJxFlow(opts) {
 // auto-captured from the active selection at save time (not surfaced to the
 // user). The new entry's default name is the source WAV's filename.
 
-async function handleSequencerSave() {
+function handleSequencerSave() {
   if (!activeBankPatch()) {
     console.warn('No active patch to pair with a sequence entry');
     return;
   }
+  showFromJxChooserModal({
+    kind: 'sequence',
+    onFile:   () => doSequencerSaveFromFile(),
+    onRecord: () => showRecordFromJxModal({
+      kind: 'sequence',
+      onCaptured: async (tempWavPath) => {
+        await applySequencerCapture(tempWavPath);
+      },
+    }),
+  });
+}
+
+async function doSequencerSaveFromFile() {
   const result = await window.api.seqTapeSave();
   if (!result || !result.loaded) {
     if (result && result.error) console.error('Sequencer save (import) error:', result.error);
     return;
   }
+  presentSequenceSaveModal(result.data, result.path);
+}
+
+async function applySequencerCapture(tempWavPath) {
+  const result = await window.api.seqTapeSaveFromPath(tempWavPath);
+  if (!result || !result.loaded) {
+    showImportError(`Couldn't decode the captured sequence: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  presentSequenceSaveModal(result.data, tempWavPath);
+}
+
+// Shared post-decode handler: opens the Save Sequence modal for naming +
+// optional note, then persists to library.sequences[]. Used by both the
+// file-dialog Save and the live-record Save.
+function presentSequenceSaveModal(tapeData, sourcePath) {
   showSaveSequenceModal({
-    tapeData: result.data,
-    sourcePath: result.path,
+    tapeData,
+    sourcePath,
     onConfirm: ({ patchNote, defaultName, customName }) => {
       saveSequenceEntry({
-        tapeData: result.data,
+        tapeData,
         patchNote,
         defaultName,
         customName,
@@ -2665,6 +2739,781 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
   // Focus the note input so the user can start adding annotations
   // immediately. The pre-filled name is visible; user can click in to edit.
   setTimeout(() => noteInput.focus(), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Record-from-JX (in-app tape capture)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Two-step flow that mirrors the Send-to-JX modal but in the opposite
+// direction. Triggered by Tape Memory → Tone/Sequencer → Save:
+//
+//   Step 1 (chooser): a tiny modal asks whether the user wants to import
+//                     a pre-recorded WAV from disk OR record a fresh tape
+//                     dump live from the JX-3P's audio output. Either branch
+//                     ends up calling the same per-kind decoder pipeline.
+//   Step 2 (record):  for the record branch, a modal with input-device
+//                     picker + level meter + Record/Stop button. Captures
+//                     raw PCM via Web Audio, ships to main for WAV writing,
+//                     then hands the temp WAV path to the caller's onCaptured
+//                     handler (which routes through the existing decode flow).
+
+function showFromJxChooserModal({ kind, onFile, onRecord }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = kind === 'sequence'
+    ? 'Save Sequence from JX-3P'
+    : 'Save Patches from JX-3P';
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  body.style.textAlign = 'left';
+  body.innerHTML = kind === 'sequence'
+    ? `<p>Where's your sequencer-dump WAV coming from?</p>`
+    : `<p>Where's your tape-dump WAV coming from?</p>`;
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const fileBtn = document.createElement('button');
+  fileBtn.className = 'modal-btn';
+  fileBtn.textContent = 'Open WAV file…';
+  fileBtn.title = 'Use a WAV you already recorded outside the app';
+  const recBtn = document.createElement('button');
+  recBtn.className = 'modal-btn modal-btn-confirm';
+  recBtn.textContent = '🎤 Record from JX-3P';
+  recBtn.title = 'Capture the JX-3P\'s tape audio directly through your Mac\'s input';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(fileBtn);
+  actions.appendChild(recBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(body);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  cancelBtn.addEventListener('click', close);
+  fileBtn.addEventListener('click', () => { close(); onFile(); });
+  recBtn.addEventListener('click',  () => { close(); onRecord(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+}
+
+async function showRecordFromJxModal({ kind, onCaptured }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal record-jx-modal';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = kind === 'sequence'
+    ? 'Record Sequence from JX-3P'
+    : 'Record Patches from JX-3P';
+
+  // The modal opens already capturing; instructions reflect that.
+  const instr = document.createElement('div');
+  instr.className = 'record-jx-instr';
+  const jxSaveLabel = kind === 'sequence' ? 'Sequencer → Save' : 'Tone → Save';
+  instr.innerHTML =
+    `<p style="margin: 0;">Recording — press <b>${jxSaveLabel}</b> on the JX-3P now. ` +
+    `Click <b>■ Stop</b> when the transmission finishes (~30–45 s).</p>`;
+
+  const deviceSection = document.createElement('div');
+  deviceSection.className = 'record-jx-section';
+  const deviceLabel = document.createElement('label');
+  deviceLabel.textContent = 'INPUT DEVICE:';
+  const devicePicker = document.createElement('select');
+  devicePicker.className = 'record-jx-device';
+  deviceSection.appendChild(deviceLabel);
+  deviceSection.appendChild(devicePicker);
+
+  const meterSection = document.createElement('div');
+  meterSection.className = 'record-jx-section';
+  const meterLabel = document.createElement('label');
+  meterLabel.textContent = 'LEVEL:';
+  const meterOuter = document.createElement('div');
+  meterOuter.className = 'record-jx-meter-outer';
+  // Target-zone overlay: shaded band showing where FSK decodes cleanest.
+  // Sits behind the live bar so the user can see "aim the peak into here".
+  // Bounds match the clean-capture range used by the post-capture warning
+  // (30–95%, but we cap visual at 70% as a "comfortable peak target" —
+  // 70–95% works too, just closer to clipping).
+  const meterTarget = document.createElement('div');
+  meterTarget.className = 'record-jx-meter-target';
+  meterOuter.appendChild(meterTarget);
+  const meterBar = document.createElement('div');
+  meterBar.className = 'record-jx-meter-bar';
+  meterOuter.appendChild(meterBar);
+  meterSection.appendChild(meterLabel);
+  meterSection.appendChild(meterOuter);
+  // Caption under the meter explaining the target band. Crucially: the
+  // JX-3P emits a persistent idle tone *before* you press Save on it, and
+  // the actual FSK transmission may be a different amplitude than the
+  // idle tone. So gain calibrated against the idle tone may not produce
+  // a usable FSK capture. The "FSK PEAK" badge below the meter only
+  // updates once a silence-then-signal pattern is detected (i.e. the
+  // real dump has started) — that's the number to actually optimize.
+  const meterHint = document.createElement('div');
+  meterHint.className = 'record-jx-meter-hint';
+  meterHint.innerHTML =
+    'Aim the FSK peak (badge below) into the shaded zone.<br>' +
+    'The JX\'s idle tone may be a different level than the actual dump — ignore it; only the FSK peak matters.';
+  meterSection.appendChild(meterHint);
+  const fskPeakBadge = document.createElement('div');
+  fskPeakBadge.className = 'record-jx-fsk-peak';
+  fskPeakBadge.textContent = 'FSK PEAK: — (waiting for dump to start)';
+  meterSection.appendChild(fskPeakBadge);
+
+  // Input gain — software multiplier applied between the mic source and
+  // both the meter and the capture buffer. Lets the user crank up a quiet
+  // signal in real time and watch the meter respond. Mathematically the
+  // same as boosting in post (the auto-boost in jx3p does that), so this
+  // doesn't *improve* SNR on its own — but it's a useful diagnostic and
+  // helps users who want headroom-clean captures (boost in JS at higher
+  // precision than int16 truncation will allow on a tiny-amplitude WAV).
+  const gainSection = document.createElement('div');
+  gainSection.className = 'record-jx-section';
+  const gainLabel = document.createElement('label');
+  gainLabel.textContent = 'INPUT GAIN:';
+  const gainRow = document.createElement('div');
+  gainRow.className = 'record-jx-gain-row';
+  const gainSlider = document.createElement('input');
+  gainSlider.type  = 'range';
+  gainSlider.min   = '0';   // log scale below
+  gainSlider.max   = '100';
+  gainSlider.value = '20';  // ~1× at slider=20 (see mapping below)
+  gainSlider.className = 'record-jx-gain-slider';
+  const gainValueLabel = document.createElement('span');
+  gainValueLabel.className = 'record-jx-gain-value';
+  gainValueLabel.textContent = '1.0×';
+  gainRow.appendChild(gainSlider);
+  gainRow.appendChild(gainValueLabel);
+  gainSection.appendChild(gainLabel);
+  gainSection.appendChild(gainRow);
+
+  // Slider position → linear gain mapping. Log scale so the lower half
+  // covers 0.1×–1.0× (attenuation) and the upper half covers 1×–30×
+  // (boost), with 1.0× landing around the 20% mark for muscle memory.
+  // Formula: gain = 0.1 × 300^(slider/100). At slider=0 → 0.1×, slider=20
+  // → ~1×, slider=100 → 30×.
+  const sliderToGain = (s) => 0.1 * Math.pow(300, s / 100);
+  const formatGain   = (g) => g >= 10 ? `${g.toFixed(0)}×` : g >= 1 ? `${g.toFixed(1)}×` : `${g.toFixed(2)}×`;
+
+  // Structure timeline — reuses the .send-jx-* classes from the export modal
+  // so the visual matches. Static reference during recording; all segments
+  // light up green on successful capture (the "complete" treatment).
+  const timelineSection = document.createElement('div');
+  timelineSection.className = 'record-jx-section';
+  const timelineLabel = document.createElement('label');
+  timelineLabel.textContent = 'WHAT THE JX-3P SENDS:';
+  const timeline = document.createElement('div');
+  timeline.className = 'send-jx-timeline';
+  const segs = (kind === 'sequence'
+    ? [
+        { kind: 'init',     label: 'Init',     pilot: true  },
+        { kind: 'sequence', label: 'Sequence', pilot: false },
+      ]
+    : [
+        { kind: 'init',    label: 'Init',    pilot: true  },
+        { kind: 'bank-c',  label: 'Bank C',  pilot: false },
+        { kind: 'divider', label: 'Divider', pilot: true  },
+        { kind: 'bank-d',  label: 'Bank D',  pilot: false },
+      ]
+  ).map((cfg) => {
+    const seg = document.createElement('div');
+    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
+    // Approximate per-segment durations (in seconds) derived from JX-3P
+    // tape format math: pilots are 4096 bits × 51 samples / 44100 Hz =
+    // ~4.74 s; data sections depend on bit content but average ~8.6 s
+    // per bank for patches, ~16 s for an 8-page sequence. Used both for
+    // the flex-grow ratio (visual proportions) and the timed sweep below.
+    cfg.estSec = cfg.pilot
+      ? 4.74
+      : kind === 'sequence' ? 16.0 : 8.6;
+    seg.style.flexGrow = String(cfg.estSec);
+    const label = document.createElement('span');
+    label.className = 'send-jx-seg-label';
+    label.textContent = cfg.label.toUpperCase();
+    seg.appendChild(label);
+    timeline.appendChild(seg);
+    return { ...cfg, el: seg };
+  });
+  // Sweeping indicator line — reuses the send-side .send-jx-indicator
+  // styling. Anchored to the moment audio first crosses the signal
+  // threshold (= JX started transmitting), then advances based on the
+  // per-segment estSec values above.
+  const indicator = document.createElement('div');
+  indicator.className = 'send-jx-indicator';
+  indicator.style.left = '0%';
+  timeline.appendChild(indicator);
+  timelineSection.appendChild(timelineLabel);
+  timelineSection.appendChild(timeline);
+
+  const statusText = document.createElement('div');
+  statusText.className = 'record-jx-status';
+  statusText.textContent = '';
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'modal-btn modal-btn-confirm';
+  stopBtn.textContent = '■ Stop';
+  // Disabled until the capture actually starts (after the permission grant
+  // + getUserMedia resolves) so a too-fast Stop click doesn't fire into a
+  // half-initialized state.
+  stopBtn.disabled = true;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(stopBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(instr);
+  modal.appendChild(deviceSection);
+  modal.appendChild(meterSection);
+  modal.appendChild(gainSection);
+  modal.appendChild(timelineSection);
+  modal.appendChild(statusText);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // Capture state. Modal opens already capturing — no manual Record click.
+  let state = 'recording';          // 'recording' | 'processing'
+  let mediaStream  = null;
+  let audioContext = null;
+  let sourceNode   = null;
+  let gainNode     = null;          // software input-gain stage
+  let analyserNode = null;
+  let processorNode = null;
+  let captured = [];                // Float32Array chunks accumulated during onaudioprocess
+  let levelRaf = null;
+  let elapsedTimer = null;
+
+  const close = () => { stopCapture(); overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape' && state !== 'processing') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && state !== 'processing') close(); });
+  cancelBtn.addEventListener('click', close);
+
+  // Populate device list. We need a one-shot permission grant first to get
+  // human-readable device labels; without it, enumerateDevices() returns
+  // anonymized entries like "Audio Input (default)" with no real name.
+  try {
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach((t) => t.stop());
+  } catch (err) {
+    // Permission denied or no devices — surface the error but still let the
+    // user try Record later (a fresh permission prompt may appear).
+    statusText.textContent = `Mic permission: ${err.name}. ${err.message}`;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs  = devices.filter((d) => d.kind === 'audioinput');
+    inputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Audio Input ${i + 1}`;
+      devicePicker.appendChild(opt);
+    });
+    if (!inputs.length) {
+      const opt = document.createElement('option');
+      opt.textContent = '(no audio inputs found)';
+      opt.disabled = true;
+      devicePicker.appendChild(opt);
+      recordBtn.disabled = true;
+    }
+  } catch (err) {
+    statusText.textContent = `Couldn't list audio devices: ${err.message}`;
+    recordBtn.disabled = true;
+  }
+
+  // Stops any in-flight capture without dismissing the modal. Used both on
+  // device change (to restart with a different input) and as part of the
+  // full cleanup path. Idempotent.
+  const stopCapture = () => {
+    if (levelRaf)     { cancelAnimationFrame(levelRaf); levelRaf = null; }
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+    try { if (processorNode) { processorNode.disconnect(); processorNode = null; } } catch {}
+    try { if (analyserNode)  { analyserNode.disconnect();  analyserNode  = null; } } catch {}
+    try { if (gainNode)      { gainNode.disconnect();      gainNode      = null; } } catch {}
+    try { if (sourceNode)    { sourceNode.disconnect();    sourceNode    = null; } } catch {}
+    try { if (audioContext && audioContext.state !== 'closed') audioContext.close(); } catch {}
+    audioContext = null;
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      mediaStream = null;
+    }
+  };
+
+  // Kicks off a capture using the currently-selected device. Called once
+  // when the modal opens, and again on device-picker change (with prior
+  // capture stopped + buffer cleared first).
+  const startRecording = async () => {
+    statusText.textContent = '';
+    captured = [];
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId:         devicePicker.value ? { exact: devicePicker.value } : undefined,
+          // Critical: disable any processing that would mangle the FSK signal.
+          // Chromium's voice-call DSP (high-pass filter + AGC + noise gate)
+          // is on by default and the *standard* boolean flags below aren't
+          // always respected — they're treated as soft preferences. The
+          // `{exact: false}` form forces them, and the legacy `googXxx`
+          // flags catch older Chromium versions that ignored the standard
+          // names. Without this, recordings come back with the FSK carrier
+          // partially filtered out — bits decode as noise, no checksums pass.
+          echoCancellation:        { exact: false },
+          noiseSuppression:        { exact: false },
+          autoGainControl:         { exact: false },
+          googEchoCancellation:    false,
+          googAutoGainControl:     false,
+          googNoiseSuppression:    false,
+          googHighpassFilter:      false,
+          googTypingNoiseDetection:false,
+          channelCount:            1,
+          sampleRate:              44100,
+        },
+      });
+    } catch (err) {
+      // {exact:false} can throw OverconstrainedError on devices that report
+      // they can't comply. Fall back to the soft form so the user can at
+      // least record (degraded quality, but lets them see the level meter).
+      console.warn('Strict raw-audio constraints failed, falling back:', err.name);
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId:         devicePicker.value ? { exact: devicePicker.value } : undefined,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl:  false,
+            channelCount:     1,
+            sampleRate:       44100,
+          },
+        });
+      } catch (err2) {
+        statusText.textContent = `Couldn't start mic: ${err2.name} — ${err2.message}`;
+        stopBtn.disabled = true;
+        return;
+      }
+    }
+    // AudioContext sample rate may differ from what we requested (browser
+    // resampler may apply). We read audioContext.sampleRate when shipping
+    // the WAV so the header matches the actual data rate.
+    try {
+      audioContext = new AudioContext({ sampleRate: 44100 });
+    } catch {
+      audioContext = new AudioContext();
+    }
+    sourceNode = audioContext.createMediaStreamSource(mediaStream);
+
+    // Software input-gain stage. Sits between the mic source and everything
+    // downstream so both the level meter and the captured PCM reflect the
+    // user's gain choice. Slider position is preserved across restarts
+    // (e.g. on device change) by reading gainSlider.value here rather than
+    // resetting.
+    gainNode = audioContext.createGain();
+    gainNode.gain.value = sliderToGain(parseInt(gainSlider.value, 10));
+    gainValueLabel.textContent = formatGain(gainNode.gain.value);
+    sourceNode.connect(gainNode);
+
+    // Level meter via AnalyserNode (peaks, not RMS — easier to see clipping).
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 256;
+    gainNode.connect(analyserNode);
+    const analyserBuf = new Uint8Array(analyserNode.fftSize);
+    // Live peak-tracker for the meter, silence-anchored timeline sweep,
+    // and live quiet-input warning all share this RAF loop.
+    //
+    // Timeline sweep: the JX-3P emits a persistent idle tone before the
+    // user presses Save, then pauses briefly, then transmits FSK. So
+    // we DON'T start the sweep on first signal — that's just the idle
+    // tone. We start it only after we've observed a silence gap (the
+    // Save-press marker) followed by signal. This matches the same
+    // silence-then-signal detection used in stopRecording's trim logic.
+    const SILENCE_THRESHOLD_LIVE = 0.05;
+    const SIGNAL_THRESHOLD_LIVE  = 0.10;
+    const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
+    // Track SUSTAINED silence (consecutive below-threshold ticks reset on
+    // any non-silence). Accumulated/total silence isn't enough — the JX
+    // idle tone can dip below threshold briefly and falsely accumulate.
+    let consecSilenceMs = 0;
+    let fskStartMs   = null;      // ms timestamp when FSK actually began
+    let activeMs     = 0;         // accumulated time inside FSK transmission
+    let lastTickMs   = null;
+    let runningPeak  = 0;
+    let fskPeak      = 0;         // max peak observed AFTER FSK start (≠ idle)
+    let quietWarningShown = false;
+    const recordStartMs = Date.now();
+    const tickMeter = () => {
+      if (state !== 'recording') return;
+      analyserNode.getByteTimeDomainData(analyserBuf);
+      let peak = 0;
+      for (let i = 0; i < analyserBuf.length; i++) {
+        const v = Math.abs(analyserBuf[i] - 128) / 128;
+        if (v > peak) peak = v;
+      }
+      meterBar.style.width = `${Math.min(100, peak * 100)}%`;
+      // Color-code: green up to ~70%, amber 70–90%, red above.
+      meterBar.style.background = peak < 0.7 ? '#1f6e5b' : peak < 0.9 ? '#c39a3a' : '#b94a2e';
+      if (peak > runningPeak) runningPeak = peak;
+
+      const now = Date.now();
+      const dtMs = lastTickMs !== null ? (now - lastTickMs) : 0;
+      lastTickMs = now;
+
+      // Sustained-silence detection: need 500 ms of consecutive ticks below
+      // the silence threshold to register as the "Save press" marker. Any
+      // tick that's not silence resets the streak — that filters out brief
+      // idle-tone dips that aren't actually the JX going quiet.
+      if (peak < SILENCE_THRESHOLD_LIVE) {
+        consecSilenceMs += dtMs;
+      } else {
+        if (peak > SIGNAL_THRESHOLD_LIVE) {
+          if (fskStartMs === null && consecSilenceMs >= 500) {
+            fskStartMs = now;
+          }
+          if (fskStartMs !== null) {
+            activeMs += dtMs;
+            if (peak > fskPeak) {
+              fskPeak = peak;
+              const pct = Math.round(fskPeak * 100);
+              const zone = fskPeak < 0.30 ? 'quiet — auto-boost will help, but raise gain for cleaner decode'
+                         : fskPeak > 0.95 ? 'CLIPPING — lower gain immediately or capture will fail'
+                         : 'in target zone ✓';
+              fskPeakBadge.textContent = `FSK PEAK: ${pct}% — ${zone}`;
+              fskPeakBadge.style.color = fskPeak < 0.30 ? '#c39a3a'
+                                        : fskPeak > 0.95 ? '#b94a2e'
+                                        : '#1f6e5b';
+            }
+          }
+        }
+        consecSilenceMs = 0;
+      }
+
+      if (activeMs > 0) {
+        const elapsedSec = activeMs / 1000;
+        let acc = 0, activeIdx = segs.length - 1;
+        for (let i = 0; i < segs.length; i++) {
+          acc += segs[i].estSec;
+          if (elapsedSec < acc) { activeIdx = i; break; }
+        }
+        segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
+        const pct = Math.min(100, (elapsedSec / totalEstSec) * 100);
+        indicator.style.left = `${pct}%`;
+      }
+
+      // After 6 s of recording, if peak has never crossed 15%, surface a
+      // live warning so the user can crank input gain BEFORE wasting the
+      // full recording on an undecodable signal. Auto-clear the warning if
+      // the signal subsequently recovers — stale warnings on a healthy
+      // meter are confusing.
+      if (!quietWarningShown && now - recordStartMs > 6000 && runningPeak < 0.15) {
+        quietWarningShown = true;
+        statusText.textContent = '⚠ Signal looks very quiet — raise INPUT GAIN above or your Mac input gain. Quiet captures often decode as noise.';
+        statusText.style.color = '#c39a3a';
+      } else if (quietWarningShown && runningPeak >= 0.30) {
+        quietWarningShown = false;
+        statusText.textContent = '';
+        statusText.style.color = '';
+      }
+      levelRaf = requestAnimationFrame(tickMeter);
+    };
+    levelRaf = requestAnimationFrame(tickMeter);
+
+    // Capture via ScriptProcessorNode. Deprecated in favor of AudioWorklet
+    // but vastly simpler and still works in Electron 35. ~93 ms latency at
+    // bufferSize=4096 / 44.1kHz, fine for offline capture (we don't monitor
+    // the signal).
+    const BUFFER_SIZE = 4096;
+    processorNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+    processorNode.onaudioprocess = (e) => {
+      // Must copy: the inputBuffer's channel data is reused by the audio
+      // engine on the next callback.
+      captured.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    gainNode.connect(processorNode);
+    // ScriptProcessor doesn't fire onaudioprocess unless its output is
+    // connected. We route to a muted GainNode so nothing actually plays
+    // through the speakers (otherwise we'd hear the captured input).
+    const muteGain = audioContext.createGain();
+    muteGain.gain.value = 0;
+    processorNode.connect(muteGain);
+    muteGain.connect(audioContext.destination);
+
+    stopBtn.disabled = false;
+    statusText.style.color = '';
+    const startMs = Date.now();
+    elapsedTimer = setInterval(() => {
+      // Don't clobber a live warning message (e.g. "signal looks too quiet")
+      // by overwriting it with the elapsed-time tick.
+      if (quietWarningShown) return;
+      const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
+      statusText.textContent = `Recording — ${elapsedSec}s elapsed`;
+    }, 250);
+  };
+
+  // Changing the input device mid-capture: drop the current stream and
+  // restart from scratch with the new device. Buffer + elapsed timer reset.
+  devicePicker.addEventListener('change', () => {
+    if (state !== 'recording') return;
+    stopCapture();
+    startRecording();
+  });
+
+  // Input gain slider — live update both the gain node (so the captured
+  // PCM reflects the change immediately) and the value label.
+  gainSlider.addEventListener('input', () => {
+    const g = sliderToGain(parseInt(gainSlider.value, 10));
+    gainValueLabel.textContent = formatGain(g);
+    if (gainNode) gainNode.gain.value = g;
+  });
+
+  const stopRecording = async () => {
+    if (state !== 'recording') return;
+    state = 'processing';
+    stopBtn.disabled = true;
+    cancelBtn.disabled = true;
+    statusText.textContent = 'Processing audio…';
+
+    const totalSamples = captured.reduce((sum, c) => sum + c.length, 0);
+    if (!totalSamples) {
+      statusText.textContent = 'Nothing recorded. Try again.';
+      stopCapture();
+      state = 'recording';
+      cancelBtn.disabled = false;
+      // Re-arm capture so the user can try again without re-opening the modal.
+      startRecording();
+      return;
+    }
+    // Concatenate all captured chunks into one Float32Array.
+    const all = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const chunk of captured) { all.set(chunk, offset); offset += chunk.length; }
+    const actualSampleRate = audioContext ? audioContext.sampleRate : 44100;
+
+    // Find the actual FSK transmission inside the captured buffer.
+    //
+    // The JX-3P emits a persistent idle tone before AND after the tape
+    // dump. The pre-idle tone has its own crossing pattern (NOT real FSK
+    // cycle widths), which contaminates jx3p's demodulator calibration —
+    // it locks onto the wrong long_width reference and misclassifies every
+    // subsequent crossing.
+    //
+    // Crucially, when the user presses Save on the JX, the idle tone
+    // BRIEFLY PAUSES before the pilot tone starts. That silence gap (~100
+    // ms to a few seconds depending on user timing) is our marker for
+    // where the real FSK begins.
+    //
+    // Algorithm: scan 200 ms windows classifying each as signal (peak >
+    // 0.10), silence (peak < 0.05), or in-between. Find the first
+    // silence → signal transition where the following signal run is at
+    // least 5 s long (real FSK is ~30 s, so anything ≥ 5 s is clearly
+    // not a transient pop). Trim everything before that transition.
+    //
+    // Fallback: if no silence → sustained-signal pattern is found (e.g.,
+    // user already pressed Save before clicking Record, no pre-noise),
+    // use the longest signal run instead.
+    const WIN_SEC            = 0.2;
+    const SIGNAL_THRESHOLD   = 0.10;
+    const SILENCE_THRESHOLD  = 0.05;
+    const MIN_SILENCE_WINDOWS = Math.ceil(0.30 / WIN_SEC);  // ≥ 300 ms silence
+    const MIN_SIGNAL_WINDOWS  = Math.ceil(5.00 / WIN_SEC);  // ≥ 5 s sustained signal after
+    const winSize    = Math.floor(WIN_SEC * actualSampleRate);
+    const numWindows = Math.floor(totalSamples / winSize);
+
+    // Classify each window once.
+    const klass = new Array(numWindows); // 'signal' | 'silence' | 'between'
+    for (let w = 0; w < numWindows; w++) {
+      let peak = 0;
+      const lo = w * winSize, hi = lo + winSize;
+      for (let i = lo; i < hi; i++) {
+        const v = Math.abs(all[i]);
+        if (v > peak) peak = v;
+      }
+      klass[w] = peak > SIGNAL_THRESHOLD ? 'signal'
+               : peak < SILENCE_THRESHOLD ? 'silence'
+               : 'between';
+    }
+
+    // Pass 1: look for silence ≥ MIN_SILENCE_WINDOWS, then signal that
+    // sustains for ≥ MIN_SIGNAL_WINDOWS. Pick the LATEST matching
+    // transition — recordings can contain multiple silence→signal
+    // patterns (e.g. the JX idle tone briefly hiccupping before Save is
+    // pressed), and the real FSK is always the last sustained signal run
+    // in the buffer (the user clicks Stop right after the dump ends).
+    let trimWindow = -1;
+    let silenceLen = 0;
+    for (let w = 0; w < numWindows; w++) {
+      if (klass[w] === 'silence') {
+        silenceLen += 1;
+      } else if (klass[w] === 'signal' && silenceLen >= MIN_SILENCE_WINDOWS) {
+        // Count how long this signal run continues (signal-or-between
+        // counts; silence breaks it).
+        let signalRun = 0;
+        for (let v = w; v < numWindows && klass[v] !== 'silence'; v++) {
+          if (klass[v] === 'signal') signalRun += 1;
+        }
+        if (signalRun >= MIN_SIGNAL_WINDOWS) {
+          trimWindow = w;  // KEEP looking — we want the latest match
+        }
+        silenceLen = 0;
+      } else {
+        // 'between' or 'signal' without prior qualifying silence
+        if (klass[w] === 'signal') silenceLen = 0;
+      }
+    }
+
+    // Pass 2 (fallback): no silence→signal pattern. Use longest signal run.
+    if (trimWindow < 0) {
+      let bestStart = 0, bestLen = 0, curStart = -1, curLen = 0;
+      for (let w = 0; w < numWindows; w++) {
+        if (klass[w] === 'signal') {
+          if (curStart < 0) curStart = w;
+          curLen += 1;
+          if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
+        } else {
+          curStart = -1;
+          curLen   = 0;
+        }
+      }
+      if (bestLen > 0) trimWindow = bestStart;
+    }
+
+    const backoff   = Math.floor(0.05 * actualSampleRate);
+    const trimStart = trimWindow > 0
+      ? Math.max(0, trimWindow * winSize - backoff)
+      : 0;
+    const trimmed    = trimStart > 0 ? all.subarray(trimStart) : all;
+    const trimmedLen = trimmed.length;
+
+    // Convert trimmed Float32 → interleaved 16-bit signed PCM (mono, so
+    // no interleaving needed). Track overall peak in the same loop so we
+    // can surface gain-quality feedback to the user after capture.
+    const pcm = new ArrayBuffer(trimmedLen * 2);
+    const view = new DataView(pcm);
+    let peakAmp = 0;
+    for (let i = 0; i < trimmedLen; i++) {
+      const s = Math.max(-1, Math.min(1, trimmed[i]));
+      const absV = Math.abs(s);
+      if (absV > peakAmp) peakAmp = absV;
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    // Visible feedback for debugging the trim path. The status text is
+    // already replaced moments later with the peak-quality message, but
+    // for ~200 ms it shows whether the trim fired and at what offset.
+    if (trimStart > 0) {
+      const trimSec = (trimStart / actualSampleRate).toFixed(2);
+      console.log(`record-jx: trimmed ${trimStart} leading samples (${trimSec}s) of pre-signal noise`);
+      statusText.textContent = `Trimmed ${trimSec}s of pre-FSK noise…`;
+    } else {
+      console.log('record-jx: no trim applied (no silence-then-signal pattern found, fallback longest-run yielded 0)');
+      statusText.textContent = 'No leading-noise trim applied…';
+    }
+    stopCapture();
+
+    const result = await window.api.recordToWav({
+      pcm:        new Uint8Array(pcm),
+      sampleRate: actualSampleRate,
+      channels:   1,
+      kind:       kind === 'sequence' ? 'sequence' : 'tone',
+    });
+    if (!result || !result.ok) {
+      statusText.textContent = `Couldn't write WAV: ${result && result.error || 'unknown error'}`;
+      state = 'recording';
+      cancelBtn.disabled = false;
+      startRecording();
+      return;
+    }
+    // Light up every segment to mirror the send-modal's "complete" treatment.
+    segs.forEach((s) => s.el.classList.add('active'));
+    timeline.classList.add('complete');
+    // Gain-quality feedback. Clean captures dismiss automatically; quiet
+    // or clipping captures require an explicit user dismiss so the warning
+    // can't be missed (3.5 s auto-dismiss was too easy to miss in testing).
+    // Quiet captures also expose a "Try again" button — common case is the
+    // user wants to re-record after adjusting input gain rather than
+    // committing a likely-undecodable capture.
+    const peakPct = Math.round(peakAmp * 100);
+    const isQuiet    = peakAmp < 0.30;
+    const isClipping = peakAmp > 0.95;
+    let postMsg;
+    if (isQuiet) {
+      postMsg = `⚠ Captured — peak ${peakPct}%. Signal looks quiet. JP will boost on decode, but if your peak is below ~10% the decode often fails. Raise Mac input gain (System Settings → Sound → Input) and re-record for best results.`;
+    } else if (isClipping) {
+      postMsg = `⚠ Captured — peak ${peakPct}%. Close to clipping; consider lowering input gain next time.`;
+    } else {
+      postMsg = `✓ Captured cleanly — peak ${peakPct}%`;
+    }
+    statusText.textContent = postMsg;
+    statusText.style.color = (isQuiet || isClipping) ? '#c39a3a' : '';
+
+    if (!isQuiet && !isClipping) {
+      // Clean capture — auto-proceed.
+      setTimeout(() => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        onCaptured(result.path);
+      }, 800);
+      return;
+    }
+
+    // Quiet or clipping — sticky warning with three explicit choices:
+    //   Cancel       (keeps existing Cancel behavior — closes modal)
+    //   Try again    (reset to a fresh recording attempt, same device)
+    //   Use anyway   (proceed with decode on this capture)
+    stopBtn.style.display = 'none';
+    cancelBtn.disabled = false;
+    const tryAgainBtn = document.createElement('button');
+    tryAgainBtn.className = 'modal-btn';
+    tryAgainBtn.textContent = 'Try again';
+    const useBtn = document.createElement('button');
+    useBtn.className = 'modal-btn';
+    useBtn.textContent = 'Use anyway';
+    actions.appendChild(tryAgainBtn);
+    actions.appendChild(useBtn);
+    useBtn.addEventListener('click', () => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      onCaptured(result.path);
+    });
+    tryAgainBtn.addEventListener('click', () => {
+      try { actions.removeChild(tryAgainBtn); } catch {}
+      try { actions.removeChild(useBtn); } catch {}
+      stopBtn.style.display = '';
+      stopBtn.disabled = true;
+      stopBtn.textContent = '■ Stop';
+      statusText.textContent = '';
+      statusText.style.color = '';
+      segs.forEach((s) => s.el.classList.remove('active'));
+      timeline.classList.remove('complete');
+      state = 'recording';
+      startRecording();
+    });
+  };
+
+  stopBtn.addEventListener('click', () => stopRecording());
+
+  // Kick off the capture immediately. macOS will fire the mic-permission
+  // prompt on first run; the recording UI is already visible behind it so
+  // the user knows what they're granting permission for.
+  startRecording();
 }
 
 function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '' } = {}) {

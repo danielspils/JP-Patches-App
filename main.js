@@ -246,6 +246,51 @@ ipcMain.handle('save-library', (_e, data) => {
 });
 ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
 
+// ── Record-from-JX: write captured PCM samples to a temp WAV ───────────────
+//
+// The renderer captures live audio from the Mac's input via Web Audio (mic
+// permission required) and ships the raw 16-bit-signed PCM samples here as
+// an ArrayBuffer along with sample-rate + channel-count metadata. We frame
+// the samples in a minimal RIFF/WAVE container and return the path so the
+// existing tape decode pipeline (`jx3p wav-to-json` etc.) can consume it.
+//
+// Output is a standard mono 44.1 kHz 16-bit WAV (matches the jx3p decoder's
+// expectations exactly; no resampling needed on either side).
+ipcMain.handle('record-to-wav', async (_e, { pcm, sampleRate = 44100, channels = 1, kind = 'tone' }) => {
+  if (!pcm || (!Buffer.isBuffer(pcm) && !(pcm instanceof Uint8Array))) {
+    return { ok: false, error: 'no PCM payload' };
+  }
+  const pcmBuf = Buffer.isBuffer(pcm) ? pcm : Buffer.from(pcm);
+  const bitsPerSample = 16;
+  const blockAlign    = channels * (bitsPerSample / 8);
+  const byteRate      = sampleRate * blockAlign;
+  const dataSize      = pcmBuf.length;
+  // 12-byte RIFF/WAVE header + 24-byte fmt chunk + 8-byte data header + data.
+  const hdr = Buffer.alloc(44);
+  hdr.write('RIFF', 0, 4, 'ascii');
+  hdr.writeUInt32LE(36 + dataSize, 4);
+  hdr.write('WAVE', 8, 4, 'ascii');
+  hdr.write('fmt ', 12, 4, 'ascii');
+  hdr.writeUInt32LE(16, 16);              // fmt chunk size
+  hdr.writeUInt16LE(1, 20);               // PCM
+  hdr.writeUInt16LE(channels, 22);
+  hdr.writeUInt32LE(sampleRate, 24);
+  hdr.writeUInt32LE(byteRate, 28);
+  hdr.writeUInt16LE(blockAlign, 32);
+  hdr.writeUInt16LE(bitsPerSample, 34);
+  hdr.write('data', 36, 4, 'ascii');
+  hdr.writeUInt32LE(dataSize, 40);
+
+  const stem    = kind === 'sequence' ? 'jp_seq_record_' : 'jp_patches_record_';
+  const tempWav = path.join(os.tmpdir(), `${stem}${Date.now()}.wav`);
+  try {
+    fs.writeFileSync(tempWav, Buffer.concat([hdr, pcmBuf]));
+    return { ok: true, path: tempWav };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // ── Custom RIFF chunk for embedding slot metadata in exported WAVs ─────────
 //
 // The JX-3P tape format only carries the 32 patch parameter bytes per slot —

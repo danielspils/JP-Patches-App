@@ -962,6 +962,114 @@ body {
 .seq-modal-name:focus,
 .seq-modal-note:focus { border-color: var(--green-sel-bdr); }
 
+/* Record-from-JX modal — captures live audio from the Mac's input device
+   into a temp WAV that the existing decode pipeline can consume. Mirrors
+   the Send-to-JX modal layout: instructions on top, device picker + level
+   meter in the middle, Record/Stop in the action row. */
+.record-jx-modal { max-width: 560px; }
+.record-jx-instr {
+  font-size: 12px;
+  color: var(--text-bright);
+  margin-bottom: 18px;
+}
+.record-jx-section {
+  margin-bottom: 16px;
+}
+.record-jx-section label {
+  display: block;
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+}
+.record-jx-device {
+  width: 100%;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+.record-jx-device:focus { border-color: var(--green-sel-bdr); }
+.record-jx-meter-outer {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 2px;
+  overflow: hidden;
+}
+/* Shaded "target peak zone" behind the live meter bar. Width spans 30%–70%
+   of the meter — the sweet spot where FSK decodes cleanest and there's
+   still healthy headroom above the clipping threshold. Dashed boundaries
+   make the edges visible without competing with the bar itself. */
+.record-jx-meter-target {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 30%;
+  width: 40%;
+  background: rgba(31, 110, 91, 0.22);
+  border-left:  1px dashed rgba(31, 110, 91, 0.65);
+  border-right: 1px dashed rgba(31, 110, 91, 0.65);
+  pointer-events: none;
+  z-index: 0;
+}
+.record-jx-meter-bar {
+  position: relative;
+  height: 100%;
+  width: 0%;
+  background: #1f6e5b;  /* default = green; JS adjusts to amber/red on peak */
+  transition: width 80ms linear, background 120ms linear;
+  z-index: 1;
+}
+.record-jx-meter-hint {
+  color: var(--text-mid);
+  font-size: 11px;
+  margin-top: 4px;
+  font-style: italic;
+}
+.record-jx-fsk-peak {
+  color: var(--text-mid);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 2px;
+  letter-spacing: 0.02em;
+}
+.record-jx-gain-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.record-jx-gain-slider {
+  flex: 1;
+  margin: 0;
+}
+.record-jx-gain-value {
+  color: var(--text-bright);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+.record-jx-status {
+  font-size: 12px;
+  color: var(--text-mid);
+  text-align: center;
+  margin-top: 8px;
+  min-height: 1.2em;   /* reserve a line so action row doesn't jump on populate */
+}
+
 .package-item {
   display: flex;
   flex-direction: column;
