@@ -4,8 +4,10 @@ Free, open-source macOS Electron app for the Roland JX-3P synthesizer. Author: D
 
 This file is the cold-start summary. Pair it with:
 
+- **[`docs/design-system.md`](docs/design-system.md)** — **the binding design guide.** Color tokens, typography, SVG primitives (buttons, knobs, switches, level meter, arrow), layout patterns, animation, anti-patterns. **Read this before building any new UI component, modal, or visual.** The "Design language" section below is the brief; this doc is the authoritative reference.
 - **[`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md)** — authoritative design spec for Phases 1–4. Phase 2 has an "As-shipped summary" noting where the actual implementation diverged from the original design.
-- **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, WAV name-embedding, app-level Undo/Redo, etc.).
+- **[`docs/record-from-jx.md`](docs/record-from-jx.md)** — shipped-feature reference for in-app JX-3P tape capture + two-pass auto-calibration. The place to land when reading `showRecordFromJxModal` in `app.js`.
+- **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, app-level Undo/Redo, etc.).
 - **[`README.md`](README.md)** — end-user docs (install, first run, Tape Memory reference, Library, Custom Banks, Roadmap).
 - **GitHub Releases — [github.com/danielspils/JP-Patches-App/releases](https://github.com/danielspils/JP-Patches-App/releases)** — every shipped version has detailed user-facing release notes. The best chronological record of recent UX and behavior changes. `gh release list` and `gh api repos/danielspils/JP-Patches-App/releases --paginate -q '.[].body'` to pull locally.
 
@@ -33,7 +35,9 @@ Current version: **0.5.10** (May 22, 2026). 22 public releases since v0.1.0 on M
 ├── ROADMAP.md                    pointer file (see README + docs/library-and-midi-spec.md)
 ├── LICENSE                       MIT, © 2026 Daniel Spils
 ├── docs/
+│   ├── design-system.md          BINDING design guide — colors, typography, SVG primitives, layout
 │   ├── library-and-midi-spec.md  authoritative design spec (Phases 1–4)
+│   ├── record-from-jx.md         shipped-feature reference: in-app tape capture + auto-cal
 │   └── future-features.md        parking lot beyond the formal roadmap
 ├── scripts/
 │   └── setup-vendor.sh           populates vendor/ before `npm run dist`
@@ -98,6 +102,8 @@ JX-3P-faithful nomenclature: **Save = import from synth**, **Load = export to sy
 - Tone Save / Load: `.wav` ↔ JSON via `jx3p wav-to-json` / `json-to-wav`.
 - Sequencer Save / Load: same, with paired-patch + RATE slider + note metadata.
 - **Send to JX-3P** (v0.5.7): in-app guided two-step modal — setup instructions → timeline visualization (Init / Bank C / Divider / Bank D for patches; Init / Sequence for sequencer) → ▶ Play. Pilot tone durations exact (4096 bits × 50 samples/bit / 44100 Hz = 4.644 s per pilot).
+- **Record from JX-3P** (v0.5.11): live tape-dump capture via the Mac's audio input. Two-pass auto-calibration on first use of any device sets and remembers the right software gain; subsequent captures are single-pass. Failed decode (all-empty patches) triggers a recalibrate prompt. **See [`docs/record-from-jx.md`](docs/record-from-jx.md) for the full feature spec, state machine, persistence shape, and audio-pipeline details — substantial enough to live in its own doc.**
+- **JX-3P key-sequence diagram** (v0.5.11): a small inline visual mockup of the JX panel keys the user needs to press. Reusable component `buildJxKeyDiagram({ action, kind })` in `app.js`, styled in `style.css` (`.jx-key-diagram*`). Lives in both Record-from-JX modals (Save variant: keys 14/15/16 for Tone, 11/12/13 for Sequencer) and Send-to-JX modals (Load variant). Matches the panel's cream face / dark LED / Roland-red highlight aesthetic.
 - "Save WAV file" file-export fallback still available.
 
 ### Library tab (Phase 2)
@@ -141,14 +147,45 @@ JX-3P-faithful nomenclature: **Save = import from synth**, **Load = export to sy
 
 Other parking-lot items in `docs/future-features.md`.
 
+## Design language — north star
+
+**The app is an extension of the JX-3P.** The hardware panel (buttons, knobs, switches, colors, fonts, layout, the small visual details of how a Roland synth from 1983 looks and feels) is the design inspiration for everything the user sees. Modals, panels, list rows, level meters, gain controls, key-sequence diagrams, even error states — when in doubt, reach for the JX-3P aesthetic before inventing something generic.
+
+This is a *guideline*, not dogma — override when it benefits the user (e.g. a standard macOS file picker is better than a hardware-mimicking one, a contextual help link doesn't need a panel button skin). But the override should be a conscious choice, not a default. Generic "web app" components (flat HTML buttons, system fonts, neutral greys) should feel out of place in this codebase. If you're building something new and it doesn't feel like it belongs on the JX, ask if it should.
+
+### **→ [`docs/design-system.md`](docs/design-system.md) is the binding reference.**
+
+That document is the canonical, copy-paste-ready guide to colors, typography, SVG button/knob/switch primitives, layout patterns, animations, and anti-patterns. **You MUST consult it before building any new UI component, modal, or visual element.** It contains:
+
+- §1 Color tokens (every canonical hex, with semantic role)
+- §2 Typography (font family + size/weight ladder)
+- §3 Component primitives (button, knob big/small, switch, numeric key, sub-mode pill, level meter, arrow — all with copy-paste-ready SVG)
+- §4 Layout patterns (modal, section card, cause→effect row, instruction box, step-title hero)
+- §5 Animation (pulse, hover transitions)
+- §6 Anti-patterns (what NOT to do, with examples of past mistakes)
+- §7 Existing component helpers in `app.js`
+
+### Brief summary (full details in the design-system doc)
+
+| Element | Quick reference |
+|---|---|
+| **Brand triad + amber** | Roland red `#b94a2e` (warnings) · Roland green `#1f6e5b` (good/Tones/Bank C) · Roland blue `#33508f` (informational/Sequences/Bank D) · warning amber `#c39a3a` (approaching limit) |
+| **Cream family** | Vintage cream `#f7f1e6` (panel labels) · cream secondary `#cfc8b8` (tick labels) · button face `#cbc4b4` · highlight `#dbd4c4` |
+| **Dark surfaces** | Modal `#1a1a1a` · app/card `#0a0a0a` · button LED `#333` · stroke `#555` · inactive `#4a4a4a` |
+| **Font** | `Helvetica,'Helvetica Neue',sans-serif` (set on SVG root, inherited) |
+| **Default sizes** | 12px regular for body · 14px for labels · 9–10px for tick labels |
+| **Components ready to reuse** | `buildJxKeyDiagram`, `buildInputGainKnob`, `buildVerticalLevelMeter`, `showConfirmModal`, `showRecordFromJxModal`, `showSendToJxFlow` |
+
+When designing a new modal or panel, the first question to ask: *what would this look like if Roland had shipped it on the original JX-3P?* Even when the answer is "they wouldn't have," that framing usually surfaces a more cohesive design than starting from "what would a typical Electron app do here."
+
 ## Conventions
 
 1. **Plain JS only.** No TypeScript, no React/Vue/Svelte. Direct DOM manipulation in `app.js`.
-2. **Don't modify `panel.svg`** unless the change is essential and unavoidable. `panel_locked_v6.svg` is the current canonical reference snapshot. Functional changes happen in `app.js` (tagging, event handling) without touching the SVG.
+2. **Don't modify `panel.svg`** unless the change is essential and unavoidable. `panel_locked_v6.svg` is the current canonical reference snapshot. Functional changes happen in `app.js` (tagging, event handling) without touching the SVG. New components that need panel-style artwork should *reference* panel.svg's primitives by copying the SVG shapes inline, not by editing panel.svg.
 3. **Window stays at 1140×710** (`resizable: false`) — until adaptive sizing lands. The View menu zoom presets (75% / 100%) are the only sanctioned size variants. Daniel's screen is 1147×719 — anything wider than 1140 will be clipped.
 4. **CSP**: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`. Update the meta tag in `index.html` if external resources or `eval`-style features become needed.
 5. **macOS-only for v1.** Code freely uses `~/`, `pkill`, etc.
-6. **Color palette**: Roland red `#b94a2e`, vintage cream `#f7f1e6`. Reuse these constants rather than inventing siblings.
+6. **Color palette + design language** — see the "Design language — north star" section above. Don't introduce off-palette colors or framework-default components without a deliberate reason.
 7. **Commit messages** prefixed with `feat:`, `fix:`, `chore:`, `docs:`, `Spec:`, etc. See `git log --oneline` for the style.
 8. **Co-author trailer** on commits: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
 9. **Release notes are user-facing prose** — see Releases on GitHub for the established voice. Mirror that style for new releases.
@@ -157,7 +194,7 @@ Other parking-lot items in `docs/future-features.md`.
 
 ### IPC surface (`preload.js` → `window.api.*`)
 
-13 handlers, all defined in `main.js`. New handlers should follow the same pattern.
+14 handlers, all defined in `main.js`. New handlers should follow the same pattern.
 
 ```js
 // File I/O
@@ -180,6 +217,9 @@ seqTapeLoad:         (data)          → file-dialog → read .wav (jx3p seq dec
 seqTapeSaveFromPath: (path)          → import a known-path sequence WAV
 seqTapeEncodeToTemp: (data)          → encode sequence to temp WAV for the Send modal
 
+// Record from JX-3P (v0.5.11)
+recordToWav:         (payload)       → write captured PCM (Float32 → 16-bit LE) to a temp WAV path
+
 // Zoom persistence
 onZoomChanged:       (cb)            → main → renderer push when View menu zoom changes
 ```
@@ -197,7 +237,12 @@ onZoomChanged:       (cb)            → main → renderer push when View menu z
   "tapeMode":  "tape" | "midi",
   "zoom":      1.0,           // last View-menu zoom factor
   "lastBankSelection": { /* C/D + slot, for cross-tab context (e.g. sequence pairing from Library) */ },
-  "midi":      { /* Phase 3 — input, output, channel, sendPC, followPC */ }
+  "midi":      { /* Phase 3 — input, output, channel, sendPC, followPC */ },
+  "record": {                 // v0.5.11 — Record-from-JX persistence
+    "calibratedGain": {       // per-MediaDeviceInfo.deviceId
+      "<deviceId>": { "label": "KT USB Audio (…)", "gain": 11.07, "calibratedAt": "ISO" }
+    }
+  }
 }
 ```
 
@@ -224,8 +269,10 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
 ## Recent themes
 
-`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–22 burst:
+`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–24 burst:
 
+- Record-from-JX-3P + two-pass auto-calibration + JX key-sequence diagrams (v0.5.11, May 23–24)
+- Custom WAV-name embedding (jPpS RIFF chunk) for cross-user sharing (v0.5.11)
 - App menu cleanup + View zoom presets (v0.5.10)
 - Shift-click range select, inline LOAD, modal polish (v0.5.9)
 - Patch history modal + per-package createdAt + origin tracking
@@ -252,6 +299,12 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 9. **Apple Silicon arm64 only.** `electron-builder` is configured for `--mac --arm64`. Intel build target intentionally not shipped.
 10. **macOS auto-injects items into the Edit menu** when it detects standard text-editing `role:` strings. Manual click handlers (current approach) prevent it. Don't switch back to `role:` unless you also want Substitutions/Speech/Writing Tools/Dictation back.
 11. **Quiet-recording auto-boost lives in our `jx3p` fork.** `_load_wav_mono_float` in `~/JP-Patches/jx3p/codec.py` scales any WAV whose peak amplitude is below `AUTO_BOOST_TARGET = 0.7` so the post-load peak hits the target. This rescues tape dumps recorded with too little Mac/interface input gain — without it, the FSK detector's `QUIESCENCE_THRESHOLD = 0.15` Schmitt-trigger band swallows the whole signal and every record decodes to None. Loud-enough recordings (peak ≥ 0.7) are untouched; pure digital silence (peak = 0) is left alone. If a real-world recording ever decodes as garbage rather than empty, suspect the boost amplified the noise floor enough to look like FSK to the demodulator — temporarily lower `AUTO_BOOST_TARGET` (e.g. 0.5) or gate the boost behind a peak floor (e.g. only boost when 0.02 < peak < 0.7) to isolate. Bug history: introduced May 2026 after Daniel's "Sequence 2" recording at peak 0.053 decoded to 8 None pages despite containing real notes.
+
+12. **Record-from-JX trim thresholds scale with current gain.** `stopRecording`'s SILENCE/SIGNAL window-classifier thresholds are scaled by the current software gain (capped at 20×) — `SILENCE = max(0.05, 0.012 × gain)`, `SIGNAL = max(0.10, 0.025 × gain)`. The JX's between-dumps idle tone has a roughly fixed pre-gain amplitude; at saved gains > ~4× the post-gain idle crosses the default 0.05 silence threshold, the silence-detector finds no pre-FSK gap, trim falls through to the "longest signal run" fallback (which **includes** the idle tone), and jx3p's demodulator calibrates `long_width` against idle-tone cycle widths → 0/32 valid records. Bug history: 2026-05-24, a two-step calibration pass 2 at 11× gain captured a perfectly valid 35.7 s WAV that decoded to nothing, while a single-pass attempt at the same gain succeeded. The two-step pass 2 had ~3–5 s more idle-tone pre-roll because the JX was already idle-toning when the new modal opened. Scaling fix lives in `renderer/app.js` ~line 3690.
+
+13. **Tone vs Sequencer use different numeric keys on the JX-3P.** Tape Memory + Tone maps keys 14/15/16 to Save/Verify/Load. Tape Memory + Sequencer maps keys 11/12/13 to Save/Verify/Load (NOT 14/15/16). The `buildJxKeyDiagram({ action, kind })` helper handles the swap based on `kind === 'sequence'`; don't hardcode "14/15/16" in any modal copy. Confirmed against the actual JX-3P panel by Daniel on 2026-05-24.
+
+14. **Record-from-JX calibration modal hides its Stop button.** Auto-stop fires from `tickMeter` when cumulative FSK signal time hits the expected dump duration or when end-of-dump silence is detected. Exposing Stop during calibration confused users (they'd click it expecting to "confirm calibration done" and instead truncate the measurement). Two-pass flow is cleaner with no Stop control in pass 1.
 
 ## When in doubt
 

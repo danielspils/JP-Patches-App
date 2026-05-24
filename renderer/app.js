@@ -369,6 +369,421 @@ function ensureLibraryShape() {
     });
   }
   ensureCustomBucketsShape();
+  ensureRecordCalibrationShape();
+}
+
+// Record-from-JX auto-calibration: stores a per-input-device gain multiplier
+// so subsequent captures skip the calibration pass. Shape:
+//   library.record.calibratedGain[deviceId] = {
+//     label:        "KT USB Audio (31b2:2024)",   // for any "Recalibrate X" UI
+//     gain:         12.4,
+//     calibratedAt: "2026-05-24T07:30:00.000Z"
+//   }
+function ensureRecordCalibrationShape() {
+  if (!library.record || typeof library.record !== 'object') library.record = {};
+  if (!library.record.calibratedGain || typeof library.record.calibratedGain !== 'object') {
+    library.record.calibratedGain = {};
+  }
+}
+function getCalibratedGain(deviceId) {
+  if (!deviceId || !library || !library.record) return null;
+  const entry = library.record.calibratedGain && library.record.calibratedGain[deviceId];
+  return (entry && typeof entry.gain === 'number') ? entry : null;
+}
+function setCalibratedGain(deviceId, gain, label) {
+  if (!deviceId || typeof gain !== 'number' || !Number.isFinite(gain) || gain <= 0) return;
+  ensureRecordCalibrationShape();
+  library.record.calibratedGain[deviceId] = {
+    label:        label || '(unknown device)',
+    gain,
+    calibratedAt: new Date().toISOString(),
+  };
+  saveLibraryDebounced();
+}
+function clearCalibratedGain(deviceId) {
+  if (!deviceId) return;
+  ensureRecordCalibrationShape();
+  delete library.record.calibratedGain[deviceId];
+  saveLibraryDebounced();
+}
+
+// Heuristic: detect when a decoded jx3p result is "all default empty
+// patches" — i.e. every checksum failed and the decoder returned 32 fresh
+// JX3PPatch() instances. We use vca_level === 0 across all 32 slots as the
+// signal: real patches almost always have non-zero VCA Level (otherwise
+// the patch is inaudible), so 32-of-32 zeros is a near-certain decode
+// failure. Used by applyToneCapture / applySequencerCapture to trigger
+// the RECALIBRATE_PROMPT flow instead of silently importing empties.
+function isDecodeAllDefault(data) {
+  if (!data || !Array.isArray(data.banks)) return false;
+  let any = false;
+  for (let bi = 0; bi < data.banks.length; bi++) {
+    const bank = data.banks[bi] || [];
+    for (let s = 0; s < bank.length; s++) {
+      const p = bank[s];
+      if (!p) continue;
+      any = true;
+      if (typeof p.vca_level === 'number' && p.vca_level !== 0) return false;
+    }
+  }
+  return any;
+}
+
+// Show the recalibrate-or-cancel modal after a failed capture. On
+// confirm: clear this device's saved calibration entry and re-open the
+// Record-from-JX modal (which now opens in two-pass calibration mode
+// since the saved gain is gone). On cancel: do nothing — the user's
+// active C/D banks stay at their pre-record state since we never
+// applied the empty decode.
+function showRecalibratePrompt({ kind, deviceId, deviceLabel }) {
+  const labelText = deviceLabel ? ` *${deviceLabel}*` : '';
+  showConfirmModal({
+    title: 'Recording didn\'t decode cleanly',
+    body:
+      `The capture from${labelText} came back as empty patches. The most ` +
+      'common cause is the input level being off.\n\n' +
+      'Want to recalibrate the input gain and try again? Your active C/D ' +
+      'banks will not be modified.',
+    confirmLabel: 'Recalibrate',
+    onConfirm: () => {
+      if (deviceId) clearCalibratedGain(deviceId);
+      // Re-open the Record modal — it'll now run the two-pass calibration
+      // since this device has no saved gain.
+      showRecordFromJxModal({
+        kind,
+        onCaptured: async (tempWavPath, deviceInfo) => {
+          if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
+          else                     await applyToneCapture(tempWavPath, deviceInfo);
+        },
+      });
+    },
+  });
+}
+
+// Inline JX-3P key-sequence diagram used in the Record-from-JX and
+// Send-to-JX modals. Built as a single inline SVG so one CSS width on
+// `.jx-key-diagram` controls every visual proportion — buttons, text,
+// arrow, layout — without any pixel-level CSS tweaks. The button artwork
+// matches panel.svg's button primitives exactly (58×58 cream face +
+// 22×15 dark LED + 22×4 cream highlight at top), and the font matches
+// the panel root style (Helvetica family).
+//
+//   action='save' → Save button highlighted, Tape Memory arrow in column 1
+//                   (record-from-JX flow)
+//   action='load' → Load button highlighted, Tape Memory arrow in column 3
+//                   (send-to-JX flow)
+//   kind='sequence' → keys 11/12/13 + "Sequencer" sub-mode pill
+//   kind=other     → keys 14/15/16 + "Tone" sub-mode pill
+//
+// (The JX-3P remaps its numeric keys 11–13 to the Sequencer tape functions
+// and 14–16 to the Tone tape functions, so the diagram has to swap the
+// numbered labels in addition to the sub-mode pill. See CLAUDE.md pitfall
+// #13 — never hardcode 14/15/16 anywhere; use this helper.)
+function buildJxKeyDiagram({ action, kind }) {
+  const isLoad = action === 'load';
+  const isSeq  = kind === 'sequence';
+  const keys   = isSeq ? ['11', '12', '13'] : ['14', '15', '16'];
+
+  // ViewBox geometry — 240 wide × 300 tall. Drives all internal layout.
+  // Three columns at x=40 / 120 / 200 (16px outer padding + 56px columns +
+  // 20px gaps). The Tape Memory column lives at col 0 for Save variant,
+  // col 2 for Load variant — matches Daniel's mockups where the arrow
+  // visually drops onto the highlighted bottom-row key.
+  const colCx  = [40, 120, 200];
+  const tapeCx = isLoad ? colCx[2] : colCx[0];
+
+  // Panel-style button (matches panel.svg "Manual" / "Write" anatomy).
+  // active=true uses the same cream/dark/highlight colors as the panel;
+  // active=false dims the face + highlight to greyscale variants.
+  const btn = (cx, y, active) => {
+    const face = active ? '#cbc4b4' : '#4a4a4a';
+    const hl   = active ? '#dbd4c4' : '#5a5a5a';
+    return [
+      `<rect x="${cx - 29}" y="${y}" width="58" height="58" fill="${face}" stroke="#555" stroke-width="1.5" rx="2"/>`,
+      `<rect x="${cx - 11}" y="${y}" width="22" height="15" fill="#333" rx="1"/>`,
+      `<rect x="${cx - 11}" y="${y}" width="22" height="4" fill="${hl}"/>`,
+    ].join('');
+  };
+
+  // Numeric key pill (above each function button).
+  const numKey = (cx, label, active) => {
+    const bg = active ? '#e84b2a' : '#5a2418';
+    const fg = active ? '#ffffff' : '#9a7872';
+    return [
+      `<rect x="${cx - 29}" y="0" width="58" height="22" fill="${bg}" rx="2"/>`,
+      `<text x="${cx}" y="16" text-anchor="middle" fill="${fg}" font-size="14" font-weight="600">${label}</text>`,
+    ].join('');
+  };
+
+  // Function label under each button (Save / Verify / Load).
+  const fnLabel = (cx, label, active) =>
+    `<text x="${cx}" y="14" text-anchor="middle" fill="${active ? '#ffffff' : '#7a7a7a'}" font-size="14">${label}</text>`;
+
+  // Tape Memory label alignment — must align to the button's outer edge
+  // rather than centering on tapeCx, because "Tape Memory" (~85px at 14px
+  // Helvetica) is wider than the 58px button. Centering caused the leading
+  // "T" to clip past the left edge of the viewBox for the Save variant.
+  // Save variant: left-align starting at the button's left edge.
+  // Load variant: right-align ending at the button's right edge.
+  const tapeLabelX      = isLoad ? tapeCx + 29 : tapeCx - 29;
+  const tapeLabelAnchor = isLoad ? 'end' : 'start';
+
+  const svg =
+    `<svg viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg" ` +
+    `style="font-family:Helvetica,'Helvetica Neue',sans-serif;display:block;width:100%;height:auto;">` +
+      // No background rect — the diagram inherits the modal's background so
+      // there's no darker-than-modal frame around the buttons. Per Daniel's
+      // design-language note: keep the diagram visually integrated with the
+      // surrounding modal rather than boxing it in.
+      `<text x="${tapeLabelX}" y="20" text-anchor="${tapeLabelAnchor}" fill="#f7f1e6" font-size="14" font-weight="500">Tape Memory</text>` +
+      // Tape Memory button — always lit / active
+      btn(tapeCx, 28, true) +
+      // Arrow — 3px white shaft + triangular head, dropping toward the highlighted bottom-row key
+      `<line x1="${tapeCx}" y1="94" x2="${tapeCx}" y2="124" stroke="#ffffff" stroke-width="3"/>` +
+      `<polygon points="${tapeCx - 7},124 ${tapeCx + 7},124 ${tapeCx},138" fill="#ffffff"/>` +
+      // Numeric keys row (y=148)
+      `<g transform="translate(0, 148)">` +
+        numKey(colCx[0], keys[0], !isLoad) +
+        numKey(colCx[1], keys[1], false) +
+        numKey(colCx[2], keys[2], isLoad) +
+      `</g>` +
+      // Function buttons row (y=178)
+      `<g transform="translate(0, 178)">` +
+        btn(colCx[0], 0, !isLoad) +
+        btn(colCx[1], 0, false) +
+        btn(colCx[2], 0, isLoad) +
+      `</g>` +
+      // Function labels row (y=246)
+      `<g transform="translate(0, 246)">` +
+        fnLabel(colCx[0], 'Save',   !isLoad) +
+        fnLabel(colCx[1], 'Verify', false) +
+        fnLabel(colCx[2], 'Load',   isLoad) +
+      `</g>` +
+      // Sub-mode pill — vintage cream background with dark text (matches panel palette)
+      `<rect x="16" y="266" width="208" height="26" fill="#f7f1e6" rx="2"/>` +
+      `<text x="120" y="284" text-anchor="middle" fill="#1a1a1a" font-size="14" font-weight="500">${isSeq ? 'Sequencer' : 'Tone'}</text>` +
+    `</svg>`;
+
+  const wrap = document.createElement('div');
+  wrap.className = `jx-key-diagram jx-key-diagram-${isLoad ? 'load' : 'save'}`;
+  wrap.innerHTML = svg;
+  return wrap;
+}
+
+// Panel-style input gain knob — SVG component used in the Record-from-JX
+// calibration modal's side-by-side layout. Mirrors panel.svg's knob
+// primitives (r=22 cream circle + dark+grey indicator lines + 0/5/10
+// labels in cream `#cfc8b8`), plus 11 radial tick marks around the dial
+// for the 0–10 scale.
+//
+// Vertical drag changes the rotation 1°/1px (up=increase, down=decrease),
+// matching the panel knob feel. Gain is log-scale 0.1×–30× across the
+// -135° → +135° rotation range, identical to sliderToGain math just
+// reparameterized for a 0–10 dial.
+//
+// `onChange(newGain)` fires on every drag tick. `wrap.setGain(g)` lets
+// the parent push a new value programmatically (used to restore saved
+// calibration on modal open).
+function buildInputGainKnob({ initialGain, onChange }) {
+  const wrap = document.createElement('div');
+  wrap.className = 'record-jx-gain-knob-wrap';
+
+  // Log-scale gain ↔ angle helpers. 0× at -135°, 5 (≈1.7×) at 0°, 10 (30×) at +135°.
+  // 270° of total rotation = 27° per knob unit.
+  const gainToAngle = (g) => {
+    const clamped = Math.max(0.1, Math.min(30, g));
+    const k = Math.log(clamped / 0.1) / Math.log(300) * 10;
+    return -135 + k * 27;
+  };
+  const angleToGain = (a) => {
+    const clampedA = Math.max(-135, Math.min(135, a));
+    const k = (clampedA + 135) / 27;
+    return 0.1 * Math.pow(300, k / 10);
+  };
+
+  let currentAngle = gainToAngle(initialGain);
+
+  // Build 11 radial tick marks (every 27°) around the dial.
+  const ticks = [];
+  for (let i = 0; i <= 10; i++) {
+    const angle = -135 + i * 27;
+    const rad   = angle * Math.PI / 180;
+    const x1 = 50 + Math.sin(rad) * 32;
+    const y1 = 50 - Math.cos(rad) * 32;
+    const x2 = 50 + Math.sin(rad) * 28;
+    const y2 = 50 - Math.cos(rad) * 28;
+    ticks.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#cfc8b8" stroke-width="1.2" stroke-linecap="round"/>`);
+  }
+
+  // 0/5/10 labels positioned at the same radial distance as panel.svg
+  // (slightly further out than the tick marks).
+  const labelDist = 41;
+  const labelData = [
+    { value: '0',  angle: -135 },
+    { value: '5',  angle:    0 },
+    { value: '10', angle:  135 },
+  ];
+  const labels = labelData.map(({ value, angle }) => {
+    const rad = angle * Math.PI / 180;
+    const x = 50 + Math.sin(rad) * labelDist;
+    const y = 50 - Math.cos(rad) * labelDist + 3; // +3 for baseline adjust
+    return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" fill="#cfc8b8" font-size="9">${value}</text>`;
+  }).join('');
+
+  wrap.innerHTML =
+    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" ` +
+      `style="font-family:Helvetica,'Helvetica Neue',sans-serif;display:block;width:100%;height:auto;cursor:ns-resize;user-select:none;">` +
+      ticks.join('') +
+      labels +
+      // Knob body — matches panel.svg knob primitive (cream face, grey stroke)
+      `<circle cx="50" cy="50" r="22" fill="#cbc4b4" stroke="#555" stroke-width="1.5"/>` +
+      // Rotating indicator group (dark outer line + grey inner line, panel style)
+      `<g class="knob-indicator" transform="rotate(${currentAngle.toFixed(1)} 50 50)">` +
+        `<line x1="50" y1="34" x2="50" y2="38" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"/>` +
+        `<line x1="50" y1="38" x2="50" y2="48" stroke="#888" stroke-width="3.5" stroke-linecap="round"/>` +
+      `</g>` +
+    `</svg>`;
+
+  const svg = wrap.querySelector('svg');
+  const indicator = wrap.querySelector('.knob-indicator');
+
+  let dragStartY    = null;
+  let dragStartAngle = null;
+
+  const applyAngle = (newAngle) => {
+    currentAngle = Math.max(-135, Math.min(135, newAngle));
+    indicator.setAttribute('transform', `rotate(${currentAngle.toFixed(1)} 50 50)`);
+    if (onChange) onChange(angleToGain(currentAngle));
+  };
+
+  svg.addEventListener('mousedown', (e) => {
+    dragStartY     = e.clientY;
+    dragStartAngle = currentAngle;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (dragStartY === null) return;
+    const dy = dragStartY - e.clientY;       // up = positive = increase
+    applyAngle(dragStartAngle + dy);
+  });
+  document.addEventListener('mouseup', () => {
+    dragStartY = null;
+    dragStartAngle = null;
+  });
+
+  // Programmatic setter (saved calibration restore, etc.). Does NOT fire onChange.
+  wrap.setGain = (g) => {
+    currentAngle = gainToAngle(g);
+    indicator.setAttribute('transform', `rotate(${currentAngle.toFixed(1)} 50 50)`);
+  };
+
+  return wrap;
+}
+
+// Vertical 7-segment level meter — SVG component used alongside the gain
+// knob in the calibration row. Classic VU-style ladder: each segment is
+// PRE-assigned a zone color (blue / green / yellow / red) based on its
+// position, and lights up independently when the live peak crosses its
+// threshold. Provides ~10× the calibration resolution of the earlier
+// 3-segment version while preserving the panel-LED visual feel.
+//
+//   seg 6 (top)     RED    lit at peak ≥ 0.88   — clipping
+//   seg 5           YELLOW lit at peak ≥ 0.76   — hot but OK
+//   seg 4           GREEN  lit at peak ≥ 0.62   — target zone top
+//   seg 3           GREEN  lit at peak ≥ 0.48   — target zone (calibration aim, ~0.60)
+//   seg 2           GREEN  lit at peak ≥ 0.34   — target zone bottom
+//   seg 1           BLUE   lit at peak ≥ 0.22   — low signal
+//   seg 0 (bottom)  BLUE   lit at peak ≥ 0.10   — signal present
+//
+// Calibration aims for peak 0.60 → user dials gain until segments 0–3 are
+// lit (4 blue+green segments, seg 4+ still dark). That's the visual "I'm
+// in the green band, optimally calibrated" state.
+//
+// Calling `.setPeak(p)` updates fills.
+function buildVerticalLevelMeter() {
+  const wrap = document.createElement('div');
+  wrap.className = 'record-jx-vmeter-wrap';
+
+  // 7 stacked segments, top→bottom (DOM order), with 3px gaps. ViewBox 30×100.
+  // Each segment is 11px tall: 7*11 + 6*3 = 95 px. Centered with y=3 top padding.
+  const SEG_H = 11;
+  const GAP   = 3;
+  const TOP_Y = 3;
+  const segs = [];
+  for (let i = 0; i < 7; i++) {
+    const y = TOP_Y + i * (SEG_H + GAP);
+    // i=0 is TOP segment (red zone), i=6 is BOTTOM (blue zone)
+    segs.push({ y, height: SEG_H });
+  }
+  const rects = segs.map((s, i) =>
+    `<rect class="vmeter-seg" data-seg="${i}" x="4" y="${s.y}" width="22" height="${s.height}" fill="#cbc4b4" rx="1.5"/>`
+  ).join('');
+
+  // Target marker — chunky white triangle + "target" label pointing at
+  // the amber segment (the calibration target as of 2026-05-24). Aim:
+  // land peak at 0.78 (mid-amber), which means the topmost lit segment
+  // when correctly dialed in is the amber one. DOM order top→bottom:
+  // seg 0=red (top), seg 1=amber, seg 2=green-top, etc. Notch + label
+  // both vertically aligned to the center of seg 1 (amber).
+  //   segs[1].y      = TOP_Y + 1*(SEG_H+GAP) = 3 + 14 = 17
+  //   segs[1] center = 17 + SEG_H/2          = 17 + 5.5 = 22.5
+  // ViewBox extended to 80 wide so the notch + "target" text fit in the
+  // same SVG coordinate space (no HTML-vs-SVG alignment math). Wrap CSS
+  // width = 78 px ≈ 1:1 with viewBox units, so screen size of meter
+  // rects matches the prior visual weight.
+  const NOTCH_Y = TOP_Y + 1 * (SEG_H + GAP) + SEG_H / 2;   // 22.5
+  // Apex on the LEFT (x=26, touching the meter's right edge) so the
+  // notch points INTO the meter at the target segment — visually says
+  // "aim here" rather than pointing away toward the "target" label.
+  const targetNotch =
+    `<polygon points="36,${NOTCH_Y - 6} 36,${NOTCH_Y + 6} 26,${NOTCH_Y}" fill="#ffffff"/>`;
+  const targetLabel =
+    `<text x="40" y="${NOTCH_Y + 4}" fill="#cfc8b8" font-size="11" font-weight="500">target</text>`;
+
+  wrap.innerHTML =
+    `<svg viewBox="0 0 80 100" xmlns="http://www.w3.org/2000/svg" style="font-family:Helvetica,'Helvetica Neue',sans-serif;display:block;width:100%;height:auto;">` +
+      rects +
+      targetNotch +
+      targetLabel +
+    `</svg>`;
+
+  const segEls = wrap.querySelectorAll('.vmeter-seg');
+  // segEls[0] = TOP (DOM order); segEls[6] = BOTTOM.
+
+  // Brand palette + threshold ladder. Indexed by ladderPos where 0=bottom
+  // and 6=top, matching the visual stack. Unlit segments use the panel
+  // button-face cream (#cbc4b4) so the meter reads like a row of physical
+  // JX-3P pads at rest, and any lit colored segment pops clearly against
+  // the cream baseline.
+  const UNLIT = '#cbc4b4';   // panel button-face cream
+  const BLUE  = '#33508f';   // Roland blue
+  const GREEN = '#1f6e5b';   // Roland green
+  const AMBER = '#c39a3a';   // app warning amber (also used for low-signal toasts)
+  const RED   = '#b94a2e';   // Roland red
+
+  //                       ladderPos: 0     1     2      3      4      5      6
+  //                                  bot                                      top
+  const ZONE_COLOR     = [BLUE, BLUE, GREEN, GREEN, GREEN, AMBER, RED];
+  // Bottom segment lights at 0.02 (essentially "any signal above true
+  // silence") so the user gets a visual "input is alive" cue even with
+  // very quiet inputs. Without this, a totally cream meter reads as
+  // "dead" and the user might not realize audio is being received at
+  // all. Higher thresholds are roughly linear from 0.22 → 0.88.
+  const ZONE_THRESHOLD = [0.02, 0.22, 0.34,  0.48,  0.62,  0.76,  0.88];
+
+  wrap.setPeak = (peak) => {
+    // Walk each ladder position (0=bottom→6=top). If peak crosses its
+    // threshold, paint its zone color; otherwise paint the unlit cream.
+    // SVG DOM order is reversed (segEls[0]=top), so map ladderPos i →
+    // segEls[6-i].
+    for (let i = 0; i < 7; i++) {
+      const lit  = peak >= ZONE_THRESHOLD[i];
+      const fill = lit ? ZONE_COLOR[i] : UNLIT;
+      segEls[6 - i].setAttribute('fill', fill);
+    }
+  };
+
+  return wrap;
 }
 
 // Custom bank builder buckets — a persistent staging area where the user can
@@ -2167,8 +2582,8 @@ function handleToneSave() {
     onFile:   () => doToneSaveFromFile(),
     onRecord: () => showRecordFromJxModal({
       kind: 'tone',
-      onCaptured: async (tempWavPath) => {
-        await applyToneCapture(tempWavPath);
+      onCaptured: async (tempWavPath, deviceInfo) => {
+        await applyToneCapture(tempWavPath, deviceInfo);
       },
     }),
   });
@@ -2207,10 +2622,24 @@ async function applyToneResult(result, sourcePath, labelOverride = null) {
 // and route through the same applyToneResult path as the file-dialog flow.
 // We pass a friendly label override so the slots' source line reads "from
 // JX-3P tape capture" instead of the temp filename gibberish.
-async function applyToneCapture(tempWavPath) {
+// deviceInfo carries { deviceId, deviceLabel } from the record modal so
+// the recalibrate-prompt (fired on all-default decode) knows which device's
+// saved gain to clear.
+async function applyToneCapture(tempWavPath, deviceInfo) {
   const result = await window.api.tapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
     showImportError(`Couldn't decode the captured audio: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  // All-default decode = checksum failures across the board = capture
+  // didn't work. Offer recalibration instead of silently populating active
+  // C/D with empty patches.
+  if (isDecodeAllDefault(result.data)) {
+    showRecalibratePrompt({
+      kind:        'tone',
+      deviceId:    deviceInfo && deviceInfo.deviceId,
+      deviceLabel: deviceInfo && deviceInfo.deviceLabel,
+    });
     return;
   }
   const stamp = new Date().toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -2267,6 +2696,17 @@ async function handleToneLoad() {
   // prefix marks it as our own extension; main.js strips it before passing
   // the bank JSON to jx3p (which would otherwise reject the extra field).
   if (slotMeta) exportData = { ...exportData, _slotMeta: slotMeta };
+  // Diagnostic: log what's actually being sent so we can compare across
+  // C/D-banks-source vs library-package-source paths when investigating
+  // "send didn't reach the JX" bugs. Logs source label, bank slot 0
+  // identity (first patch params), and slotMeta fingerprint.
+  const sourceTag = sendingPackage ? `LIBRARY[${selPackage}]` : 'ACTIVE_C/D';
+  const firstPatch = exportData.banks?.[0]?.[0];
+  console.log(
+    `send-to-jx tone: source=${sourceTag} label="${label}" ` +
+    `bank-C-slot-0 vca=${firstPatch?.vca_level} dco1=${firstPatch?.dco1_waveform}@${firstPatch?.dco1_range} ` +
+    `slotMeta=${slotMeta ? 'present' : 'none'}`
+  );
   showSendToJxModal(exportData, label);
 }
 
@@ -2284,7 +2724,7 @@ function showSendToJxModal(exportData, sourceLabel) {
     kind: 'patches',
     encodeApi: 'tapeEncodeToTemp',
     saveApi:   'tapeLoad',
-    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button → <b>Tone/Load</b> (button 16), then hit play below.',
+    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span> (button 16), then hit Play below.',
     segments:  [
       { kind: 'init',    label: 'Init',    pilot: true  },
       { kind: 'bank-c',  label: 'Bank C',  pilot: false },
@@ -2302,7 +2742,7 @@ function showSendSequenceToJxModal(exportData, sourceLabel, intro) {
     kind: 'sequence',
     encodeApi: 'seqTapeEncodeToTemp',
     saveApi:   'seqTapeLoad',
-    jxStep2:   'On the JX-3P click <b>Tape Memory</b> button → <b>Sequencer/Load</b>, then hit play below.',
+    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span> (button 13), then hit Play below.',
     segments:  [
       { kind: 'init',     label: 'Init',     pilot: true  },
       { kind: 'sequence', label: 'Sequence', pilot: false },
@@ -2341,6 +2781,39 @@ function showSendToJxFlow(opts) {
       '<li>Click the <b>Send to JX-3P</b> button below.</li>' +
     '</ol>';
   modal.appendChild(body);
+
+  // Cause→effect row (matches Record-from-JX layout pattern, defined in
+  // docs/design-system.md §4.3). LEFT: JX-3P key diagram showing which
+  // key/sub-mode to arm. ARROW: pulses while audio is actively playing
+  // out of the Mac. RIGHT: vertical level meter showing the Mac's audio
+  // output amplitude during playback (no gain knob — gain is fixed at
+  // 100% Mac volume per the setup instructions). Hidden during step 1
+  // (the setup checklist) and revealed when enterPlayState fires.
+  const jxKeyDiagram = buildJxKeyDiagram({ action: 'load', kind });
+  const sendRow = document.createElement('div');
+  sendRow.className = 'record-jx-cal-row capture-mode';  // capture-mode = no gain knob
+  sendRow.style.display = 'none';
+  const sendArrow = document.createElement('div');
+  sendArrow.className = 'record-jx-cal-arrow';
+  sendArrow.innerHTML =
+    `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
+      `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
+      `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
+    `</svg>`;
+  // JX-3P "destination" logo — replaces the level meter that used to
+  // live here. For send mode the meter wasn't actionable (Mac volume is
+  // fixed at 100%, user can't tune it), and the logo communicates
+  // "transmission destination" more clearly. Mirrors the Record-from-JX
+  // capture layout where the JP Patches logo sits to the right of the
+  // arrow as the data destination — here the destination is the JX, so
+  // the JX-3P logo appears.
+  const sendJxLogo = document.createElement('div');
+  sendJxLogo.className = 'record-jx-jx3p-logo';
+  sendJxLogo.innerHTML = `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>`;
+  sendRow.appendChild(jxKeyDiagram);
+  sendRow.appendChild(sendArrow);
+  sendRow.appendChild(sendJxLogo);
+  modal.appendChild(sendRow);
 
   // Status row: per-segment timeline (driven by opts.segments) with a
   // playback indicator, plus a status text line. Hidden until step 2.
@@ -2394,8 +2867,66 @@ function showSendToJxFlow(opts) {
   let progressTimer = null;
   let cancelled = false;
 
+  // Audio analysis pipeline — drives the sendArrow pulse from
+  // the actual audio element output. Set up lazily on first Play click
+  // (createMediaElementSource can only run once per element, and we want
+  // it inside a user-gesture handler so the AudioContext starts unblocked).
+  let sendAudioCtx  = null;
+  let sendAnalyser  = null;
+  let sendAnalyserBuf = null;
+  let sendMeterRaf  = null;
+
+  const setupAudioAnalysis = () => {
+    if (!audioEl || sendAudioCtx) return;
+    try {
+      sendAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = sendAudioCtx.createMediaElementSource(audioEl);
+      sendAnalyser = sendAudioCtx.createAnalyser();
+      sendAnalyser.fftSize = 256;
+      // Route source → analyser → destination so audio still plays AND
+      // we can tap the amplitude. If we don't connect to destination,
+      // the audio element stops being audible (createMediaElementSource
+      // takes over the routing).
+      source.connect(sendAnalyser);
+      sendAnalyser.connect(sendAudioCtx.destination);
+      sendAnalyserBuf = new Uint8Array(sendAnalyser.fftSize);
+    } catch (err) {
+      // If analysis setup fails (e.g. CORS on audioEl src), let playback
+      // continue without the meter. Don't break the send flow.
+      console.warn('Send-to-JX meter analysis unavailable:', err.message);
+      sendAudioCtx = null;
+    }
+  };
+
+  const tickSendMeter = () => {
+    if (!sendAnalyser) return;
+    sendAnalyser.getByteTimeDomainData(sendAnalyserBuf);
+    let peak = 0;
+    for (let i = 0; i < sendAnalyserBuf.length; i++) {
+      const v = Math.abs(sendAnalyserBuf[i] - 128) / 128;
+      if (v > peak) peak = v;
+    }
+    // Pulse the arrow while audio is actively flowing — same pattern as
+    // the Record-from-JX arrow during capture. (Level meter removed from
+    // Send-to-JX in favor of the JX-3P logo; analyser still feeds the
+    // arrow-pulse decision.)
+    if (peak > 0.03) {
+      if (!sendArrow.classList.contains('pulsing')) sendArrow.classList.add('pulsing');
+    } else {
+      if (sendArrow.classList.contains('pulsing')) sendArrow.classList.remove('pulsing');
+    }
+    sendMeterRaf = requestAnimationFrame(tickSendMeter);
+  };
+
   const cleanup = async () => {
     if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+    if (sendMeterRaf) { cancelAnimationFrame(sendMeterRaf); sendMeterRaf = null; }
+    if (sendAudioCtx) {
+      try { await sendAudioCtx.close(); } catch {}
+      sendAudioCtx = null;
+      sendAnalyser = null;
+      sendAnalyserBuf = null;
+    }
     if (audioEl) {
       try { audioEl.pause(); } catch {}
       audioEl.src = '';
@@ -2483,18 +3014,42 @@ function showSendToJxFlow(opts) {
     segDurations = computeSegDurations(durationSec);
     applySegProportions(segDurations);
     timeline.style.display = '';
+    // Reveal the cause→effect row (diagram + arrow + level meter) — step 2
+    // is when the user actually needs to know which key to press and watch
+    // the output level during playback.
+    sendRow.style.display = '';
   };
 
   const startPlayback = async () => {
     primaryBtn.disabled = true;
     cancelBtn.textContent = 'Cancel';
     statusText.textContent = 'Playing…';
+    // Wire up audio analysis BEFORE play() so the meter starts reading on
+    // the first audio frame. setupAudioAnalysis must run inside this
+    // user-gesture handler so the AudioContext starts in 'running' state
+    // (Chrome's autoplay policy blocks contexts created without a gesture).
+    setupAudioAnalysis();
+    // Defensive: even when created in a user gesture, the AudioContext
+    // can occasionally start in 'suspended' state (Chromium edge cases
+    // when a previous context was still being torn down). Without this
+    // resume, createMediaElementSource silently redirects the audio
+    // element's output into a suspended context and NO sound plays —
+    // visually everything looks normal (timeline advances, status reads
+    // "Playing…") but the JX-3P never hears the dump and the user thinks
+    // Send was broken.
+    if (sendAudioCtx && sendAudioCtx.state === 'suspended') {
+      try { await sendAudioCtx.resume(); } catch {}
+    }
     try {
       await audioEl.play();
     } catch (err) {
       statusText.textContent = `Playback blocked: ${err.message}`;
       primaryBtn.disabled = false;
       return;
+    }
+    // Drive the send-level meter + arrow pulse from the analyser.
+    if (sendAnalyser && !sendMeterRaf) {
+      sendMeterRaf = requestAnimationFrame(tickSendMeter);
     }
     progressTimer = setInterval(() => {
       if (!audioEl) return;
@@ -2547,6 +3102,12 @@ function showSendToJxFlow(opts) {
       // Mark every segment "active" so the whole bar lights up at completion.
       segs.forEach((s) => s.el.classList.add('active'));
       timeline.classList.add('complete');
+      // Arrow goes solid (no dashed pattern, full opacity, no marching
+      // animation) so the visual reads as "transmission done" rather
+      // than "still transmitting". Drop the pulsing class first to stop
+      // the dash-flow animation; add complete to swap to a solid line.
+      sendArrow.classList.remove('pulsing');
+      sendArrow.classList.add('complete');
       statusText.textContent = '✓ Complete. Check your JX for confirmation.';
       // Done is now the only action — it closes the modal.
       primaryBtn.textContent = 'Done';
@@ -2581,8 +3142,8 @@ function handleSequencerSave() {
     onFile:   () => doSequencerSaveFromFile(),
     onRecord: () => showRecordFromJxModal({
       kind: 'sequence',
-      onCaptured: async (tempWavPath) => {
-        await applySequencerCapture(tempWavPath);
+      onCaptured: async (tempWavPath, deviceInfo) => {
+        await applySequencerCapture(tempWavPath, deviceInfo);
       },
     }),
   });
@@ -2597,10 +3158,24 @@ async function doSequencerSaveFromFile() {
   presentSequenceSaveModal(result.data, result.path);
 }
 
-async function applySequencerCapture(tempWavPath) {
+async function applySequencerCapture(tempWavPath, deviceInfo) {
   const result = await window.api.seqTapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
     showImportError(`Couldn't decode the captured sequence: ${result && result.error || 'unknown error'}`);
+    return;
+  }
+  // For sequences "all-default" means the tape.pages array is fully null —
+  // every page checksum failed. Surface the recalibrate prompt BEFORE
+  // opening the save-sequence modal so the user isn't asked to name an
+  // empty sequence.
+  const pages = (result.data && Array.isArray(result.data.pages)) ? result.data.pages : null;
+  const isAllNullPages = pages && pages.every((p) => p == null);
+  if (isAllNullPages) {
+    showRecalibratePrompt({
+      kind:        'sequence',
+      deviceId:    deviceInfo && deviceInfo.deviceId,
+      deviceLabel: deviceInfo && deviceInfo.deviceLabel,
+    });
     return;
   }
   presentSequenceSaveModal(result.data, tempWavPath);
@@ -2827,7 +3402,13 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   // The modal opens already capturing; instructions reflect that.
   const instr = document.createElement('div');
   instr.className = 'record-jx-instr';
-  const jxSaveLabel = kind === 'sequence' ? 'Sequencer → Save' : 'Tone → Save';
+  // "Tape Memory → Save" is the actual JX-3P key-press sequence (mode
+  // key + save key). The Tone-vs-Sequencer sub-mode is conveyed visually
+  // by the diagram's bottom pill ("Tone" or "Sequencer"), so the copy
+  // doesn't need to spell it out and can stay identical for both modes.
+  // Each button name is wrapped in `.btn-hint` (a faint outlined pill)
+  // so it visually reads as a button command rather than plain text.
+  const jxSaveLabel = '<span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Save</span>';
   instr.innerHTML =
     `<p style="margin: 0;">Recording — press <b>${jxSaveLabel}</b> on the JX-3P now. ` +
     `Click <b>■ Stop</b> when the transmission finishes (~30–45 s).</p>`;
@@ -2878,6 +3459,34 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   fskPeakBadge.textContent = 'FSK PEAK: — (waiting for dump to start)';
   meterSection.appendChild(fskPeakBadge);
 
+  // Calibration-mode dump-progress bar. Sits under the level meter,
+  // visible only when isCalibrating is true. Fills as cumulative FSK
+  // signal accumulates against the expected dump duration; reaching the
+  // end (or detecting silence-after-signal early) triggers the
+  // calibration auto-stop. Gives the user clear "wait — the JX is still
+  // transmitting, don't click anything" feedback while they adjust gain.
+  const calProgressSection = document.createElement('div');
+  calProgressSection.className = 'record-jx-section record-jx-cal-progress-section';
+  const calProgressLabel = document.createElement('label');
+  calProgressLabel.textContent = 'DUMP PROGRESS:';
+  const calProgressOuter = document.createElement('div');
+  calProgressOuter.className = 'record-jx-cal-progress-outer';
+  const calProgressBar = document.createElement('div');
+  calProgressBar.className = 'record-jx-cal-progress-bar';
+  calProgressOuter.appendChild(calProgressBar);
+  const calProgressHint = document.createElement('div');
+  calProgressHint.className = 'record-jx-cal-progress-hint';
+  calProgressHint.textContent = 'Calibration auto-advances when this fills. Sit tight while the JX transmits.';
+  calProgressSection.appendChild(calProgressLabel);
+  calProgressSection.appendChild(calProgressOuter);
+  calProgressSection.appendChild(calProgressHint);
+  meterSection.appendChild(calProgressSection);
+  // Expected total signal duration (cumulative FSK time) per kind. Tones
+  // are ~33 s (2 pilots + 2 bank-data sections); sequences are ~21 s
+  // (1 pilot + up to 8 pages of data). These are the upper bounds used
+  // for the progress-bar denominator.
+  const EXPECTED_SIGNAL_MS = kind === 'sequence' ? 21000 : 33000;
+
   // Input gain — software multiplier applied between the mic source and
   // both the meter and the capture buffer. Lets the user crank up a quiet
   // signal in real time and watch the meter respond. Mathematically the
@@ -2911,6 +3520,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   // Formula: gain = 0.1 × 300^(slider/100). At slider=0 → 0.1×, slider=20
   // → ~1×, slider=100 → 30×.
   const sliderToGain = (s) => 0.1 * Math.pow(300, s / 100);
+  const gainToSlider = (g) => Math.max(0, Math.min(100, Math.round(Math.log(g / 0.1) / Math.log(300) * 100)));
   const formatGain   = (g) => g >= 10 ? `${g.toFixed(0)}×` : g >= 1 ? `${g.toFixed(1)}×` : `${g.toFixed(2)}×`;
 
   // Structure timeline — reuses the .send-jx-* classes from the export modal
@@ -2982,19 +3592,113 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   actions.appendChild(cancelBtn);
   actions.appendChild(stopBtn);
 
+  // Visual JX-3P key-sequence guide — sits right under the instruction
+  // copy so the user reads "Press Save on the JX-3P" and immediately sees
+  // exactly which key that is. Same diagram for calibration + capture
+  // (both want the user to press Tape Memory → 14/Save).
+  const jxKeyDiagram = buildJxKeyDiagram({ action: 'save', kind });
+
+  // Calibration row — only visible in pass-1 (CALIBRATING) mode. Lays the
+  // key diagram, an arrow, and the gain knob + vertical level meter on a
+  // single horizontal row. The arrow pulses while FSK signal is detected
+  // (class .pulsing toggled by tickMeter when fskStartMs has fired).
+  // This re-uses jxKeyDiagram as its left column rather than building a
+  // second copy — we DETACH it from the modal-level slot below when in
+  // calibration mode and re-parent under calRow.
+  const calRow = document.createElement('div');
+  calRow.className = 'record-jx-cal-row';
+  const calArrow = document.createElement('div');
+  calArrow.className = 'record-jx-cal-arrow';
+  calArrow.innerHTML =
+    `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
+      `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
+      `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
+    `</svg>`;
+  const calCard = document.createElement('div');
+  calCard.className = 'record-jx-cal-card';
+  const calGainCol = document.createElement('div');
+  calGainCol.className = 'record-jx-cal-col cal-gain-col';
+  const calGainLabel = document.createElement('div');
+  calGainLabel.className = 'record-jx-cal-col-label';
+  calGainLabel.textContent = 'Input Gain';
+  const gainKnob = buildInputGainKnob({
+    initialGain: 1.0,
+    onChange: (newGain) => {
+      // Mirror the knob's value back into the legacy gainSlider so the
+      // calibration math (which reads sliderToGain(gainSlider.value)) and
+      // the audio gain node stay in sync. We don't fire an 'input' event
+      // because the slider's listener already updates gainNode — instead
+      // we update both manually to avoid double-application.
+      const sliderPos = gainToSlider(newGain);
+      gainSlider.value = String(sliderPos);
+      gainValueLabel.textContent = formatGain(newGain);
+      if (gainNode) gainNode.gain.value = newGain;
+      // Reset the running FSK-peak measurement when the user adjusts the
+      // knob. Otherwise a transient clipping spike (e.g. dialed up too
+      // far for a fraction of a second before backing off) would stay
+      // baked into fskPeak forever, inflating measurePeak in the
+      // calibration math and producing a pass-2 gain that's too low.
+      // After reset, fskPeak tracks the max since the latest dial-in,
+      // which is what the user actually intends.
+      fskPeak = 0;
+    },
+  });
+  calGainCol.appendChild(calGainLabel);
+  calGainCol.appendChild(gainKnob);
+  const calMeterCol = document.createElement('div');
+  calMeterCol.className = 'record-jx-cal-col';
+  const vmeter = buildVerticalLevelMeter();
+  const calMeterLabel = document.createElement('div');
+  calMeterLabel.className = 'record-jx-cal-col-label';
+  calMeterLabel.textContent = 'Level';
+  calMeterCol.appendChild(vmeter);
+  calMeterCol.appendChild(calMeterLabel);
+  calCard.appendChild(calGainCol);
+  calCard.appendChild(calMeterCol);
+  // JP Patches "receiver" logo — visible only in capture mode (STEP 2),
+  // positioned between the arrow and the meter card. Visually completes
+  // the cause→effect story: JX-3P keys (left) → data flowing (arrow) →
+  // received by JP Patches (logo) → level visualized (meter on right).
+  // Hidden in calibration mode because calibration is about measuring,
+  // not about sending data into the app.
+  const jpLogoEl = document.createElement('div');
+  jpLogoEl.className = 'record-jx-jp-logo';
+  jpLogoEl.innerHTML = `<img src="assets/jp-logo.png" alt="JP Patches" draggable="false"/>`;
+  // jxKeyDiagram will be re-parented INTO calRow in calibration mode,
+  // and put back at modal level for capture mode. Start with the
+  // calibration arrangement (most common first-time use).
+  calRow.appendChild(jxKeyDiagram);
+  calRow.appendChild(calArrow);
+  calRow.appendChild(jpLogoEl);
+  calRow.appendChild(calCard);
+
   modal.appendChild(h);
   modal.appendChild(instr);
+  modal.appendChild(calRow);          // calibration layout — visibility toggled
   modal.appendChild(deviceSection);
-  modal.appendChild(meterSection);
+  modal.appendChild(meterSection);    // capture layout — visibility toggled
   modal.appendChild(gainSection);
   modal.appendChild(timelineSection);
   modal.appendChild(statusText);
   modal.appendChild(actions);
   overlay.appendChild(modal);
-  document.body.appendChild(overlay);
+  // NOTE: document.body.appendChild(overlay) happens further down, AFTER
+  // configureForCurrentDevice() runs to hide the mode-irrelevant sections.
+  // Mounting first caused a flash of the "everything visible" layout for a
+  // single frame before the snap to the final state — visually jarring.
 
   // Capture state. Modal opens already capturing — no manual Record click.
   let state = 'recording';          // 'recording' | 'processing'
+  // Two-pass calibration state. Pass 1 measures the actual FSK peak amplitude
+  // and computes a gain multiplier; pass 2 does the real capture at the
+  // calibrated gain. The calibration is persisted per-input-device, so
+  // subsequent records on the same device are single-pass.
+  //   isCalibrating === true   →  currently doing pass 1
+  //   isCalibrating === false  →  currently doing pass 2 (or single pass)
+  // calibrationDevice* track the device identity for the persistence write.
+  let isCalibrating = false;
+  let calibrationDeviceId    = null;
+  let calibrationDeviceLabel = null;
   let mediaStream  = null;
   let audioContext = null;
   let sourceNode   = null;
@@ -3002,6 +3706,8 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   let analyserNode = null;
   let processorNode = null;
   let captured = [];                // Float32Array chunks accumulated during onaudioprocess
+  let fskPeak  = 0;                 // max peak observed AFTER FSK start; populated by tickMeter, read by stopRecording for calibration
+  let totalSignalMs = 0;            // cumulative time peak > SIGNAL_THRESHOLD_LIVE; modal-scoped so the calibration auto-stop can read it without requiring silence→signal detection
   let levelRaf = null;
   let elapsedTimer = null;
 
@@ -3042,6 +3748,107 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     statusText.textContent = `Couldn't list audio devices: ${err.message}`;
     recordBtn.disabled = true;
   }
+
+  // Decide first-time-calibration vs single-pass based on whether this device
+  // has a saved calibrated gain in library.json. Called now (initial open) and
+  // again on device-picker change. Updates instructions copy + the gain
+  // slider to reflect the chosen mode. In calibration mode we also retitle
+  // the modal (so the user knows this is NOT data capture) and hide the
+  // "WHAT THE JX-3P SENDS" timeline (which would imply we're collecting
+  // segmented data, which would be misleading here).
+  const configureForCurrentDevice = () => {
+    calibrationDeviceId    = devicePicker.value;
+    calibrationDeviceLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent || null;
+    const cal = getCalibratedGain(calibrationDeviceId);
+    if (cal) {
+      isCalibrating = false;
+      h.textContent = kind === 'sequence'
+        ? 'Step 2 of 2: Sequence data dump from JX-3P'
+        : 'Step 2 of 2: Data dump from JX-3P';
+      // Capture-mode layout: show the cal-row with the GAIN column hidden
+      // (gain is already calibrated, no user input needed) — leaving the
+      // [diagram | arrow | level meter] cause→effect visual intact. The
+      // diagram lives inside calRow in both modes so we don't re-parent.
+      calRow.style.display = '';
+      calRow.classList.add('capture-mode');     // CSS hides .cal-gain-col
+      if (jxKeyDiagram.parentElement !== calRow) {
+        calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
+      }
+      // Drop the legacy horizontal LEVEL section — replaced by the SVG
+      // vertical meter inside calRow.
+      meterSection.style.display = 'none';
+      timelineSection.style.display = '';
+      // Hide the Stop button — capture is fully hands-free now (auto-stop
+      // fires when the JX dump completes; Cancel covers the abort case
+      // for failed captures). Matches calibration mode's pattern.
+      stopBtn.style.display = 'none';
+      calProgressSection.style.display = 'none';
+      gainSection.style.display = 'none';
+      meterHint.style.display = 'none';
+      fskPeakBadge.style.display = 'none';
+      // Wrap the instructions in the boxed style so the visual hierarchy
+      // matches the calibration modal (same card styling for the
+      // intro/instructions block).
+      instr.classList.add('record-jx-instr-box');
+      const newPos = gainToSlider(cal.gain);
+      gainSlider.value = String(newPos);
+      gainValueLabel.textContent = formatGain(cal.gain);
+      if (gainNode) gainNode.gain.value = cal.gain;
+      gainKnob.setGain(cal.gain);
+      instr.innerHTML =
+        `<p style="margin: 0;"><b>Now press ${jxSaveLabel}.</b></p>` +
+        `<p style="margin: 6px 0 0; color: var(--text-mid); font-size: 12px;">Capture finishes automatically when the JX dump completes (~30 s). Click <b>Cancel</b> to abort if no audio is being received. The level shown reflects your saved calibration (${formatGain(cal.gain)} gain) for this device.</p>`;
+    } else {
+      isCalibrating = true;
+      // First-time: start at unity gain. Calibration will measure and set the
+      // multiplier post-pass-1 so pass 2 captures at the right level.
+      gainSlider.value = '20';
+      gainValueLabel.textContent = '1.0×';
+      if (gainNode) gainNode.gain.value = 1.0;
+      gainKnob.setGain(1.0);
+      h.textContent = 'Step 1 of 2: Calibrate volume';
+      // Calibration layout: show the cal-row with BOTH columns (gain knob
+      // + level meter). Remove .capture-mode so the .cal-gain-col CSS rule
+      // un-hides the gain column. Hide the legacy meter and gain sections
+      // + segmented timeline. The dump-progress bar lives in meterSection
+      // so we hoist it out below so it survives meterSection display:none.
+      calRow.style.display = '';
+      calRow.classList.remove('capture-mode');
+      if (jxKeyDiagram.parentElement !== calRow) {
+        // Insert as first child of calRow (left column).
+        calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
+      }
+      meterSection.style.display = 'none';
+      timelineSection.style.display = 'none';
+      // Hide the Stop button — calibration is fully hands-free now.
+      // Auto-stop triggers when the dump-progress bar fills (cumulative
+      // signal hits the expected duration) or when end-of-dump silence
+      // is detected.
+      stopBtn.style.display = 'none';
+      // Show the dump-progress bar (re-parented under calRow so it stays
+      // visible even though its host meterSection is hidden) + initialize.
+      if (calProgressSection.parentElement !== modal) {
+        // Move it out of meterSection (its original parent) and place it
+        // directly under calRow so it survives meterSection display:none.
+        modal.insertBefore(calProgressSection, deviceSection);
+      }
+      calProgressSection.style.display = '';
+      calProgressBar.style.width = '0%';
+      gainSection.style.display = 'none';   // gain knob in calRow replaces the slider
+      meterHint.style.display = 'none';
+      fskPeakBadge.style.display = 'none';
+      instr.classList.add('record-jx-instr-box');
+      instr.innerHTML =
+        `<p style="margin: 0;"><b>Press ${jxSaveLabel} on the JX-3P now.</b></p>` +
+        `<p style="margin: 6px 0 0;"><b>Adjust <span class="btn-hint">Input Gain</span> until the level reaches the target notch (the yellow segment).</b></p>` +
+        `<p style="margin: 8px 0 0; color: var(--text-mid); font-size: 12px;">Calibration auto-advances when the JX finishes its dump (~30 s); the recorder reopens for the real capture.</p>`;
+    }
+  };
+  configureForCurrentDevice();
+  // Mount NOW — the modal has its final layout in place, so it appears
+  // already-sized rather than flashing through the all-sections-visible
+  // intermediate state.
+  document.body.appendChild(overlay);
 
   // Stops any in-flight capture without dismissing the modal. Used both on
   // device change (to restart with a different input) and as part of the
@@ -3147,18 +3954,25 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     // tone. We start it only after we've observed a silence gap (the
     // Save-press marker) followed by signal. This matches the same
     // silence-then-signal detection used in stopRecording's trim logic.
-    const SILENCE_THRESHOLD_LIVE = 0.05;
+    // Lowered silence threshold from 0.05 to 0.03 — at high gain (10×+),
+    // the noise floor of typical audio interfaces sits around 0.04, which
+    // would falsely register as "signal" with a 0.05 threshold and break
+    // the silence-then-signal detection. 0.03 is below most noise floors
+    // but well below the FSK signal levels (typically 0.3+ post-gain).
+    const SILENCE_THRESHOLD_LIVE = 0.03;
     const SIGNAL_THRESHOLD_LIVE  = 0.10;
     const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
     // Track SUSTAINED silence (consecutive below-threshold ticks reset on
     // any non-silence). Accumulated/total silence isn't enough — the JX
     // idle tone can dip below threshold briefly and falsely accumulate.
     let consecSilenceMs = 0;
-    let fskStartMs   = null;      // ms timestamp when FSK actually began
+    let fskStartMs   = null;      // ms timestamp when FSK actually began (silence→signal pattern detected; may be null if no silence preceded the signal)
+    let firstSignalMs = null;     // ms timestamp when peak FIRST crossed SIGNAL_THRESHOLD_LIVE — robust to no-silence-precursor case; used for the "expected dump duration has elapsed since signal start" auto-stop trigger
     let activeMs     = 0;         // accumulated time inside FSK transmission
+    totalSignalMs    = 0;         // reset between record sessions (modal-scoped)
     let lastTickMs   = null;
     let runningPeak  = 0;
-    let fskPeak      = 0;         // max peak observed AFTER FSK start (≠ idle)
+    fskPeak = 0;                  // reset between record sessions (modal-scoped)
     let quietWarningShown = false;
     const recordStartMs = Date.now();
     const tickMeter = () => {
@@ -3172,6 +3986,17 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       meterBar.style.width = `${Math.min(100, peak * 100)}%`;
       // Color-code: green up to ~70%, amber 70–90%, red above.
       meterBar.style.background = peak < 0.7 ? '#1f6e5b' : peak < 0.9 ? '#c39a3a' : '#b94a2e';
+      // Calibration-mode SVG vertical level meter (panel-style 3-segment
+      // ladder). setPeak picks grey/blue/green/red zones per the mockups.
+      vmeter.setPeak(peak);
+      // Arrow between key diagram and gain/meter card pulses when there's
+      // any signal coming in — reinforces the visual cause→effect (press
+      // Save on JX → see level respond on Mac).
+      if (peak > SILENCE_THRESHOLD_LIVE) {
+        if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
+      } else {
+        if (calArrow.classList.contains('pulsing'))  calArrow.classList.remove('pulsing');
+      }
       if (peak > runningPeak) runningPeak = peak;
 
       const now = Date.now();
@@ -3186,6 +4011,23 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         consecSilenceMs += dtMs;
       } else {
         if (peak > SIGNAL_THRESHOLD_LIVE) {
+          totalSignalMs += dtMs;
+          // First time we see real signal — set firstSignalMs so the
+          // (b) auto-stop trigger can anchor to "dump start" rather than
+          // "recording start". This makes the timeout robust to any
+          // pre-roll between modal-open and user pressing Save on the JX.
+          if (firstSignalMs === null) firstSignalMs = now;
+          // Drive the calibration-mode dump-progress bar from WALL-CLOCK
+          // time since signal first arrived (rather than cumulative-pulse
+          // time). The JX dump takes a fixed ~33 s wall-clock from first
+          // signal to last; tracking wall-clock means the bar reaches
+          // 100% exactly when the dump actually ends, not 6–8 s later
+          // after gaps (pre-roll, inter-segment pauses) catch up.
+          if (isCalibrating && firstSignalMs !== null) {
+            const signalElapsed = now - firstSignalMs;
+            const pct = Math.min(100, (signalElapsed / EXPECTED_SIGNAL_MS) * 100);
+            calProgressBar.style.width = `${pct}%`;
+          }
           if (fskStartMs === null && consecSilenceMs >= 500) {
             fskStartMs = now;
           }
@@ -3202,9 +4044,53 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
                                         : fskPeak > 0.95 ? '#b94a2e'
                                         : '#1f6e5b';
             }
+            // Calibration auto-stop removed: it tore down capture mid-JX-
+            // transmission, so pass 2 would start mid-dump (no pilot tone)
+            // and the demodulator couldn't calibrate cycle widths → 0
+            // valid records. User now clicks Stop manually after each pass;
+            // the JX has time to finish its dump, and the next Save press
+            // produces a clean pilot-led pass 2 capture.
           }
         }
         consecSilenceMs = 0;
+      }
+
+      // End-of-dump auto-stop — fires in BOTH calibration AND capture
+      // modes. Lives OUTSIDE the silence/signal branches so it runs every
+      // tick, regardless of whether the JX's post-dump idle tone is loud
+      // enough to mask the silence detector (Daniel's 2026-05-24 bug:
+      // at calibrated gain the idle tone kept peak above the silence
+      // threshold, so the auto-stop check never ran). Four triggers,
+      // listed in order of preference:
+      //   (a) Saw ≥5 s of cumulative signal then ≥1 s of contiguous
+      //       silence — the normal "JX finished dumping" case. Most
+      //       responsive when post-dump audio actually drops to silence.
+      //   (b) Time since firstSignalMs ≥ expected dump duration + 2 s.
+      //       Primary trigger when (a) can't fire. Anchored to "when
+      //       signal actually arrived" rather than recording start, so
+      //       it accounts for any pre-roll between modal-open and user
+      //       pressing Save on the JX. Fires within ~2 s of dump end
+      //       regardless of post-dump idle tone amplitude.
+      //   (c) totalSignalMs ≥ expected dump duration — we've captured
+      //       enough cumulative FSK to know the dump is done.
+      //   (d) Safety timeout — elapsedTotal exceeds expected dump
+      //       duration + 6 s grace. Hard fallback if signal detection
+      //       itself misfires.
+      const elapsedTotal = now - recordStartMs;
+      const signalElapsed = firstSignalMs !== null ? (now - firstSignalMs) : 0;
+      const DUMP_TIMEOUT_MS   = EXPECTED_SIGNAL_MS + 500;   // primary close trigger — fires almost simultaneously with progress bar hitting 100%
+      const SAFETY_TIMEOUT_MS = EXPECTED_SIGNAL_MS + 6000;  // hard fallback if signal detection misfires
+      if (
+            (totalSignalMs >= 5000 && consecSilenceMs >= 1000) ||
+            (firstSignalMs !== null && signalElapsed >= DUMP_TIMEOUT_MS) ||
+            (totalSignalMs >= EXPECTED_SIGNAL_MS) ||
+            elapsedTotal >= SAFETY_TIMEOUT_MS
+      ) {
+        // Snap the progress bar to 100% before triggering Stop so the
+        // user gets a clean visual closure before the modal advances.
+        if (isCalibrating) calProgressBar.style.width = '100%';
+        stopRecording();
+        return;
       }
 
       if (activeMs > 0) {
@@ -3271,9 +4157,12 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
 
   // Changing the input device mid-capture: drop the current stream and
   // restart from scratch with the new device. Buffer + elapsed timer reset.
+  // Also re-check this device's saved calibration — switching devices may
+  // toggle between first-time-calibration and saved-cal modes.
   devicePicker.addEventListener('change', () => {
     if (state !== 'recording') return;
     stopCapture();
+    configureForCurrentDevice();
     startRecording();
   });
 
@@ -3291,6 +4180,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     stopBtn.disabled = true;
     cancelBtn.disabled = true;
     statusText.textContent = 'Processing audio…';
+    console.log(`record-jx STOP: isCalibrating=${isCalibrating}, fskPeak=${fskPeak.toFixed(4)}, capturedChunks=${captured.length}, calDeviceId=${calibrationDeviceId}`);
 
     const totalSamples = captured.reduce((sum, c) => sum + c.length, 0);
     if (!totalSamples) {
@@ -3307,6 +4197,99 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     let offset = 0;
     for (const chunk of captured) { all.set(chunk, offset); offset += chunk.length; }
     const actualSampleRate = audioContext ? audioContext.sampleRate : 44100;
+
+    // ── Calibration pass branch ──────────────────────────────────────────
+    // If isCalibrating, this Stop ends pass 1. We measure the FSK peak
+    // amplitude (tracked live in tickMeter as fskPeak — populated only
+    // AFTER the silence→signal marker fires, so it reflects real FSK, not
+    // the JX's idle tone), compute the gain multiplier needed to land the
+    // peak in the middle of the target zone (0.6), persist that per-device
+    // calibration, and transition seamlessly back to recording for pass 2.
+    // The user is told to press Save on the JX again.
+    if (isCalibrating) {
+      // Primary: use the FSK-only peak tracked in tickMeter (most accurate).
+      // Fallback: full-buffer max amplitude. The silence→signal detector
+      // can fail to fire when the input is at the silence-threshold edge
+      // (low-gain capture of a quietly-buzzing idle tone), leaving fskPeak
+      // at 0 even though there's real signal in the buffer. The full-buffer
+      // peak still gives a usable calibration in that case — it just
+      // includes any pre-FSK idle tone, which on a JX is typically similar
+      // in amplitude to the FSK transmission anyway.
+      let measurePeak = fskPeak;
+      if (measurePeak < 0.001) {
+        for (let i = 0; i < totalSamples; i++) {
+          const v = Math.abs(all[i]);
+          if (v > measurePeak) measurePeak = v;
+        }
+        if (measurePeak >= 0.001) {
+          console.log(`record-jx: fskPeak was 0; falling back to full-buffer peak=${measurePeak.toFixed(4)}`);
+        }
+      }
+      // Still nothing → wrong device or no input at all.
+      if (measurePeak < 0.001) {
+        statusText.textContent = '⚠ No audio signal detected. Check the input device selection and that the cable is connected. Then try again.';
+        statusText.style.color = '#c39a3a';
+        stopCapture();
+        state = 'recording';
+        cancelBtn.disabled = false;
+        stopBtn.disabled = false;
+        captured = [];
+        startRecording();
+        return;
+      }
+      const currentGain = sliderToGain(parseInt(gainSlider.value, 10));
+      // TARGET_PEAK = 0.78 puts pass-2 capture peak mid-amber (the "hot
+      // but OK" zone, between 0.76 and 0.88). Bumped from 0.60 (mid-green)
+      // on Daniel's 2026-05-24 observation that send-to-JX naturally hits
+      // amber but capture-from-JX was landing in green — visual asymmetry
+      // and SNR was lower than necessary. JX FSK has stable amplitude
+      // (no transient peaks like music) so the tighter clipping headroom
+      // (~12% to red) is safe.
+      const TARGET_PEAK = 0.78;
+      // Cap measurePeak at 0.95 before division. Without this, any
+      // clipping transient during pass 1 (peak briefly hit 0.95–1.0)
+      // would inflate measurePeak and make the saved gain too low,
+      // producing a pass-2 peak well below the 0.6 target. The 0.95
+      // cap pretends the clipping moment was just "loud, not clipped"
+      // so the math produces a saved gain that actually lands pass 2
+      // near the target. Combined with the fskPeak-reset-on-knob-adjust
+      // logic above, this eliminates the "pass 2 reads lower than I
+      // dialed in pass 1" UX surprise.
+      const cappedMeasurePeak = Math.min(0.95, measurePeak);
+      const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
+      // Clamp so we don't end up with absurd gain. 0.5×–30× covers the
+      // span of the slider (and avoids near-zero attenuations that would
+      // turn future captures into silence).
+      const newGain = Math.max(0.5, Math.min(30, rawNewGain));
+
+      setCalibratedGain(calibrationDeviceId, newGain, calibrationDeviceLabel);
+
+      // Tear down this modal entirely and prompt the user to start pass 2
+      // via a fresh recorder. This avoids fighting with startRecording's
+      // statusText reset + the elapsedTimer overwriting the "calibration
+      // done" message — two clean modal flows, no state-management
+      // tangle. The recorder re-opens in single-pass mode because the
+      // calibration we just saved exists for this device.
+      stopCapture();
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+
+      const passOneKind = kind;
+      const passOneOnCaptured = onCaptured;
+      showConfirmModal({
+        title: 'Calibration Complete!',
+        body:
+          `Input level calibrated for *${calibrationDeviceLabel || 'this input'}* — ` +
+          `gain set to **${formatGain(newGain)}**, saved for future imports.\n\n` +
+          'Click below to open the recorder again for the real capture.',
+        confirmLabel: 'Continue to capture',
+        onConfirm: () => {
+          showRecordFromJxModal({ kind: passOneKind, onCaptured: passOneOnCaptured });
+        },
+      });
+      return;
+    }
+    // ── End calibration branch ───────────────────────────────────────────
 
     // Find the actual FSK transmission inside the captured buffer.
     //
@@ -3330,9 +4313,22 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     // Fallback: if no silence → sustained-signal pattern is found (e.g.,
     // user already pressed Save before clicking Record, no pre-noise),
     // use the longest signal run instead.
+    //
+    // Threshold scaling: the JX's between-dumps idle tone is a constant
+    // pre-gain amplitude (~0.005–0.010), so after applying software gain g
+    // it lands at ~0.005g–0.010g. At low gain (≤4×) idle stays under the
+    // default 0.05 silence threshold; at higher gain it crosses, the
+    // silence detector finds no pre-FSK gap, trim falls through to the
+    // longest-signal-run fallback, and jx3p's demodulator calibrates
+    // against idle-tone cycle widths instead of FSK — every checksum
+    // fails. Scale both thresholds with current gain (capped at 20× so
+    // the signal threshold doesn't approach the FSK peak target of 0.6).
+    const currentGainAtTrim  = sliderToGain(parseInt(gainSlider.value, 10));
+    const thresholdScale     = Math.min(20, Math.max(1, currentGainAtTrim));
     const WIN_SEC            = 0.2;
-    const SIGNAL_THRESHOLD   = 0.10;
-    const SILENCE_THRESHOLD  = 0.05;
+    const SIGNAL_THRESHOLD   = Math.max(0.10, 0.025 * thresholdScale);
+    const SILENCE_THRESHOLD  = Math.max(0.05, 0.012 * thresholdScale);
+    console.log(`record-jx trim: gain=${currentGainAtTrim.toFixed(2)}× thresholds: silence=${SILENCE_THRESHOLD.toFixed(3)} signal=${SIGNAL_THRESHOLD.toFixed(3)}`);
     const MIN_SILENCE_WINDOWS = Math.ceil(0.30 / WIN_SEC);  // ≥ 300 ms silence
     const MIN_SIGNAL_WINDOWS  = Math.ceil(5.00 / WIN_SEC);  // ≥ 5 s sustained signal after
     const winSize    = Math.floor(WIN_SEC * actualSampleRate);
@@ -3469,7 +4465,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       setTimeout(() => {
         overlay.remove();
         document.removeEventListener('keydown', onKey);
-        onCaptured(result.path);
+        onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel });
       }, 800);
       return;
     }
@@ -3491,7 +4487,12 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     useBtn.addEventListener('click', () => {
       overlay.remove();
       document.removeEventListener('keydown', onKey);
-      onCaptured(result.path);
+      // Pass deviceInfo so a subsequent all-default decode (which fires
+      // the recalibrate prompt) can correctly clear THIS device's saved
+      // gain entry. Without it, the recalibrate flow re-opens into Step 2
+      // (capture) instead of Step 1 (calibration) because the saved
+      // calibration is never cleared.
+      onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel });
     });
     tryAgainBtn.addEventListener('click', () => {
       try { actions.removeChild(tryAgainBtn); } catch {}

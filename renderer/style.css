@@ -966,7 +966,7 @@ body {
    into a temp WAV that the existing decode pipeline can consume. Mirrors
    the Send-to-JX modal layout: instructions on top, device picker + level
    meter in the middle, Record/Stop in the action row. */
-.record-jx-modal { max-width: 560px; }
+.record-jx-modal { max-width: 540px; }
 .record-jx-instr {
   font-size: 12px;
   color: var(--text-bright);
@@ -1046,6 +1046,54 @@ body {
   border-radius: 2px;
   letter-spacing: 0.02em;
 }
+.record-jx-cal-progress-section {
+  margin-top: 14px;
+}
+.record-jx-cal-progress-outer {
+  width: 100%;
+  height: 10px;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.record-jx-cal-progress-bar {
+  height: 100%;
+  width: 0%;
+  /* JX-3P red — distinct from the green level-meter color so the two
+     bars don't visually merge. Smooth fill animation. */
+  background: linear-gradient(90deg, #8a3a23 0%, #b94a2e 50%, #d05a3a 100%);
+  transition: width 200ms linear;
+}
+.record-jx-cal-progress-hint {
+  color: var(--text-mid);
+  font-size: 11px;
+  margin-top: 4px;
+  font-style: italic;
+}
+/* (record-jx-step-title removed 2026-05-24 — the calibration and capture
+   modal titles now use the default .modal-title styling for consistency
+   with the rest of the app. Title text is sentence case with the JX-3P
+   product name preserved.) */
+/* Boxed instructions block — dark elevated card so the "press Save on
+   JX-3P" CTA reads as a discrete instruction panel rather than just
+   loose body text. Matches the visual weight of the device/level/gain
+   sections below. */
+.record-jx-instr-box {
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  padding: 12px 16px;
+}
+/* Promote the section containers themselves to feel like distinct cards
+   in calibration mode (matches Daniel's mockup hierarchy). The capture
+   mode keeps the leaner default styling. */
+.record-jx-section {
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 3px;
+  padding: 10px 14px;
+}
 .record-jx-gain-row {
   display: flex;
   align-items: center;
@@ -1068,6 +1116,173 @@ body {
   text-align: center;
   margin-top: 8px;
   min-height: 1.2em;   /* reserve a line so action row doesn't jump on populate */
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Button-name hint pill
+   Subtle inline outline used to mark button names in instructional copy
+   (e.g. "Now press [Tape Memory] → [Save]"). Communicates "this word is
+   a button command, not just a label" without shouting. Faint cream
+   border at 50% opacity so it reads as suggestion, not chrome.
+   Trial in Record-from-JX modals first; extend to all modals once
+   approved.
+   ─────────────────────────────────────────────────────────────────────── */
+.btn-hint {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid rgba(207, 200, 184, 0.5);   /* cream secondary @ 50% */
+  border-radius: 2px;
+  line-height: 1.5;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   JX-3P key-sequence diagram
+   The visual itself is a single inline SVG with viewBox=0 0 240 300 (see
+   buildJxKeyDiagram in app.js) using panel.svg's button primitives + the
+   Helvetica font family. All proportions live inside the SVG, so the
+   only thing this CSS controls is the width of the wrapper element — the
+   SVG fills it and scales everything together. Adjust `width` here (or
+   per-context) to resize the whole diagram.
+   ─────────────────────────────────────────────────────────────────────── */
+.jx-key-diagram {
+  width: 160px;
+  margin: 12px auto;
+}
+/* When the diagram lives inside the calibration row (cause→effect layout),
+   it gets a slightly wider rendering and no auto-margin. */
+.record-jx-cal-row .jx-key-diagram {
+  width: 180px;
+  margin: 0;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Record-from-JX calibration row
+   Side-by-side layout for the calibration step:
+       [ JX-3P key diagram ]  →  [ Input gain knob + Level meter card ]
+   The arrow in the middle is an inline SVG and pulses while signal is
+   detected (class .pulsing toggled from tickMeter). Card uses the same
+   panel-aesthetic black background + cream label color as the rest of
+   the modal. All inner controls are SVG so the whole row scales with
+   container size.
+   ─────────────────────────────────────────────────────────────────────── */
+.record-jx-cal-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px 0;
+}
+.record-jx-cal-arrow {
+  flex: 0 0 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+/* When active (data is flowing — calibration sensing audio, or send
+   audio playing), the arrow becomes fully opaque AND its dashed shaft
+   animates: dashes flow left-to-right at ~12 dashes/sec, communicating
+   data transmission direction. The arrow head + position stay stationary
+   — only the dash pattern slides through the shaft. */
+.record-jx-cal-arrow.pulsing {
+  opacity: 1.0;
+}
+.record-jx-cal-arrow.pulsing line {
+  animation: cal-arrow-flow 0.8s linear infinite;
+}
+@keyframes cal-arrow-flow {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -10; }   /* one dash cycle = 6+4 */
+}
+/* Completed state — solid line (no dashes, no animation), full opacity.
+   Set when a transmission finishes (e.g. Send-to-JX audio playback
+   ends). Communicates "done" rather than "still in progress". */
+.record-jx-cal-arrow.complete {
+  opacity: 1.0;
+}
+.record-jx-cal-arrow.complete line {
+  stroke-dasharray: 0;
+  animation: none;
+}
+.record-jx-cal-card {
+  /* No frame — the knob + meter sit directly on the modal background,
+     visually integrated with the rest of the cal row rather than boxed
+     into a separate card. (Matches the design-language note: don't put
+     darker-than-modal frames around components inside a modal.) */
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+  flex: 0 0 220px;     /* knob (96) + meter wrap (78 with target label) + gaps */
+  min-height: 140px;
+}
+/* Capture mode (STEP 2): gain is already calibrated, so the gain-knob
+   column is hidden. Card shrinks since only the meter remains; the row
+   keeps its cause→effect layout (diagram | arrow | logo | level meter). */
+.record-jx-cal-row.capture-mode .cal-gain-col {
+  display: none;
+}
+.record-jx-cal-row.capture-mode .record-jx-cal-card {
+  flex: 0 0 100px;     /* meter wrap (78) + padding */
+  min-height: 120px;
+}
+/* JP Patches "receiver" logo — only visible in capture mode (the data is
+   actually being routed into the app here, not just measured). Hidden by
+   default so it doesn't show in calibration mode or Send-to-JX modal. */
+.record-jx-jp-logo {
+  display: none;
+}
+.record-jx-cal-row.capture-mode .record-jx-jp-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 112px;
+}
+.record-jx-jp-logo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* JX-3P "destination" logo — only used in Send-to-JX modal Step 2,
+   replacing the level meter. Communicates "data is being transmitted to
+   the JX". Layout-flex shape mirrors the JP-Patches receiver logo above
+   so the two send/record modals stay visually parallel. */
+.record-jx-jx3p-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 180px;       /* compact logo (~3:2 aspect) — needs more width than the JP logo */
+}
+.record-jx-jx3p-logo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.record-jx-cal-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+/* "Input Gain" label sits above the knob; "Level" sits below the meter.
+   Both use the panel-cream color for visual continuity with the panel. */
+.record-jx-cal-col-label {
+  color: #f7f1e6;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.record-jx-gain-knob-wrap {
+  width: 96px;
+}
+.record-jx-vmeter-wrap {
+  width: 78px;   /* meter (28px) + notch + "target" label inside same SVG */
 }
 
 .package-item {
