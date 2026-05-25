@@ -6,9 +6,48 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **Record from JX-3P + two-pass auto-calibration** (v0.5.11, May 23–24, 2026) — see [`record-from-jx.md`](record-from-jx.md) for the shipped-feature reference. Per-device gain memory, failure-triggered recalibrate prompt, panel-style JX-3P key-sequence diagrams in both Record and Send modals.
 
+- **Record / Send modal hardening + package-label shimmer animation** (post-v0.5.11, May 24, 2026). Several capture-reliability bugs surfaced during real-world testing of Record-from-JX and were fixed in a single sweep:
+  - **Single source of truth for Send-to-JX** — Tone Load button now always sends the active C/D banks (not a library package directly). Library packages must be loaded into active banks first (one click on hover-LOAD), which is now undoable. Eliminated the dual-source ambiguity that was overwriting recent imports with old library data.
+  - **Live-threshold scaling** — `tickMeter`'s SILENCE/SIGNAL classifier now scales with current gain (same math as the trim classifier in `stopRecording`). Without this, at calibrated gain > ~4× the JX's between-dumps idle tone was being counted as signal, inflating `totalSignalMs` and firing the auto-stop mid-dump for sequences.
+  - **Per-kind dump-duration budgets corrected** — `EXPECTED_SIGNAL_MS` was 21000 ms for sequences and 33000 ms for patches, both based on incorrect estimates. JX-3P FSK dumps are content-variable: ONE bit = 50 samples, ZERO bit = 11 samples (4.5× wall-clock asymmetry). Real ranges: patches 25–58 s, sequences 6–28 s. New budgets: patches 60000, sequences 30000 — sized above the absolute worst case so the silence-after-signal trigger reliably wins for normal captures.
+  - **Meter hysteresis + falling-edge debounce** — the SVG vertical level meter (`buildVerticalLevelMeter`) had no hysteresis, so the bottom segment flickered between cream and blue on mic noise at the 0.02 threshold. Added 25% hysteresis and a 6-tick (≈100 ms) debounce on falling edges to suppress the JX's varying-amplitude post-dump noise tone.
+  - **Kind-aware recalibrate prompt copy** — the failure-decode prompt was hard-coded with "empty patches" / "active C/D banks will not be modified". Now reads "empty sequence (no pages decoded)" / "existing sequences will not be modified" when triggered from a sequence capture.
+  - **Send modal Step 1 stripped to header + buttons** — removed the 3-step setup instructions and the sequence-only paired-patch / notes display from Step 1. Modal width 420 px in Step 1, expands to 560 px in Step 2 (timeline + sendRow). Dead code path `buildSequenceIntro` removed.
+  - **"Saving: …" / "Loading: …" label below the logo** — each modal variant now shows what package is being captured (auto-default name preview) or sent (sourceLabel). Cream-secondary verb + italic vintage-cream name per the design system.
+  - **Shimmer-through-text animation on the package label** — when transmission/capture is active (parent row `.playing`), the package name gets a subtle left-to-right brightness wave through the text — the text analog of the arrow's marching-dash animation. Freezes to solid when Send-modal playback ends (`.complete` class on the label), matching the arrow's freeze pattern.
+
+  **CLOSED — was truncation, not jitter:** initial diagnosis was that sequence captures decoded 0/8 or 1/8 records due to phase jitter in the KT USB Audio path. Empirical re-test (May 25, 2026) after the budget fix shipped: **10 of 10 consecutive sequence captures on the same KT cable decoded bit-perfect against a gnarly 8-of-8-page-populated source**, despite zero-crossing-interval outliers ranging 0.65–1.08 % per capture (8–10 × the jitter rate that "failed" Spils Sequence). The original failure was almost entirely truncation — pre-fix the 21000 ms budget chopped Spils dumps short (real length ~27 s), leaving the decoder with incomplete bits; page 3 just happened to land before the cut-off. The decoder + the protocol's built-in 2× per-page redundancy absorb the jitter level produced by cheap USB cables without issue.
+
+- **Sequence library-send simplification** (May 24, 2026). The "Send sequence to JX-3P" modal (Step 1) was carrying a paired-patch read-only field, a notes read-only field, and a 3-step setup checklist. All removed. Modal is now header + 3 action buttons (Cancel · Save WAV file · Send to JX-3P). Paired-patch context is still visible via the Library row's hover-info icon.
+
+- **Audio setup hardware recommendations in README** (May 24, 2026; revised twice on May 25). Added an "Audio setup (Tape Memory hardware path)" section between the Tape Memory quick reference and the Library section. **Initial v1 wording (May 24)** was too pessimistic about USB cable adapters based on the (since-debunked) jitter hypothesis. **First revision (May 25 AM)** documented two equivalently-reliable paths. **Second revision (May 25 PM)** further softened the sample-rate guidance after empirical testing:
+  - **Option A** — Single USB-C → 1/4" TS audio cable (KT, J&D, Tisino, ART TConnect, etc.). Caveat: single jack → physical swap workflow between Send and Record.
+  - **Option B** — Dedicated USB audio interface with separate I/O (UA Volt 2, Focusrite Scarlett 2i2). Same reliability; nicer ergonomics (no swap).
+  - **Sample rate:** 44.1 kHz preferred when configurable. **48 kHz also tested working** on both directions (KT input locked at 48 + KT output toggled to 48 + JP decoder = all transfers successful: tone, sequence-sparse, sequence-gnarly). The JX-3P's analog tape input is tolerant to OS resampling artifacts because it's a 1983 cassette circuit with very loose timing requirements; the decoder absorbs Record-side jitter via the protocol's 2× per-page redundancy.
+
+  Both options + both sample rate configs validated empirically against gnarly content on Daniel's setup. Once a real interface gets bench-tested too, swap "etc." in the Option B list for named, confirmed products.
+
 ## Ready to build
 
 - **README screenshots refresh.** Current screenshots predate the vintage cream palette and the Custom Banks redesign. Capture fresh screenshots and embed in the README.
+
+- **Multi-capture reliability mode for Record (design ready, build only if real-world failures appear).** Conceived May 25, 2026 when sequence Record was suspected to be probabilistic on cheap USB cables. The 10-of-10 KT bit-perfect test the same day showed Record is now deterministic with current software, so this isn't needed for v1 — but the design is fully worked out and worth shipping IF future user reports surface intermittent Record failures on hardware we can't anticipate.
+
+  **Idea:** instead of one ~28 s sequence capture, do 3 (or N) back-to-back, then merge at the page level — for each page, keep the first capture where that page passed checksum from EITHER of its two internal JX-3P transmissions. Final result: one Library entry assembled from the best fragments across N captures.
+
+  **Math:** if single-capture per-page success is p, then merged success after N captures = 1 − (1−p)^N. So even at p=0.4, N=3 gets you 92 %; at p=0.8, N=3 gets 99.2 %.
+
+  **UX:**
+  - Toggle in Settings: "High-reliability Record (3× capture)" — default off.
+  - When on, the Save-from-JX modal walks the user through 3 sequential captures with a "page X of 8 confirmed across captures" progress indicator after each one.
+  - User has to press Tape Memory + Save on the JX once per capture (~1.5 min total wall-clock instead of ~30 s).
+
+  **Implementation:**
+  - JS: a multi-capture controller wraps the existing single-capture path; collects N captures into an array; calls a page-merge function after the Nth.
+  - Page-merge: re-runs the decoder on each captured WAV (or threads decoded `pages` arrays from each), iterates pages 0–7, picks the first non-null entry.
+  - Estimated effort: half-day. Most of it is the modal state machine / UX, not the merge logic.
+
+  **Why parked:** at the current per-capture success rate (~100 % on KT after May 25 fixes), this is over-engineering. Ship only if a user reports persistent flakiness on hardware we don't have access to.
 
 - **Modal animation: two-state Record-from-JX Step 2.** Today the capture modal (Step 2 of 2: Data dump from JX-3P) shows a static layout: `[JX key diagram] [arrow] [JP logo] [level meter]`. Once the user presses Save on the JX and FSK signal starts arriving, the diagram is no longer informational (the user has already done their part) and the JP logo isn't carrying its weight (it's just there). A cleaner two-state design would shift focus as the transfer progresses:
 

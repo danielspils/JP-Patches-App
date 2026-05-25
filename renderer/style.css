@@ -790,8 +790,12 @@ body {
 .modal:has(.modal-title + .modal-actions) { max-width: 320px; }
 .modal-title + .modal-actions { justify-content: center; }
 
-/* Send-to-JX modal: instruction list + segmented timeline + status line. */
-.send-jx-modal { max-width: 560px; }
+/* Send-to-JX modal: tighter shell in step 1 (header + 3 buttons only —
+   the 3-step instruction list was removed in 2026-05-24 cleanup), widens
+   in step 2 to fit the cause→effect row + segmented timeline. The
+   .step-2 class is added by enterPlayState in app.js. */
+.send-jx-modal { max-width: 420px; }
+.send-jx-modal.step-2 { max-width: 560px; }
 .send-jx-modal .modal-body { text-align: left; }
 .send-jx-status { margin: 12px 0 18px; min-height: 32px; }
 .send-jx-status-text {
@@ -1193,19 +1197,34 @@ body {
 .record-jx-cal-row.capture-mode .cal-gain-col {
   display: none;
 }
-.record-jx-cal-row.capture-mode .record-jx-cal-card {
-  flex: 0 0 100px;     /* meter wrap (78) + padding */
-  min-height: 120px;
+/* Record-from-JX modal — both Step 1 (calibration) AND Step 2 (capture)
+   use the "data flows toward JP" orientation: JP-side elements (knob+
+   meter card OR JP logo) on the LEFT, JX buttons on the RIGHT, arrow
+   points LEFT. Visual cue that the JX is sending and JP is receiving.
+   Scoped to .record-jx-modal so Send-to-JX (which shares capture-mode
+   class on sendRow) is NOT flipped — Send keeps its natural left-to-
+   right Mac→JX direction. */
+.record-jx-modal .record-jx-cal-row {
+  flex-direction: row-reverse;
 }
-/* JP Patches "receiver" logo — only visible in capture mode (the data is
-   actually being routed into the app here, not just measured). Hidden by
-   default so it doesn't show in calibration mode or Send-to-JX modal. */
+.record-jx-modal .record-jx-cal-row .record-jx-cal-arrow svg {
+  transform: scaleX(-1);
+}
+/* Step 2 only — hide the meter card (no level meter in capture; the
+   arrow+logo fade pattern signals "live transmission" instead). */
+.record-jx-modal .record-jx-cal-row.capture-mode .record-jx-cal-card {
+  display: none;
+}
+/* JP Patches "destination" logo — shown only in Record-from-JX capture
+   mode (Step 2). Hidden in calibration mode and in Send-to-JX. Pre/post
+   state visibility controlled by .playing class. */
 .record-jx-jp-logo {
   display: none;
 }
 .record-jx-cal-row.capture-mode .record-jx-jp-logo {
   display: flex;
-  align-items: center;
+  flex-direction: column;     /* stack img + "saving: …" label vertically */
+  align-items: flex-start;    /* left-align the label under the logo's left edge */
   justify-content: center;
   flex: 0 0 112px;
 }
@@ -1223,7 +1242,8 @@ body {
    so the two send/record modals stay visually parallel. */
 .record-jx-jx3p-logo {
   display: flex;
-  align-items: center;
+  flex-direction: column;     /* stack img + "loading: …" label vertically */
+  align-items: flex-start;
   justify-content: center;
   flex: 0 0 180px;       /* compact logo (~3:2 aspect) — needs more width than the JP logo */
 }
@@ -1233,6 +1253,113 @@ body {
   height: auto;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* "saving: {package}" / "loading: {package}" label that sits below the
+   JP logo (Record-from-JX capture) or the JX-3P logo (Send-to-JX). Tells
+   the user at a glance which package is being read/written. Typography
+   per docs/design-system.md: Helvetica (inherited), 12px body, vintage
+   cream for the name, secondary cream for the verb prefix. The italic
+   on the name nudges it visually toward "this is a proper noun, the
+   package name". Inherits the parent logo's opacity transitions, so it
+   fades in/out with the logo. */
+.record-jx-package-label {
+  margin-top: 8px;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.3;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  user-select: none;
+}
+.record-jx-package-label-prefix {
+  color: #cfc8b8;             /* cream secondary — subordinate label */
+}
+.record-jx-package-label-name {
+  color: #f7f1e6;             /* vintage cream — primary content */
+  font-style: italic;
+  word-break: break-word;     /* long custom names wrap rather than overflowing */
+}
+
+/* In-flight pulse (2026-05-24): when transmission/capture is active,
+   the package name breathes between full and half opacity — the text
+   analog of the arrow's marching-dash animation. The two animations
+   run side-by-side ("the arrow AND the file name animate") and freeze
+   together when transmission completes ("they both lock into solid
+   display"). 1.6 s cycle so it harmonizes with the arrow's 0.8 s dash
+   cycle (2:1 ratio — calmer than the arrow on purpose, so the eye
+   reads "name is just along for the ride" not "name is also urgent").
+   Triggered by .playing on the parent cal-row / send-row — the same
+   class that drives the arrow's .pulsing. */
+.record-jx-cal-row.playing .record-jx-package-label-name {
+  animation: package-label-pulse 1.6s ease-in-out infinite;
+}
+@keyframes package-label-pulse {
+  0%, 100% { opacity: 1.0; }
+  50%      { opacity: 0.4; }
+}
+/* Complete state — solid cream, no pulse. Added by JS to the label
+   itself when send-modal audio playback ends (mirrors the arrow's
+   .complete pattern). Record-modal doesn't use this — the modal closes
+   on capture complete, so there's no on-screen "done" state to show. */
+.record-jx-package-label.complete .record-jx-package-label-name {
+  animation: none;
+  opacity: 1.0;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Send-to-JX two-state row animation
+   Pre-Play (Ready to send): JX key diagram visible at 100%; arrow +
+   JX-3P logo hidden (opacity 0). User is reading "press these keys on
+   the JX-3P."
+   Post-Play (transmitting): diagram dims to 50% (instructional purpose
+   served); arrow appears immediately (marching dashes animate via the
+   .pulsing class added at the same time); JX-3P logo fades in over
+   500ms (the transmission destination now reads as the focal element).
+   The .playing class is added to .record-jx-cal-row in startPlayback.
+   ─────────────────────────────────────────────────────────────────────── */
+/* Reveal-on-Save pattern — applies to ALL record-jx-cal-row variants
+   (Step 1 calibration, Step 2 capture, AND the Send modal's sendRow
+   which shares the class). Elements that become actionable AFTER the
+   user has pressed the JX button start hidden and fade in when the
+   .playing class is added (gated on the silence→signal pattern in
+   tickMeter, or on Play click in Send-to-JX).
+   - Arrow: hidden until activity, then appears nearly immediately
+   - JP logo / JX-3P logo (capture only): fade in with arrow
+   - CalCard (knob + meter, calibration only): fade in with arrow
+   - JX key diagram: dims to 50% in capture mode (instructional purpose
+     served once the dump is mid-flight). In calibration we LEAVE it at
+     full opacity because the user might still glance at it to confirm
+     they pressed the right key.
+*/
+/* Hide-until-.playing applies in CAPTURE mode only (gain is locked there
+   — nothing to pre-adjust, so revealing-on-Save is pure visual flourish).
+   In CALIBRATION mode the knob + meter are ALWAYS visible, otherwise the
+   user can't dial up gain to even reach the signal-detection threshold
+   when the JX is naturally quiet at 1× (chicken-and-egg). Arrow in
+   calibration is also always visible since it's part of the row layout. */
+.record-jx-cal-row.capture-mode .record-jx-cal-arrow,
+.record-jx-cal-row.capture-mode .record-jx-jx3p-logo,
+.record-jx-cal-row.capture-mode .record-jx-jp-logo {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.record-jx-cal-row.capture-mode.playing .record-jx-cal-arrow {
+  opacity: 1;
+  transition: opacity 0.15s ease;   /* arrow appears nearly immediately */
+}
+.record-jx-cal-row.capture-mode.playing .record-jx-jx3p-logo,
+.record-jx-cal-row.capture-mode.playing .record-jx-jp-logo {
+  opacity: 1;
+}
+/* Diagram dims to 50% on .playing in BOTH calibration and capture modes
+   — the user has already pressed the JX button, instructional purpose
+   served; attention shifts to the active elements (knob+meter for cal,
+   JP logo + arrow for capture). */
+.record-jx-cal-row .jx-key-diagram {
+  transition: opacity 0.5s ease;
+}
+.record-jx-cal-row.playing .jx-key-diagram {
+  opacity: 0.5;
 }
 .record-jx-cal-col {
   display: flex;
@@ -1328,6 +1455,46 @@ body {
 .package-item.dragging { opacity: 0.4; }
 .package-item.drag-over {
   box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
+}
+
+/* "Deleting" animation — fires when the user confirms a library delete.
+   Roland red flash (destructive action color) for 60 ms, then concurrent
+   fade-out and height collapse. Important for long lists where the deleted
+   row might be off-screen — without the flash the user has no visual
+   confirmation the click registered. The actual data splice happens AFTER
+   the animation completes (see animateRowDeleteThenCommit in app.js).
+   Total duration 400 ms — long enough to register, short enough to
+   delete multiple in succession without feeling sluggish. */
+.package-item.deleting {
+  animation: package-item-deleting 400ms ease-out forwards;
+  pointer-events: none;
+  overflow: hidden;
+}
+@keyframes package-item-deleting {
+  0% {
+    background-color: transparent;
+    opacity: 1;
+    max-height: 80px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  15% {
+    background-color: rgba(185, 74, 46, 0.55);  /* Roland red flash */
+    opacity: 1;
+    max-height: 80px;
+  }
+  55% {
+    background-color: rgba(185, 74, 46, 0.2);
+    opacity: 0;
+    max-height: 80px;
+  }
+  100% {
+    background-color: transparent;
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
 }
 
 /* "Just saved" animation — fires once when a freshly-saved C/D package

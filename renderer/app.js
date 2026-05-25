@@ -279,14 +279,9 @@ function displayLabel(b, s) {
 // Patch identity = its 32 parameters. The app keys names against this
 // fingerprint (library.history) so a name survives any roundtrip through the
 // JX-3P (which itself stores no names) as long as the params don't change.
-// JSON.stringify with sorted keys gives a stable canonical string.
-function paramsFingerprint(params) {
-  if (!params || typeof params !== 'object') return null;
-  const keys = Object.keys(params).sort();
-  if (keys.length === 0) return null;
-  const norm = keys.map((k) => [k, params[k]]);
-  return JSON.stringify(norm);
-}
+// Implementation lives in renderer/library-math.js (canonical sorted-JSON);
+// it's loaded as a <script> in index.html and attaches paramsFingerprint to
+// the global. Unit tests in test/library-math.test.js.
 
 function paramsAt(b, s) {
   const bankIdx = b === 'D' ? 1 : 0;
@@ -494,13 +489,16 @@ function isDecodeAllDefault(data) {
 // applied the empty decode.
 function showRecalibratePrompt({ kind, deviceId, deviceLabel }) {
   const labelText = deviceLabel ? ` *${deviceLabel}*` : '';
+  const isSeq = kind === 'sequence';
+  const emptyDesc  = isSeq ? 'an empty sequence (no pages decoded)' : 'empty patches';
+  const safetyText = isSeq ? 'Your existing sequences will not be modified.'
+                           : 'Your active C/D banks will not be modified.';
   showConfirmModal({
     title: 'Recording didn\'t decode cleanly',
     body:
-      `The capture from${labelText} came back as empty patches. The most ` +
+      `The capture from${labelText} came back as ${emptyDesc}. The most ` +
       'common cause is the input level being off.\n\n' +
-      'Want to recalibrate the input gain and try again? Your active C/D ' +
-      'banks will not be modified.',
+      `Want to recalibrate the input gain and try again? ${safetyText}`,
     confirmLabel: 'Recalibrate',
     onConfirm: () => {
       if (deviceId) clearCalibratedGain(deviceId);
@@ -826,16 +824,50 @@ function buildVerticalLevelMeter() {
   // very quiet inputs. Without this, a totally cream meter reads as
   // "dead" and the user might not realize audio is being received at
   // all. Higher thresholds are roughly linear from 0.22 → 0.88.
-  const ZONE_THRESHOLD = [0.02, 0.22, 0.34,  0.48,  0.62,  0.76,  0.88];
+  const ZONE_THRESHOLD     = [0.02, 0.22, 0.34,  0.48,  0.62,  0.76,  0.88];
+  // Hysteresis + falling-edge debounce (2026-05-24):
+  //
+  // 1. Hysteresis: each segment needs peak to drop ~25 % below the ON
+  //    threshold before turning off. Handles steady-noise oscillation
+  //    around a single threshold.
+  //
+  // 2. Falling-edge debounce: even with hysteresis, the JX's post-dump
+  //    "end noise tone" has varying amplitude that crosses both the ON
+  //    and OFF thresholds repeatedly. Require 6 consecutive ticks below
+  //    the off-threshold before actually turning a segment off (rising
+  //    edge stays instant — important for signal-arrival visibility).
+  //    At ~60 fps that's ~100 ms of sustained "off" — eats the
+  //    JX end-tone wobble while still feeling responsive to real
+  //    intentional level changes.
+  const ZONE_OFF_THRESHOLD = ZONE_THRESHOLD.map((t) => t * 0.75);
+  const FALLING_EDGE_DEBOUNCE_TICKS = 6;
+  const lastLit         = new Array(7).fill(false);
+  const belowOffTicks   = new Array(7).fill(0);
 
   wrap.setPeak = (peak) => {
-    // Walk each ladder position (0=bottom→6=top). If peak crosses its
-    // threshold, paint its zone color; otherwise paint the unlit cream.
+    // Walk each ladder position (0=bottom→6=top).
     // SVG DOM order is reversed (segEls[0]=top), so map ladderPos i →
     // segEls[6-i].
     for (let i = 0; i < 7; i++) {
-      const lit  = peak >= ZONE_THRESHOLD[i];
-      const fill = lit ? ZONE_COLOR[i] : UNLIT;
+      if (lastLit[i]) {
+        // Currently lit. Only turn off after N consecutive sub-OFF ticks.
+        if (peak < ZONE_OFF_THRESHOLD[i]) {
+          belowOffTicks[i] += 1;
+          if (belowOffTicks[i] >= FALLING_EDGE_DEBOUNCE_TICKS) {
+            lastLit[i] = false;
+            belowOffTicks[i] = 0;
+          }
+        } else {
+          belowOffTicks[i] = 0;  // any non-sub-OFF tick resets the streak
+        }
+      } else {
+        // Currently dark. Light immediately on first peak ≥ ON threshold.
+        if (peak >= ZONE_THRESHOLD[i]) {
+          lastLit[i] = true;
+          belowOffTicks[i] = 0;
+        }
+      }
+      const fill = lastLit[i] ? ZONE_COLOR[i] : UNLIT;
       segEls[6 - i].setAttribute('fill', fill);
     }
   };
@@ -1292,8 +1324,12 @@ function setupInteraction(svg) {
 // anything meaningful in the current context. Called from renderPatchList
 // so it runs on every tab/selection change.
 //   - Tone Save: always enabled (it's a file-import).
-//   - Tone Load: needs sendable data — active C/D banks, OR a selected
-//     Library > Tones package.
+//   - Tone Load: ONLY enabled when viewing Bank C or D with valid active
+//     patches. Disabled in the Library tab — to send a library package
+//     to the JX, the user must first hover-LOAD it into active banks
+//     (which auto-switches to Bank C), THEN click Tone Load. This is the
+//     2026-05-24 "single source of truth" simplification — sending always
+//     happens from active C/D, never directly from a selected library row.
 //   - Sequencer Save: pairs the dump with the active patch, so it needs
 //     a valid Bank C/D selection + loaded patches.
 //   - Sequencer Load: only meaningful on Library > Sequences with a
@@ -1306,16 +1342,13 @@ function updateTapeButtonStates() {
   if (!toneSave || !toneLoad || !seqSave || !seqLoad) return;
 
   const onBank   = selBank === 'C' || selBank === 'D';
-  const onTones  = selBank === 'L' && selLibTab === 'tones';
   const onSeqs   = selBank === 'L' && selLibTab === 'sequences';
   const havePatches = !!(patches && Array.isArray(patches.banks) && patches.banks.length === 2);
-  const hasPkg   = onTones && selPackage !== null
-                   && library && Array.isArray(library.packages) && library.packages[selPackage];
   const hasSeq   = onSeqs && selSequence !== null
                    && library && Array.isArray(library.sequences) && library.sequences[selSequence];
 
   toneSave.disabled = false;
-  toneLoad.disabled = !((onBank && havePatches) || hasPkg);
+  toneLoad.disabled = !(onBank && havePatches);
   // Sequencer Save pairs the imported sequence with the active C/D patch
   // (which persists as `lastBankSelection` even when the user is browsing
   // the Library), so it only needs patches loaded — not a specific tab.
@@ -1703,21 +1736,25 @@ function reorderPackage(fromIdx, toIdx) {
   const pkgs = library.packages;
   if (!pkgs || fromIdx < 0 || fromIdx >= pkgs.length) return;
   if (toIdx < 0 || toIdx >= pkgs.length) return;
+  // Off-by-one fix — shared helper in renderer/library-math.js. See
+  // reorderBankSlot for the long-form rationale.
+  const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
+  if (fromIdx === effectiveToIdx) return;
   const [moved] = pkgs.splice(fromIdx, 1);
-  pkgs.splice(toIdx, 0, moved);
+  pkgs.splice(effectiveToIdx, 0, moved);
 
   // Adjust selPackage to follow the move.
   if (selPackage !== null) {
-    if (selPackage === fromIdx) selPackage = toIdx;
-    else if (fromIdx < selPackage && toIdx >= selPackage) selPackage -= 1;
-    else if (fromIdx > selPackage && toIdx <= selPackage) selPackage += 1;
+    if (selPackage === fromIdx) selPackage = effectiveToIdx;
+    else if (fromIdx < selPackage && effectiveToIdx >= selPackage) selPackage -= 1;
+    else if (fromIdx > selPackage && effectiveToIdx <= selPackage) selPackage += 1;
   }
   saveLibraryDebounced();
   renderPatchList();
 
   // Undo: reverse the splice.
   pushUndo({
-    undo: () => reorderPackage(toIdx, fromIdx),
+    undo: () => reorderPackage(effectiveToIdx, fromIdx),
     redo: () => reorderPackage(fromIdx, toIdx),
   });
 }
@@ -1740,6 +1777,18 @@ function handleLoadLibraryBanks(idx) {
 
 function loadPackageIntoActiveBanks(pkg) {
   migratePackageShape(pkg);
+  // Snapshot the CURRENT active state BEFORE overwriting so undo can
+  // restore it. Captures everything that load mutates: patches.banks,
+  // library.slotMeta, activeBanksSourceLabel, and the selBank/selSlot
+  // navigation we apply at the end.
+  const prevSnapshot = {
+    banks:       patches && patches.banks ? JSON.parse(JSON.stringify(patches.banks)) : null,
+    slotMeta:    library && library.slotMeta ? JSON.parse(JSON.stringify(library.slotMeta)) : null,
+    sourceLabel: activeBanksSourceLabel,
+    selBank,
+    selSlot,
+  };
+
   patches.banks = JSON.parse(JSON.stringify(pkg.banks));
   library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta || {}));
   ensureLibraryShape();
@@ -1771,6 +1820,40 @@ function loadPackageIntoActiveBanks(pkg) {
   document.querySelectorAll('.tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.bank === 'C');
   });
+  renderPatchList();
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
+
+  // Undo: restore the prior active state. Capturing post-snapshot for redo
+  // so a redo replays the load without re-finding the package by index
+  // (which could be stale if the user rearranged the library in between).
+  const postSnapshot = {
+    banks:       JSON.parse(JSON.stringify(patches.banks)),
+    slotMeta:    JSON.parse(JSON.stringify(library.slotMeta)),
+    sourceLabel: activeBanksSourceLabel,
+    selBank:     'C',
+    selSlot:     0,
+  };
+  pushUndo({
+    undo: () => restoreActiveState(prevSnapshot),
+    redo: () => restoreActiveState(postSnapshot),
+  });
+}
+
+// Restore active bank state from a snapshot (helper used by the
+// load-package undo/redo). Mirrors the mutations in
+// loadPackageIntoActiveBanks but operates on a captured shape.
+function restoreActiveState(snap) {
+  if (!snap || !patches) return;
+  if (snap.banks)    patches.banks    = JSON.parse(JSON.stringify(snap.banks));
+  if (snap.slotMeta) library.slotMeta = JSON.parse(JSON.stringify(snap.slotMeta));
+  activeBanksSourceLabel = snap.sourceLabel;
+  selBank = snap.selBank;
+  selSlot = snap.selSlot;
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.bank === selBank);
+  });
+  saveLibraryDebounced();
   renderPatchList();
   updateSvgPatchName();
   updateAllControls(currentPatch());
@@ -1890,28 +1973,38 @@ function handleDeletePackage(idx) {
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
-      const removed = library.packages[idx];
-      library.packages.splice(idx, 1);
-      const prevSelPackage = selPackage;
-      if (selPackage === idx) selPackage = null;
-      else if (selPackage !== null && selPackage > idx) selPackage -= 1;
-      saveLibraryDebounced();
-      renderPatchList();
-      pushUndo({
-        undo: () => {
-          library.packages.splice(idx, 0, removed);
-          selPackage = prevSelPackage;
-          saveLibraryDebounced();
-          renderPatchList();
-        },
-        redo: () => {
-          library.packages.splice(idx, 1);
-          if (selPackage === idx) selPackage = null;
-          else if (selPackage !== null && selPackage > idx) selPackage -= 1;
-          saveLibraryDebounced();
-          renderPatchList();
-        },
-      });
+      // Capture the package by reference so a stale `idx` from rapid
+      // successive deletes still resolves to the right row at splice time.
+      const pkgRef = pkg;
+      const commit = () => {
+        const curIdx = library.packages.indexOf(pkgRef);
+        if (curIdx === -1) return;  // already removed (defensive)
+        const removed = library.packages[curIdx];
+        library.packages.splice(curIdx, 1);
+        const prevSelPackage = selPackage;
+        if (selPackage === curIdx) selPackage = null;
+        else if (selPackage !== null && selPackage > curIdx) selPackage -= 1;
+        saveLibraryDebounced();
+        renderPatchList();
+        pushUndo({
+          undo: () => {
+            library.packages.splice(curIdx, 0, removed);
+            selPackage = prevSelPackage;
+            saveLibraryDebounced();
+            renderPatchList();
+          },
+          redo: () => {
+            const i = library.packages.indexOf(pkgRef);
+            if (i === -1) return;
+            library.packages.splice(i, 1);
+            if (selPackage === i) selPackage = null;
+            else if (selPackage !== null && selPackage > i) selPackage -= 1;
+            saveLibraryDebounced();
+            renderPatchList();
+          },
+        });
+      };
+      animateRowDeleteThenCommit(`.package-item[data-idx="${idx}"]`, commit);
     },
   });
 }
@@ -2056,12 +2149,16 @@ function reorderSequence(fromIdx, toIdx) {
   const seqs = library.sequences;
   if (!seqs || fromIdx < 0 || fromIdx >= seqs.length) return;
   if (toIdx   < 0 || toIdx   >= seqs.length) return;
+  // Same off-by-one fix as reorderBankSlot / reorderPackage / reorderBucketSlot.
+  // Shared helper in renderer/library-math.js; tested in test/library-math.test.js.
+  const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
+  if (fromIdx === effectiveToIdx) return;
   const [moved] = seqs.splice(fromIdx, 1);
-  seqs.splice(toIdx, 0, moved);
+  seqs.splice(effectiveToIdx, 0, moved);
   if (selSequence !== null) {
-    if (selSequence === fromIdx) selSequence = toIdx;
-    else if (fromIdx < selSequence && toIdx >= selSequence) selSequence -= 1;
-    else if (fromIdx > selSequence && toIdx <= selSequence) selSequence += 1;
+    if (selSequence === fromIdx) selSequence = effectiveToIdx;
+    else if (fromIdx < selSequence && effectiveToIdx >= selSequence) selSequence -= 1;
+    else if (fromIdx > selSequence && effectiveToIdx <= selSequence) selSequence += 1;
   }
   saveLibraryDebounced();
   renderPatchList();
@@ -2097,30 +2194,59 @@ function handleDeleteSequence(idx) {
     confirmLabel: 'Delete',
     confirmStyle: 'danger',
     onConfirm: () => {
-      const removed = library.sequences[idx];
-      library.sequences.splice(idx, 1);
-      const prevSelSequence = selSequence;
-      if (selSequence === idx) selSequence = null;
-      else if (selSequence !== null && selSequence > idx) selSequence -= 1;
-      saveLibraryDebounced();
-      renderPatchList();
-      pushUndo({
-        undo: () => {
-          library.sequences.splice(idx, 0, removed);
-          selSequence = prevSelSequence;
-          saveLibraryDebounced();
-          renderPatchList();
-        },
-        redo: () => {
-          library.sequences.splice(idx, 1);
-          if (selSequence === idx) selSequence = null;
-          else if (selSequence !== null && selSequence > idx) selSequence -= 1;
-          saveLibraryDebounced();
-          renderPatchList();
-        },
-      });
+      // Capture by reference — see handleDeletePackage for the rationale.
+      const seqRef = seq;
+      const commit = () => {
+        const curIdx = library.sequences.indexOf(seqRef);
+        if (curIdx === -1) return;
+        const removed = library.sequences[curIdx];
+        library.sequences.splice(curIdx, 1);
+        const prevSelSequence = selSequence;
+        if (selSequence === curIdx) selSequence = null;
+        else if (selSequence !== null && selSequence > curIdx) selSequence -= 1;
+        saveLibraryDebounced();
+        renderPatchList();
+        pushUndo({
+          undo: () => {
+            library.sequences.splice(curIdx, 0, removed);
+            selSequence = prevSelSequence;
+            saveLibraryDebounced();
+            renderPatchList();
+          },
+          redo: () => {
+            const i = library.sequences.indexOf(seqRef);
+            if (i === -1) return;
+            library.sequences.splice(i, 1);
+            if (selSequence === i) selSequence = null;
+            else if (selSequence !== null && selSequence > i) selSequence -= 1;
+            saveLibraryDebounced();
+            renderPatchList();
+          },
+        });
+      };
+      animateRowDeleteThenCommit(`.package-item[data-idx="${idx}"]`, commit);
     },
   });
+}
+
+// Shared helper: trigger the .deleting CSS animation on the row matching
+// `selector`, then run `commit` after the animation completes. Falls
+// through to immediate commit if the element isn't found, and includes a
+// 500 ms safety timeout in case animationend never fires (e.g. reduced-
+// motion accessibility settings or a missing CSS rule). Multi-delete-safe
+// because each invocation captures its own element + listener.
+function animateRowDeleteThenCommit(selector, commit) {
+  const rowEl = document.querySelector(selector);
+  if (!rowEl) { commit(); return; }
+  let fired = false;
+  const done = () => {
+    if (fired) return;
+    fired = true;
+    commit();
+  };
+  rowEl.classList.add('deleting');
+  rowEl.addEventListener('animationend', done, { once: true });
+  setTimeout(done, 500);
 }
 
 function startSequenceNameEdit(idx, nm, def, inp) {
@@ -2196,9 +2322,6 @@ function handleSendSequenceToJX() {
     });
     return;
   }
-  // Build the paired-patch / note reminder as an "intro" block to sit above
-  // the standard send-to-JX flow.
-  const intro = buildSequenceIntro(seq);
   const label = seq.customName || seq.defaultName || null;
   // jx3p seq-json-to-wav validates kind: "sequence" + format_version; the
   // saved seq.tape only carries `pages`, so wrap it here.
@@ -2207,48 +2330,12 @@ function handleSendSequenceToJX() {
     kind: 'sequence',
     pages: seq.tape.pages,
   };
-  showSendSequenceToJxModal(exportData, label, intro);
-}
-
-// Construct the paired-patch + note reminder block reused by the
-// sequence-send modal. Pulled out of the old showLoadSequenceModal so the
-// new flow can drop it in as an intro DOM node.
-function buildSequenceIntro(seq) {
-  const pp = (seq.app && seq.app.pairedPatch) || {};
-  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
-  const pName = pp.patchName || '(unnamed)';
-  const note = (seq.app && seq.app.patchNote) || '';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'seq-modal-intro';
-
-  // Paired patch.
-  const ppSec = document.createElement('div');
-  ppSec.className = 'seq-modal-section';
-  const ppLabel = document.createElement('label');
-  ppLabel.textContent = 'PAIRED PATCH from the person who made this sequence';
-  const ppValue = document.createElement('div');
-  ppValue.className = 'seq-modal-paired';
-  ppValue.textContent = `${where}: ${pName}`;
-  ppSec.appendChild(ppLabel);
-  ppSec.appendChild(ppValue);
-  wrap.appendChild(ppSec);
-
-  // Optional note.
-  if (note) {
-    const noteSec = document.createElement('div');
-    noteSec.className = 'seq-modal-section';
-    const noteLabel = document.createElement('label');
-    noteLabel.textContent = 'NOTES from the person who made this sequence';
-    const noteValue = document.createElement('div');
-    noteValue.className = 'seq-modal-paired';
-    noteValue.textContent = note;
-    noteSec.appendChild(noteLabel);
-    noteSec.appendChild(noteValue);
-    wrap.appendChild(noteSec);
-  }
-
-  return wrap;
+  // 2026-05-24: the paired-patch / notes intro block + the 3-step setup
+  // instructions were removed from this modal (per Daniel) — the title is
+  // descriptive enough on its own, and the paired-patch context is still
+  // visible in the Library row's info button. Modal is now header + 3
+  // action buttons in Step 1; Step 2 stays full-width with the timeline.
+  showSendSequenceToJxModal(exportData, label);
 }
 
 function showLoadSequenceModal({ seq, onSend }) {
@@ -2508,6 +2595,17 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
   const metaArr   = slotMetaArr(bank);
   if (!Array.isArray(paramsArr) || !Array.isArray(metaArr)) return;
 
+  // Off-by-one fix (2026-05-24): the drop indicator (bold line at TOP of
+  // the hovered row) visually means "insert between slot toIdx-1 and
+  // slot toIdx". When moving DOWN (fromIdx < toIdx), splice-removing the
+  // source shifts the target up by 1, so the post-removal insertion index
+  // should be toIdx - 1. When moving UP (fromIdx > toIdx), no shift —
+  // splice removal doesn't move anything before fromIdx. Without this
+  // adjustment, downward drags land one slot LATER than the indicator.
+  // Helper in renderer/library-math.js; unit-tested in test/library-math.test.js.
+  const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
+  if (fromIdx === effectiveToIdx) return;  // no-op (adjacent down-move)
+
   // FLIP animation prep — capture each visible row's pre-move top position
   // BEFORE we mutate the data and re-render. Only fires when we're looking
   // at the bank that's reordering (otherwise the new state would already
@@ -2525,29 +2623,32 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
   }
 
   const [paramsMoved] = paramsArr.splice(fromIdx, 1);
-  paramsArr.splice(toIdx, 0, paramsMoved);
+  paramsArr.splice(effectiveToIdx, 0, paramsMoved);
   const [metaMoved] = metaArr.splice(fromIdx, 1);
-  metaArr.splice(toIdx, 0, metaMoved);
+  metaArr.splice(effectiveToIdx, 0, metaMoved);
 
   // Keep selSlot pointing at the same patch if it was in the moved range.
   if (bank === selBank) {
-    if (selSlot === fromIdx) selSlot = toIdx;
-    else if (fromIdx < selSlot && toIdx >= selSlot) selSlot -= 1;
-    else if (fromIdx > selSlot && toIdx <= selSlot) selSlot += 1;
+    if (selSlot === fromIdx) selSlot = effectiveToIdx;
+    else if (fromIdx < selSlot && effectiveToIdx >= selSlot) selSlot -= 1;
+    else if (fromIdx > selSlot && effectiveToIdx <= selSlot) selSlot += 1;
   }
 
   // Refresh history for the named patches that just moved (origin doesn't
   // change, but ts and any stale entries get refreshed).
   recordToHistory(bank, fromIdx);
-  recordToHistory(bank, toIdx);
+  recordToHistory(bank, effectiveToIdx);
 
   saveLibraryDebounced();
   renderPatchList();
   updateSvgPatchName();
 
-  // Undo: reverse the splice by reordering back.
+  // Undo: reverse by moving the item (now at effectiveToIdx) back to fromIdx.
+  // Pass effectiveToIdx (current location) as the source — the undo call
+  // will then have effectiveToIdx > fromIdx (since we moved down originally)
+  // and won't re-trigger the adjustment.
   pushUndo({
-    undo: () => reorderBankSlot(bank, toIdx, fromIdx),
+    undo: () => reorderBankSlot(bank, effectiveToIdx, fromIdx),
     redo: () => reorderBankSlot(bank, fromIdx, toIdx),
   });
 
@@ -2564,9 +2665,9 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
       //   F < T: items at F+1..T shift up by 1; T receives the moved item.
       //   F > T: items at T..F-1 shift down by 1; T receives the moved item.
       const newToOld = (newIdx) => {
-        if (newIdx === toIdx) return fromIdx;
-        if (fromIdx < toIdx && newIdx >= fromIdx && newIdx < toIdx) return newIdx + 1;
-        if (fromIdx > toIdx && newIdx > toIdx  && newIdx <= fromIdx)   return newIdx - 1;
+        if (newIdx === effectiveToIdx) return fromIdx;
+        if (fromIdx < effectiveToIdx && newIdx >= fromIdx && newIdx < effectiveToIdx) return newIdx + 1;
+        if (fromIdx > effectiveToIdx && newIdx > effectiveToIdx && newIdx <= fromIdx) return newIdx - 1;
         return newIdx;
       };
       const movedRows = [];
@@ -2596,7 +2697,7 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
       });
       // Cream-tint flash on the row that received the moved patch — distinct
       // from the green .selected state so the two visuals layer cleanly.
-      const movedEl = newList.querySelector(`.patch-item[data-slot="${toIdx}"]`);
+      const movedEl = newList.querySelector(`.patch-item[data-slot="${effectiveToIdx}"]`);
       if (movedEl) {
         movedEl.classList.add('just-moved');
         setTimeout(() => movedEl.classList.remove('just-moved'), 850);
@@ -2776,34 +2877,18 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
 }
 
 async function handleToneLoad() {
-  // Pick the source: when the user is browsing the Library Tones sub-tab
-  // with a package selected, send that package directly. Otherwise send the
-  // active C/D banks. This matches the intuition that clicking Load while
-  // viewing "Martin Crane DUMBO Sounds" sends *that* — without making the
-  // user first round-trip it through the active banks.
+  // SIMPLIFIED 2026-05-24: Always send the active C/D banks. The previous
+  // behavior — sending a library package directly when one was selected in
+  // the Library tab — caused cognitive ambiguity and bugs ("did I just
+  // overwrite my import by loading a package, or am I sending the import?").
+  // New model: active C/D banks = the single source of truth for transfer.
+  // To send a library package, the user loads it INTO active first (one
+  // click on the Library row's hover-LOAD button), then clicks Send. The
+  // load step is undoable + auto-saves the previous active state so this
+  // never destructively loses work.
   let exportData = patches;
-  let label = activeBanksSourceLabel || null;
-  // slotMeta captured alongside the export — main.js will embed this as a
-  // custom RIFF chunk in the WAV so a recipient JP Patches install can
-  // restore the original custom names. JX-3P hardware ignores the chunk.
-  let slotMeta = library && library.slotMeta ? library.slotMeta : null;
-  let sendingPackage = false;
-  if (selBank === 'L' && selLibTab === 'tones' && selPackage !== null
-      && library && Array.isArray(library.packages) && library.packages[selPackage]) {
-    const pkg = library.packages[selPackage];
-    if (pkg.banks && pkg.banks.length === 2) {
-      // jx3p's bank.schema.json requires { format_version, banks }; library
-      // packages carry extra fields (id, slotMeta, customName, savedAt) that
-      // the schema doesn't know about, so wrap a minimal-shape object here.
-      exportData = {
-        format_version: (patches && patches.format_version) || '1.0',
-        banks: pkg.banks,
-      };
-      label          = pkg.customName || pkg.defaultName || null;
-      slotMeta       = pkg.slotMeta   || null;
-      sendingPackage = true;
-    }
-  }
+  const label    = activeBanksSourceLabel || null;
+  const slotMeta = library && library.slotMeta ? library.slotMeta : null;
   if (!exportData || !Array.isArray(exportData.banks) || exportData.banks.length < 2) {
     console.error('No patch data to export');
     return;
@@ -2812,13 +2897,6 @@ async function handleToneLoad() {
   // before the data leaves the app. On a future re-import, matching params
   // will restore the name no matter what slot they come back in.
   recordAllNamedToHistory();
-  // When sending a library package *directly* (not via the active C/D banks),
-  // the package's slotMeta isn't reflected in library.slotMeta, so
-  // recordAllNamedToHistory above wouldn't capture the package's names.
-  // Record them explicitly so an audio roundtrip through the JX-3P (which
-  // strips the RIFF chunk that would otherwise carry names) still restores
-  // them on reimport via fingerprint match.
-  if (sendingPackage) recordSlotMetaToHistory(slotMeta, exportData.banks);
   saveLibraryDebounced();
   // Attach the slot metadata under a private key so main.js can pull it out
   // and embed it in the output WAV's RIFF "jPpS" chunk. The underscore
@@ -2852,11 +2930,10 @@ function showSendToJxModal(exportData, sourceLabel) {
   });
 }
 
-function showSendSequenceToJxModal(exportData, sourceLabel, intro) {
+function showSendSequenceToJxModal(exportData, sourceLabel) {
   return showSendToJxFlow({
     exportData,
     sourceLabel,
-    intro,
     kind: 'sequence',
     encodeApi: 'seqTapeEncodeToTemp',
     saveApi:   'seqTapeLoad',
@@ -2873,7 +2950,7 @@ function showSendSequenceToJxModal(exportData, sourceLabel, intro) {
 // + Play; on completion, Done closes the modal. Used by both tone patches
 // and sequencer dumps via thin wrappers above.
 function showSendToJxFlow(opts) {
-  const { exportData, sourceLabel, kind, encodeApi, saveApi, jxStep2, segments, intro } = opts;
+  const { exportData, sourceLabel, kind, encodeApi, saveApi, jxStep2, segments } = opts;
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -2888,16 +2965,13 @@ function showSendToJxFlow(opts) {
     : fallback;
   modal.appendChild(h);
 
-  if (intro) modal.appendChild(intro);
-
+  // Empty body element kept in DOM so enterPlayState (step 2) can populate
+  // it with the "tape dump ready / press Load on JX / output device" copy.
+  // Step 1 is intentionally bare — header + actions only (per 2026-05-24
+  // design pass). Modal width also shrinks in step 1 via the absence of
+  // the .step-2 class on .send-jx-modal (see style.css).
   const body = document.createElement('div');
   body.className = 'modal-body';
-  body.innerHTML =
-    '<ol style="padding-left: 20px; margin: 0;">' +
-      '<li>Connect your Mac headphone out to JX-3P Tape Memory LOAD input.</li>' +
-      '<li>Turn up Mac volume to 100%.</li>' +
-      '<li>Click the <b>Send to JX-3P</b> button below.</li>' +
-    '</ol>';
   modal.appendChild(body);
 
   // Cause→effect row (matches Record-from-JX layout pattern, defined in
@@ -2927,7 +3001,22 @@ function showSendToJxFlow(opts) {
   // the JX-3P logo appears.
   const sendJxLogo = document.createElement('div');
   sendJxLogo.className = 'record-jx-jx3p-logo';
-  sendJxLogo.innerHTML = `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>`;
+  // "loading: {sourceLabel}" below the JX-3P logo so the user sees which
+  // package is being sent. sourceLabel comes from activeBanksSourceLabel
+  // (the most recent library load) — null/empty when active C/D was
+  // assembled from scratch, in which case the label block is hidden.
+  const sendLabelHtml = sourceLabel
+    ? `<div class="record-jx-package-label">` +
+        `<div class="record-jx-package-label-prefix">loading:</div>` +
+        `<div class="record-jx-package-label-name"></div>` +
+      `</div>`
+    : '';
+  sendJxLogo.innerHTML =
+    `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>` +
+    sendLabelHtml;
+  if (sourceLabel) {
+    sendJxLogo.querySelector('.record-jx-package-label-name').textContent = sourceLabel;
+  }
   sendRow.appendChild(jxKeyDiagram);
   sendRow.appendChild(sendArrow);
   sendRow.appendChild(sendJxLogo);
@@ -3081,6 +3170,9 @@ function showSendToJxFlow(opts) {
     primaryBtn.disabled = false;
     primaryBtn.textContent = '▶ Play';
     saveBtn.style.display = 'none';
+    // Widen the modal for step 2 (timeline + sendRow need the room). Step 1
+    // is a tighter shell — header + 3 buttons. See .send-jx-modal CSS.
+    modal.classList.add('step-2');
     h.textContent = 'Ready to send';
     const dur = durationSec ? `${Math.ceil(durationSec)} seconds` : 'about 25 seconds';
     body.innerHTML =
@@ -3133,6 +3225,13 @@ function showSendToJxFlow(opts) {
     // arrow pulses. Cleared by the 'ended' handler (which also sets the
     // .complete state) and by cleanup() on Cancel.
     sendArrow.classList.add('pulsing');
+    // Reveal the transmission visuals — JX-3P "receiver" logo fades in,
+    // arrow appears immediately with its marching dashes, and the JX key
+    // diagram dims to 50% so attention shifts to the in-progress transfer.
+    // Pre-Play state: only the diagram is visible (user is reading "press
+    // these keys on the JX"). Once Play fires we've moved past instruction
+    // into "transmission live" state.
+    sendRow.classList.add('playing');
     progressTimer = setInterval(() => {
       if (!audioEl) return;
       updateIndicator(audioEl.currentTime || 0);
@@ -3174,24 +3273,10 @@ function showSendToJxFlow(opts) {
     audioEl.preload = 'auto';
     audioEl.volume = 1.0;          // defensive — never trust the default
     audioEl.muted = false;         // defensive — never trust the default
-    console.log('send-to-jx: audio element created, src=' + audioEl.src);
 
     audioEl.addEventListener('loadedmetadata', () => {
-      console.log(`send-to-jx: loadedmetadata duration=${audioEl.duration.toFixed(2)}s readyState=${audioEl.readyState}`);
       enterPlayState(audioEl.duration);
       primaryBtn.dataset.state = 'play';
-    });
-    audioEl.addEventListener('play', () => {
-      console.log(`send-to-jx: PLAY event — muted=${audioEl.muted} volume=${audioEl.volume} readyState=${audioEl.readyState} paused=${audioEl.paused}`);
-    });
-    audioEl.addEventListener('playing', () => {
-      console.log('send-to-jx: PLAYING event — actually started rendering audio');
-    });
-    audioEl.addEventListener('stalled', () => {
-      console.warn('send-to-jx: STALLED — playback stalled waiting for data');
-    });
-    audioEl.addEventListener('suspend', () => {
-      console.warn('send-to-jx: SUSPEND — loading suspended');
     });
 
     audioEl.addEventListener('ended', () => {
@@ -3206,6 +3291,12 @@ function showSendToJxFlow(opts) {
       // the dash-flow animation; add complete to swap to a solid line.
       sendArrow.classList.remove('pulsing');
       sendArrow.classList.add('complete');
+      // Mirror the freeze on the "loading: {package}" label below the
+      // JX-3P logo — the shimmer effect on the package name lives in
+      // CSS keyed on parent .playing class and a .complete class on
+      // the label itself. See style.css `.record-jx-package-label`.
+      const sendLabelEl = sendJxLogo.querySelector('.record-jx-package-label');
+      if (sendLabelEl) sendLabelEl.classList.add('complete');
       statusText.textContent = '✓ Complete. Check your JX for confirmation.';
       // Done is now the only action — it closes the modal.
       primaryBtn.textContent = 'Done';
@@ -3549,11 +3640,35 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   calProgressSection.appendChild(calProgressLabel);
   calProgressSection.appendChild(calProgressOuter);
   calProgressSection.appendChild(calProgressHint);
-  // Expected total signal duration (cumulative FSK time) per kind. Tones
-  // are ~33 s (2 pilots + 2 bank-data sections); sequences are ~21 s
-  // (1 pilot + up to 8 pages of data). These are the upper bounds used
-  // for the progress-bar denominator.
-  const EXPECTED_SIGNAL_MS = kind === 'sequence' ? 21000 : 33000;
+  // Expected total signal duration (cumulative FSK time) per kind. This
+  // value is the upper-bound budget for the `totalSignalMs >= EXPECTED`
+  // auto-stop trigger — set it ABOVE the worst-case real dump length so
+  // the silence-after-dump trigger (a) reliably wins for normal captures
+  // and (c) only fires as a backstop for genuinely too-long dumps. The
+  // calibration progress bar uses this value as its denominator too, so
+  // overshoot just means the bar fills slowly before snapping to 100 %
+  // at end-of-dump.
+  //
+  // Both formats are content-variable because `_AUDIO_BIT_ONE = 50`
+  // samples vs `_AUDIO_BIT_ZERO = 11` samples in jx3p/codec.py — a 4.5×
+  // wall-clock difference per bit. Default/empty bytes encode mostly to
+  // 1-bits, pushing dumps toward the long end.
+  //
+  // Tones: 2 pilots + 2 bank-data sections (each bank = 32 patches ×
+  //   2 redundancy = 64 records). Range ~25 s (dense-zeros worst case)
+  //   to ~58 s (sparse/default banks, mostly ones). Real captures
+  //   typically land 30–45 s. Budget 50 s covers the common heavy case;
+  //   safety timeout (+6 s) = 56 s covers near-worst-case content.
+  //   Bug history: was 33000 ms — fine for content-dense captures
+  //   (Daniel's 29.89 s successful capture), but truncated default-
+  //   heavy banks by ~5–15 s → "decoding often fails" symptom.
+  //
+  // Sequences: 1 pilot + 16 records (8 pages × 2 redundancy) + 16
+  //   separators. Range ~6 s to ~28 s. Spils Sequence (3 populated /
+  //   5 empty pages) = 27.65 s. Budget 30 s covers worst-case content;
+  //   safety = 36 s. Bug history: was 21000 ms, chopped Daniel's
+  //   sequence dump at ~18 s → 0/8 pages decoded.
+  const EXPECTED_SIGNAL_MS = kind === 'sequence' ? 30000 : 60000;
 
   // Input gain — software multiplier applied between the mic source and
   // both the meter and the capture buffer. Lets the user crank up a quiet
@@ -3614,13 +3729,17 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     const seg = document.createElement('div');
     seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
     // Approximate per-segment durations (in seconds) derived from JX-3P
-    // tape format math: pilots are 4096 bits × 51 samples / 44100 Hz =
-    // ~4.74 s; data sections depend on bit content but average ~8.6 s
-    // per bank for patches, ~16 s for an 8-page sequence. Used both for
-    // the flex-grow ratio (visual proportions) and the timed sweep below.
+    // tape format math: pilots are 4096 bits × 50 samples / 44100 Hz ≈
+    // 4.64 s; data sections depend on bit content (ONE=50 samples vs
+    // ZERO=11 — 4.5× asymmetry). For patches ~16 s per bank-section
+    // (avg of mixed content). For sequences ~22 s for the single data
+    // section (heavy content like Spils Sequence's mix of empty/full
+    // pages). Used only for the progress bar's visual proportions and
+    // sweep timing — auto-stop is governed by EXPECTED_SIGNAL_MS and
+    // silence-detection regardless of this estimate.
     cfg.estSec = cfg.pilot
-      ? 4.74
-      : kind === 'sequence' ? 16.0 : 8.6;
+      ? 4.64
+      : kind === 'sequence' ? 22.0 : 16.0;
     seg.style.flexGrow = String(cfg.estSec);
     const label = document.createElement('span');
     label.className = 'send-jx-seg-label';
@@ -3730,10 +3849,33 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   // not about sending data into the app.
   const jpLogoEl = document.createElement('div');
   jpLogoEl.className = 'record-jx-jp-logo';
-  jpLogoEl.innerHTML = `<img src="assets/jp-logo.png" alt="JP Patches" draggable="false"/>`;
+  // Auto-default name preview: shown below the JP logo as "saving: {name}"
+  // so the user sees what package will be created. Same string the post-
+  // capture handler assigns (see applyToneCapture / presentSequenceSaveModal).
+  // Computed once at modal open; the actual save stamp may differ by a few
+  // seconds, which is fine — the user can rename in the Library tab.
+  const previewName = (kind === 'sequence')
+    ? sequenceDefaultName(new Date())
+    : `JX-3P tape capture · ${new Date().toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  jpLogoEl.innerHTML =
+    `<img src="assets/jp-logo.png" alt="JP Patches" draggable="false"/>` +
+    `<div class="record-jx-package-label">` +
+      `<div class="record-jx-package-label-prefix">saving:</div>` +
+      `<div class="record-jx-package-label-name"></div>` +
+    `</div>`;
+  // Use textContent on the name node so user data can't inject HTML.
+  jpLogoEl.querySelector('.record-jx-package-label-name').textContent = previewName;
   // jxKeyDiagram will be re-parented INTO calRow in calibration mode,
   // and put back at modal level for capture mode. Start with the
   // calibration arrangement (most common first-time use).
+  // DOM order: diagram, arrow, jpLogo, card. CSS does the visual ordering:
+  //   Calibration (Step 1): default flex direction — [diagram, arrow, card]
+  //     with jpLogo hidden. Diagram on LEFT, knob+meter on RIGHT.
+  //   Capture (Step 2): flex-direction: row-reverse (scoped to record-jx-modal)
+  //     — visual becomes [jpLogo, arrow, diagram] with card hidden. JP logo
+  //     LEFT, diagram RIGHT, arrow points LEFT (scaleX flip via CSS).
+  //     Matches Daniel's "JP Patches is receiving data → JP logo left,
+  //     buttons right, arrow toward the destination" mockup.
   calRow.appendChild(jxKeyDiagram);
   calRow.appendChild(calArrow);
   calRow.appendChild(jpLogoEl);
@@ -4016,13 +4158,29 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     // tone. We start it only after we've observed a silence gap (the
     // Save-press marker) followed by signal. This matches the same
     // silence-then-signal detection used in stopRecording's trim logic.
-    // Lowered silence threshold from 0.05 to 0.03 — at high gain (10×+),
-    // the noise floor of typical audio interfaces sits around 0.04, which
-    // would falsely register as "signal" with a 0.05 threshold and break
-    // the silence-then-signal detection. 0.03 is below most noise floors
-    // but well below the FSK signal levels (typically 0.3+ post-gain).
-    const SILENCE_THRESHOLD_LIVE = 0.03;
-    const SIGNAL_THRESHOLD_LIVE  = 0.10;
+    //
+    // Threshold scaling (2026-05-24 sequence bug fix): the analyser sees
+    // POST-gain audio (gainNode → analyserNode). At calibrated gain (e.g.
+    // 11×), the JX's pre-gain idle tone (~0.005–0.010) lands at ~0.055–0.110
+    // post-gain — above the static 0.10 SIGNAL floor, so firstSignalMs sets
+    // immediately on modal open, totalSignalMs accumulates the entire pre-
+    // Save idle period, and the auto-stop trigger (totalSignalMs ≥
+    // EXPECTED_SIGNAL_MS) fires DURING the dump for sequences (21 s budget;
+    // tones at 33 s usually escaped by margin alone). Symptom: "Recording
+    // didn't decode cleanly" recalibrate prompt for sequences.
+    //
+    // Fix: scale the live thresholds with current gain the same way the
+    // trim thresholds in stopRecording are scaled (see ~line 4493). Caps
+    // at 20× scaling so SIGNAL doesn't approach the FSK peak target.
+    // Recomputed every tick because in calibration mode the user can
+    // still adjust the slider during capture.
+    const liveThresholdsFor = (g) => {
+      const scale = Math.min(20, Math.max(1, g || 1));
+      return {
+        silence: Math.max(0.03, 0.012 * scale),
+        signal:  Math.max(0.10, 0.025 * scale),
+      };
+    };
     const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
     // Track SUSTAINED silence (consecutive below-threshold ticks reset on
     // any non-silence). Accumulated/total silence isn't enough — the JX
@@ -4035,6 +4193,16 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     let lastTickMs   = null;
     let runningPeak  = 0;
     fskPeak = 0;                  // reset between record sessions (modal-scoped)
+    // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
+    // the arrow's .pulsing class flips off the instant peak dips below
+    // the silence threshold, even momentarily. At calibrated gains where
+    // the scaled silence threshold is close to typical signal-to-silence
+    // transitions inside FSK data, this caused visible animation drop-
+    // outs ("the arrow stops, then resumes, then stops"). Mirror the
+    // meter's pattern: rising edge instant (responsiveness when signal
+    // arrives), falling edge requires N consecutive sub-silence ticks.
+    let arrowBelowSilenceTicks = 0;
+    const ARROW_FALLING_DEBOUNCE_TICKS = 8;   // ~130 ms at 60 fps
     // 4-state warning ladder. null = no warning; otherwise one of
     // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
     // Priority order is the literal order above — higher-severity wins.
@@ -4048,6 +4216,11 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         const v = Math.abs(analyserBuf[i] - 128) / 128;
         if (v > peak) peak = v;
       }
+      // Per-tick scaled thresholds — see the liveThresholdsFor() comment
+      // above. Recomputed here so calibration-mode gain changes take effect
+      // immediately. In capture mode the gain is locked, so this is stable.
+      const { silence: SILENCE_THRESHOLD_LIVE, signal: SIGNAL_THRESHOLD_LIVE } =
+        liveThresholdsFor(gainNode && gainNode.gain.value);
       // SVG vertical level meter (panel-style 7-segment ladder). setPeak
       // picks cream/blue/green/amber/red zones per the threshold table.
       // (The old horizontal HTML meter that used to update here was
@@ -4055,11 +4228,20 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       vmeter.setPeak(peak);
       // Arrow between key diagram and gain/meter card pulses when there's
       // any signal coming in — reinforces the visual cause→effect (press
-      // Save on JX → see level respond on Mac).
+      // Save on JX → see level respond on Mac). Falling edge is debounced
+      // (see arrowBelowSilenceTicks above) so brief silence dips inside a
+      // sustained FSK transmission don't stop the dash animation.
       if (peak > SILENCE_THRESHOLD_LIVE) {
         if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
+        arrowBelowSilenceTicks = 0;
       } else {
-        if (calArrow.classList.contains('pulsing'))  calArrow.classList.remove('pulsing');
+        if (calArrow.classList.contains('pulsing')) {
+          arrowBelowSilenceTicks += 1;
+          if (arrowBelowSilenceTicks >= ARROW_FALLING_DEBOUNCE_TICKS) {
+            calArrow.classList.remove('pulsing');
+            arrowBelowSilenceTicks = 0;
+          }
+        }
       }
       if (peak > runningPeak) runningPeak = peak;
 
@@ -4094,6 +4276,15 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
           }
           if (fskStartMs === null && consecSilenceMs >= 500) {
             fskStartMs = now;
+            // Two-state row reveal — fires in BOTH calibration and capture
+            // modes. Calibration: knob + meter + arrow fade in after the
+            // user presses Save (reveal as it becomes actionable). Capture:
+            // JP logo + arrow fade in, diagram dims. Gated on fskStartMs
+            // (the silence→signal pattern) rather than firstSignalMs (raw
+            // threshold cross) so pre-roll JX idle tone before the user
+            // presses Save doesn't trigger the transition prematurely. The
+            // 500ms silence requirement filters loose noise.
+            calRow.classList.add('playing');
           }
           if (fskStartMs !== null) {
             activeMs += dtMs;
@@ -4114,31 +4305,26 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         consecSilenceMs = 0;
       }
 
-      // End-of-dump auto-stop — fires in BOTH calibration AND capture
-      // modes. Lives OUTSIDE the silence/signal branches so it runs every
-      // tick, regardless of whether the JX's post-dump idle tone is loud
-      // enough to mask the silence detector (Daniel's 2026-05-24 bug:
-      // at calibrated gain the idle tone kept peak above the silence
-      // threshold, so the auto-stop check never ran). Four triggers,
-      // listed in order of preference:
+      // End-of-dump auto-stop. Four triggers, in order of preference:
       //   (a) Saw ≥5 s of cumulative signal then ≥1 s of contiguous
-      //       silence — the normal "JX finished dumping" case. Most
-      //       responsive when post-dump audio actually drops to silence.
-      //   (b) Time since firstSignalMs ≥ expected dump duration + 2 s.
-      //       Primary trigger when (a) can't fire. Anchored to "when
-      //       signal actually arrived" rather than recording start, so
-      //       it accounts for any pre-roll between modal-open and user
-      //       pressing Save on the JX. Fires within ~2 s of dump end
-      //       regardless of post-dump idle tone amplitude.
-      //   (c) totalSignalMs ≥ expected dump duration — we've captured
-      //       enough cumulative FSK to know the dump is done.
-      //   (d) Safety timeout — elapsedTotal exceeds expected dump
-      //       duration + 6 s grace. Hard fallback if signal detection
-      //       itself misfires.
+      //       silence — the normal "JX finished dumping" case. Fires
+      //       reliably when post-dump audio drops below the live-scaled
+      //       silence floor (see liveThresholdsFor() above).
+      //   (b) Time since firstSignalMs ≥ EXPECTED_SIGNAL_MS + 500 ms.
+      //       Anchored to dump start, robust to pre-roll between modal
+      //       open and user pressing Save on the JX.
+      //   (c) totalSignalMs ≥ EXPECTED_SIGNAL_MS — accumulated FSK time.
+      //       Fires for cases where (a) can't fire because post-dump
+      //       audio stays above the silence floor.
+      //   (d) Safety timeout — elapsedTotal ≥ EXPECTED + 6 s. Hard
+      //       fallback if everything else misfires.
+      // EXPECTED_SIGNAL_MS is sized ABOVE the worst-case real dump length
+      // so (a) wins for normal captures; (b)/(c) only fire when something
+      // about the gain / silence-detect breaks.
       const elapsedTotal = now - recordStartMs;
       const signalElapsed = firstSignalMs !== null ? (now - firstSignalMs) : 0;
-      const DUMP_TIMEOUT_MS   = EXPECTED_SIGNAL_MS + 500;   // primary close trigger — fires almost simultaneously with progress bar hitting 100%
-      const SAFETY_TIMEOUT_MS = EXPECTED_SIGNAL_MS + 6000;  // hard fallback if signal detection misfires
+      const DUMP_TIMEOUT_MS   = EXPECTED_SIGNAL_MS + 500;   // (b) — anchored to first signal
+      const SAFETY_TIMEOUT_MS = EXPECTED_SIGNAL_MS + 6000;  // (d) — hard fallback
       if (
             (totalSignalMs >= 5000 && consecSilenceMs >= 1000) ||
             (firstSignalMs !== null && signalElapsed >= DUMP_TIMEOUT_MS) ||
@@ -4913,8 +5099,13 @@ function reorderBucketSlot(bank, fromIdx, toIdx) {
     });
   }
 
+  // Off-by-one fix — shared helper in renderer/library-math.js. See
+  // reorderBankSlot for the rationale.
+  const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
+  if (fromIdx === effectiveToIdx) return;
+
   const [moved] = arr.splice(fromIdx, 1);
-  arr.splice(toIdx, 0, moved);
+  arr.splice(effectiveToIdx, 0, moved);
   // Buckets are always length 16; the splice above can shorten the array
   // (if we move a filled entry past trailing empties). Re-pad.
   while (arr.length < 16) arr.push(null);
@@ -4924,7 +5115,7 @@ function reorderBucketSlot(bank, fromIdx, toIdx) {
 
   // Undo: reverse the splice by reordering back.
   pushUndo({
-    undo: () => reorderBucketSlot(bank, toIdx, fromIdx),
+    undo: () => reorderBucketSlot(bank, effectiveToIdx, fromIdx),
     redo: () => reorderBucketSlot(bank, fromIdx, toIdx),
   });
 
@@ -4935,9 +5126,9 @@ function reorderBucketSlot(bank, fromIdx, toIdx) {
     const newBucketEl = document.querySelector(`.cb-bucket[data-bank="${bank}"] .cb-bucket-list`);
     if (newBucketEl) {
       const newToOld = (newIdx) => {
-        if (newIdx === toIdx) return fromIdx;
-        if (fromIdx < toIdx && newIdx >= fromIdx && newIdx < toIdx) return newIdx + 1;
-        if (fromIdx > toIdx && newIdx > toIdx  && newIdx <= fromIdx)   return newIdx - 1;
+        if (newIdx === effectiveToIdx) return fromIdx;
+        if (fromIdx < effectiveToIdx && newIdx >= fromIdx && newIdx < effectiveToIdx) return newIdx + 1;
+        if (fromIdx > effectiveToIdx && newIdx > effectiveToIdx && newIdx <= fromIdx) return newIdx - 1;
         return newIdx;
       };
       const movedRows = [];
@@ -4963,7 +5154,7 @@ function reorderBucketSlot(bank, fromIdx, toIdx) {
           el.style.transform  = '';
         }, { once: true });
       });
-      const movedEl = newBucketEl.querySelector(`.cb-slot[data-idx="${toIdx}"]`);
+      const movedEl = newBucketEl.querySelector(`.cb-slot[data-idx="${effectiveToIdx}"]`);
       if (movedEl) {
         movedEl.classList.add('just-moved');
         setTimeout(() => movedEl.classList.remove('just-moved'), 850);

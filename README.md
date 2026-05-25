@@ -70,6 +70,47 @@ The app mirrors the JX-3P's hardware Tape Memory buttons:
 - **Sequencer → Save / Load** — UI in place; sequencer audio codec is pending upstream work in `jx3p`. For now, Sequencer Save bookmarks the active patch as a Sequence entry in the Library (the "paired patch" killer feature — when sequencer codec lands, the same entry will carry the sequence audio alongside).
 - **MIDI Memory** dropdown — Phase 3. Selecting it currently logs a "not implemented" message; activates once MIDI is wired.
 
+## Audio setup (Tape Memory hardware path)
+
+Tape Memory transfers are FSK audio — the JX-3P encodes patch / sequence data as audible tones and reads them back the same way. Two hardware paths work reliably; pick based on what you already have.
+
+**Option A — USB audio cable (lowest cost, single jack):**
+
+- **One USB-C → 1/4" TS guitar / audio cable** with a built-in ADC+DAC chip (e.g. KT USB Audio, J&D, Tisino, ART TConnect). $15–40.
+- **Caveats:**
+  - Single 1/4" jack — you'll physically swap the cable between the JX's Tape Memory **Save** (when capturing) and **Load** (when sending) jacks each time you switch directions.
+  - Many of these cables expose the **output side** as separately reconfigurable in Audio MIDI Setup but **lock the input side at 48 kHz**. That's fine — JP and the decoder tolerate this.
+- **Setup:**
+  1. Plug in the cable. Open **Applications → Utilities → Audio MIDI Setup**.
+  2. The cable usually shows up as two devices (one input, one output).
+  3. **Recommended:** set both input and output to `44.1 kHz` (24-bit if available) if the dropdown allows. Reduces unnecessary macOS sample-rate conversion.
+  4. **In practice:** if either side is locked at 48 kHz, leave it. Transfers still decode reliably — verified empirically on KT USB Audio with input locked at 48 kHz and output at either 44.1 or 48 kHz (both work).
+  5. Restart JP so the new device settings take effect.
+
+**Option B — Dedicated USB audio interface (best ergonomics):**
+
+- **Any modern USB audio interface** with native 44.1 kHz support and separate I/O jacks — e.g. Universal Audio Volt 2, Focusrite Scarlett 2i2.
+- **Two standard 1/4" TS (mono unbalanced) cables** — JX **Save** out → interface input, interface output → JX **Load** in.
+- Both legs cabled simultaneously → no swap workflow.
+- Set both directions to 44.1 kHz in Audio MIDI Setup.
+
+**Connector notes:**
+
+- The JX-3P's Tape Memory Save and Load jacks are mono unbalanced 1/4" (TS).
+- A **TRS** plug into a TS jack works electrically but shorts the ring to sleeve — if the source is balanced, you lose ~6 dB of level. Prefer **TS-to-TS** for the JX-side connections.
+
+**Send (JP → JX) vs. Record (JX → JP):**
+
+- **Send** is software-generated bit-perfect WAV → analog out. Only failure modes are output level too low, cable disconnected, or JX not in receive mode.
+- **Record** captures real audio through your hardware path → decoder. More moving parts, but with the current JP version (which sizes the capture budget to the actual JX dump length), captures decode reliably even on cheap USB cables — verified across 10 consecutive sequence captures on a KT USB cable, all bit-perfect against the source.
+
+**Sanity checks if a transfer fails:**
+
+1. Mac output volume at 100 % when sending. The Send modal shows your current output device — verify it's your audio interface / cable, not the laptop speakers or AirPods.
+2. Sample rate **preferably 44.1 kHz** for both input and output in Audio MIDI Setup, but 48 kHz works too if your device is locked.
+3. JX is in the correct mode — Tape Memory + **Save** + key 14 (Tone) or 11 (Sequencer) for the JX to *send*; Tape Memory + **Load** + key 16 (Tone) or 13 (Sequencer) for the JX to *receive*.
+4. Cable: a shorter cable rarely hurts. If you're seeing repeated Record failures, retry — and if that doesn't help, that's a strong signal to move from Option A to Option B.
+
 ## Library
 
 The Library tab is your in-app cold storage. Two sub-tabs:

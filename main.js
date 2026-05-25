@@ -223,10 +223,6 @@ function createWindow() {
     if (zoom !== 1.0) win.webContents.setZoomFactor(zoom);
   });
   win.loadFile('renderer/index.html');
-  // TEMP debug: auto-open DevTools in a detached window so we can see the
-  // send-to-jx diagnostic logs without manually toggling. Revert before
-  // next release.
-  win.webContents.openDevTools({ mode: 'detach' });
 }
 
 app.whenReady().then(() => {
