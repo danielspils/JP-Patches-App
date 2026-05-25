@@ -557,14 +557,15 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
       `Most often this is a one-off glitch — **try again** with the same ` +
       'calibration. If it keeps failing, then try **recalibrating** the ' +
       `input gain. ${safetyText}`,
-    // Primary (green confirm) = Try again — most likely to fix things now
+    // Primary (Roland green) = Try again — most likely to fix things now
     // that truncation is no longer the dominant failure mode.
     confirmLabel: 'Try again',
     confirmStyle: 'confirm',
     onConfirm: reopenWithoutRecalibrating,
-    // Tertiary (cream alt-style) = Recalibrate — fallback when gain really
-    // is the issue.
+    // Tertiary (Roland blue, alt-style) = Recalibrate — secondary
+    // alternative when gain really is the issue.
     tertiaryLabel: 'Recalibrate',
+    tertiaryStyle: 'alt',
     onTertiary: () => {
       if (deviceId) clearCalibratedGain(deviceId);
       // Re-open in two-pass calibration mode (saved gain cleared).
