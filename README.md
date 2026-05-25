@@ -116,7 +116,7 @@ Tape Memory transfers are FSK audio — the JX-3P encodes patch / sequence data 
 The Library tab is your in-app cold storage. Two sub-tabs:
 
 - **Tones** — save the current C+D banks as a snapshot (*save C/D banks to library* button). Snapshots have an auto-generated name like *C/D banks May 18, 2026* plus an editable custom name. Drag-reorder, hover-trash to delete, click *load selected library C/D banks to app* to restore.
-- **Sequences** — same UX, paired with a patch. Loading restores the paired patch into its original slot.
+- **Sequences** — same UX, paired with a patch. Hover the ⓘ icon on a sequence row to see the paired-patch reference (which patch was selected when the sequence was captured) plus any notes you added at save time.
 
 ## Write button (save-as)
 

@@ -289,6 +289,105 @@ function paramsAt(b, s) {
   return patches.banks[bankIdx][s] || null;
 }
 
+// ─── Modified / Revert tracking (2026-05-25) ────────────────────────────────
+//
+// Each slotMeta entry carries an optional `cleanParams` snapshot — the
+// patch params at the moment the slot was last replaced wholesale (library
+// load, Record-from-JX, drag-drop WAV import, Write button into slot,
+// library snapshot save). Knob twists / switch flips edit
+// `patches.banks[…]` in place but DO NOT update cleanParams — so a slot
+// whose current params differ from cleanParams has unsaved user edits.
+//
+// The patch list shows a small Roland-red dot next to the slot number for
+// any modified slot. Click the dot → confirm modal → revert (with undo).
+
+function snapshotCleanParamsAt(bank, slot) {
+  const bankIdx = bank === 'D' ? 1 : 0;
+  const bankArr = patches && patches.banks && patches.banks[bankIdx];
+  const metaArr = library && library.slotMeta && library.slotMeta[bank];
+  if (!bankArr || !metaArr || !bankArr[slot] || !metaArr[slot]) return;
+  metaArr[slot].cleanParams = JSON.parse(JSON.stringify(bankArr[slot]));
+}
+
+function snapshotCleanParamsAll() {
+  if (!patches || !Array.isArray(patches.banks)) return;
+  ['C', 'D'].forEach((bank) => {
+    for (let s = 0; s < 16; s++) snapshotCleanParamsAt(bank, s);
+  });
+}
+
+function isPatchModified(bank, slot) {
+  if (!patches || !library) return false;
+  const bankIdx = bank === 'D' ? 1 : 0;
+  const current = patches.banks && patches.banks[bankIdx] && patches.banks[bankIdx][slot];
+  const meta    = library.slotMeta && library.slotMeta[bank] && library.slotMeta[bank][slot];
+  const clean   = meta && meta.cleanParams;
+  if (!current || !clean) return false;
+  return paramsFingerprint(current) !== paramsFingerprint(clean);
+}
+
+function countModifiedSlots() {
+  if (!patches || !library || !library.slotMeta) return 0;
+  let count = 0;
+  for (const bank of ['C', 'D']) {
+    for (let s = 0; s < 16; s++) {
+      if (isPatchModified(bank, s)) count++;
+    }
+  }
+  return count;
+}
+
+// Background variant of handleSaveBanksToLibrary — used by the "Save
+// and load" rescue path when the user is about to overwrite a modified
+// active state. Adds the snapshot to library.packages WITHOUT yanking
+// the user to the Library tab (they're mid-flow loading something
+// else; jumping away mid-action would be jarring). The new entry
+// appears at the top of the Library list when the user navigates there
+// naturally.
+function saveSnapshotInBackground(customName) {
+  if (!patches || !Array.isArray(patches.banks)) return;
+  snapshotCleanParamsAll();  // capture new baseline before cloning
+  const now = new Date();
+  const pkg = {
+    id:          now.toISOString(),
+    defaultName: packageDefaultName(now),
+    customName:  (customName || '').trim(),
+    createdAt:   now.toISOString(),
+    savedAt:     now.toISOString(),
+    banks:       JSON.parse(JSON.stringify(patches.banks)),
+    slotMeta:    JSON.parse(JSON.stringify(library.slotMeta || {})),
+  };
+  if (!Array.isArray(library.packages)) library.packages = [];
+  library.packages.unshift(pkg);
+  if (selPackage !== null) selPackage += 1;  // existing selection shifts down
+  saveLibraryDebounced();
+}
+
+function revertPatchToOriginal(bank, slot) {
+  if (!isPatchModified(bank, slot)) return;
+  const bankIdx = bank === 'D' ? 1 : 0;
+  const clean   = library.slotMeta[bank][slot].cleanParams;
+  const prev    = JSON.parse(JSON.stringify(patches.banks[bankIdx][slot]));
+  patches.banks[bankIdx][slot] = JSON.parse(JSON.stringify(clean));
+  saveLibraryDebounced();
+  if (selBank === bank && selSlot === slot) updateAllControls(currentPatch());
+  renderPatchList();
+  pushUndo({
+    undo: () => {
+      patches.banks[bankIdx][slot] = JSON.parse(JSON.stringify(prev));
+      saveLibraryDebounced();
+      if (selBank === bank && selSlot === slot) updateAllControls(currentPatch());
+      renderPatchList();
+    },
+    redo: () => {
+      patches.banks[bankIdx][slot] = JSON.parse(JSON.stringify(clean));
+      saveLibraryDebounced();
+      if (selBank === bank && selSlot === slot) updateAllControls(currentPatch());
+      renderPatchList();
+    },
+  });
+}
+
 // Record the current params+name of a named slot into the history ledger so
 // the name can be restored on a future re-import. No-op for unnamed slots.
 function recordToHistory(b, s) {
@@ -1231,6 +1330,7 @@ function handleSwitchClick(body) {
     patch[param] = spec.vals[(i + 1) % spec.vals.length];
   }
   updateSwitches(patch);
+  renderPatchList();   // refresh the modified-indicator dot for this slot
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1308,6 +1408,10 @@ function setupInteraction(svg) {
     const dy = clientY - dragState.startY;
     const angle = Math.max(-140, Math.min(140, dragState.startAngle - dy * 2));
     dragState.knob.setAttribute('transform', `rotate(${angle.toFixed(1)})`);
+    // Live-update the value tooltip during drag (hover delay is
+    // bypassed — see showDragTooltip / updateDragTooltip below).
+    const liveVal = angleToParam(dragState.param, angle);
+    if (typeof liveVal === 'number') updateDragTooltip(liveVal);
     return angle;
   }
 
@@ -1327,6 +1431,7 @@ function setupInteraction(svg) {
         const nextIdx = curIdx < 0 ? 0 : (curIdx + 1) % cycle.length;
         patch[param] = cycle[nextIdx];
         updateKnobs(patch);
+        renderPatchList();   // refresh the modified-indicator dot
       } else {
         // SMOOTH: drag up/down, 1° per 1px
         const knob = svg.querySelector(`g.knob[data-param="${param}"]`);
@@ -1337,6 +1442,12 @@ function setupInteraction(svg) {
           startY: e.clientY,
           startAngle: paramToAngle(param, patch[param]),
         };
+        // Suppress the patch-switch transition during active drag so the
+        // knob tracks the cursor 1:1 instead of lagging behind.
+        document.body.classList.add('knob-dragging');
+        // Show the value tooltip immediately (no 1 s hover delay during
+        // active adjustment).
+        showDragTooltip(knob, patch[param]);
       }
       e.preventDefault();
     } else if (type === 'switch') {
@@ -1362,8 +1473,13 @@ function setupInteraction(svg) {
       if (patch) {
         patch[dragState.param] = value;
         updateKnobs(patch);   // snaps discrete knobs to nearest position
+        renderPatchList();    // refresh the modified-indicator dot
       }
       dragState = null;
+      document.body.classList.remove('knob-dragging');
+      // Hide the drag tooltip on release. User can re-hover (1 s
+      // delay) to see the committed value again if they want.
+      hideKnobValueTooltip();
     }
     if (downBtnId) {
       // Write: arm save-as mode on release; LED stays lit while awaiting
@@ -1378,6 +1494,187 @@ function setupInteraction(svg) {
       // Manual stays visual-only (Phase 3 / MIDI work).
       downBtnId = null;
     }
+  });
+
+  // ─── Numeric-edit overlay for smooth knobs (2026-05-25) ──────────────
+  //
+  // Logic-style behavior:
+  //   - Hover a smooth knob: small floating tooltip shows the current
+  //     raw uint8 value (0–255).
+  //   - Double-click: input field appears centered over the knob,
+  //     pre-filled with the current value. Type a new number, press
+  //     Enter to commit. Esc or click-outside cancels.
+  //   - Invalid input on Enter: flash red, keep the input open.
+  //
+  // Smooth knobs only — discrete (snap) knobs, switches, and buttons
+  // do nothing on double-click (their value model is a fixed enum, not
+  // a continuous range, so typing 247 makes no sense).
+  let valueTooltip = null;
+  let editInput    = null;
+  let tooltipTimer = null;   // pending hover delay (1 s before tooltip appears)
+
+  // Display-range conversion (2026-05-25): patches are stored as uint8
+  // (0–255) internally — that's the JX-3P tape format precision and
+  // doesn't change. The hover tooltip + numeric edit display in 0–100
+  // (percentage) because it's easier to read and matches the
+  // forthcoming MIDI 7-bit range (0–127) in spirit. Typed input loses
+  // 2.5× addressable granularity vs raw uint8, but the rounded values
+  // are well below the just-noticeable-difference for any continuous
+  // JX param. Drag still gives full 256-value access via cursor.
+  const uint8ToDisplay = (n) => Math.round(n * 100 / 255);
+  const displayToUint8 = (n) => Math.round(n * 255 / 100);
+
+  const isSmoothKnob = (ctrl) => (
+    ctrl && ctrl.dataset.control === 'knob' && !DISCRETE[ctrl.dataset.param]
+  );
+
+  const positionOverlay = (el, knobEl) => {
+    const r = knobEl.getBoundingClientRect();
+    el.style.left = `${r.left + r.width / 2}px`;
+    el.style.top  = `${r.top  + r.height / 2}px`;
+  };
+
+  // Tooltip appears after a 1 s hover hold — protects against accidental
+  // tooltips popping up as the mouse just drifts across the panel. The
+  // 1 s timer is canceled on mouseout, so casual fly-overs never show
+  // a tooltip; only deliberate dwell does.
+  const TOOLTIP_HOVER_DELAY_MS = 1000;
+  const showKnobValueTooltip = (knobEl, param) => {
+    if (dragState || editInput) return;
+    hideKnobValueTooltip();              // clears both pending timer + visible tooltip
+    tooltipTimer = setTimeout(() => {
+      tooltipTimer = null;
+      if (dragState || editInput) return;       // re-check at fire time
+      const patch = currentPatch();
+      if (!patch || !(param in patch)) return;
+      const val = patch[param];
+      if (typeof val !== 'number') return;      // discrete enum values skipped
+      valueTooltip = document.createElement('div');
+      valueTooltip.className = 'knob-value-tooltip';
+      valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+      document.body.appendChild(valueTooltip);
+      positionOverlay(valueTooltip, knobEl);
+    }, TOOLTIP_HOVER_DELAY_MS);
+  };
+
+  const hideKnobValueTooltip = () => {
+    if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+    if (valueTooltip) { valueTooltip.remove();      valueTooltip = null; }
+  };
+
+  // During a drag we bypass the 1 s hover delay — the user is actively
+  // adjusting and wants to see the live value immediately. Called from
+  // the smooth-knob mousedown handler. updateDragTooltip is called from
+  // applyDragAngle on each mousemove tick to reflect the new value.
+  const showDragTooltip = (knobEl, val) => {
+    hideKnobValueTooltip();                  // clear pending timer + any existing tooltip
+    valueTooltip = document.createElement('div');
+    valueTooltip.className = 'knob-value-tooltip';
+    valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+    document.body.appendChild(valueTooltip);
+    positionOverlay(valueTooltip, knobEl);
+  };
+  const updateDragTooltip = (val) => {
+    if (valueTooltip) valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+  };
+
+  const closeEditInput = () => {
+    if (!editInput) return;
+    editInput.remove();
+    editInput = null;
+    document.removeEventListener('mousedown', editClickOutside, true);
+  };
+
+  // Capture-phase mousedown so click-outside catches everything (even
+  // clicks on other interactive controls) before they fire their own
+  // handlers.
+  function editClickOutside(e) {
+    if (!editInput) return;
+    if (e.target === editInput) return;
+    closeEditInput();
+  }
+
+  const openKnobNumericEdit = (knobEl, param) => {
+    if (dragState) return;
+    const patch = currentPatch();
+    if (!patch || !(param in patch)) return;
+    const val = patch[param];
+    if (typeof val !== 'number') return;
+    hideKnobValueTooltip();
+    closeEditInput();
+    editInput = document.createElement('input');
+    editInput.className = 'knob-value-edit';
+    editInput.type      = 'text';
+    editInput.value     = `${uint8ToDisplay(val)}%`;
+    editInput.inputMode = 'numeric';
+    editInput.maxLength = 4;   // "100%" max
+    document.body.appendChild(editInput);
+    positionOverlay(editInput, knobEl);
+    editInput.focus();
+    editInput.select();
+    const tryCommit = () => {
+      // Strip a trailing % if the user kept or typed one — they can
+      // enter "50" or "50%" and both work. Anything else (letters,
+      // negative, decimals, > 100) flashes red.
+      const raw = editInput.value.trim().replace(/%$/, '').trim();
+      const n   = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(n) && n >= 0 && n <= 100) {
+        patch[param] = displayToUint8(n);
+        updateKnobs(patch);
+        renderPatchList();          // refresh modified-indicator
+        closeEditInput();
+        return true;
+      }
+      // Invalid — flash red, keep input open, leave focus.
+      editInput.classList.remove('invalid');
+      void editInput.offsetWidth;   // restart animation on next frame
+      editInput.classList.add('invalid');
+      editInput.select();
+      return false;
+    };
+    editInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeEditInput(); return; }
+      // Enter and Tab both commit. Tab needs preventDefault so the
+      // browser doesn't move focus to whatever happens to be next.
+      if (e.key === 'Enter') { tryCommit(); }
+      if (e.key === 'Tab')   { e.preventDefault(); tryCommit(); }
+    });
+    // Click-outside cancels (registered in capture phase so it beats
+    // other handlers).
+    setTimeout(() => {
+      document.addEventListener('mousedown', editClickOutside, true);
+    }, 0);
+  };
+
+  // Event delegation for hover + dblclick on smooth knobs. Uses mouseover/
+  // mouseout (which bubble) rather than mouseenter/mouseleave (which don't).
+  svg.addEventListener('mouseover', (e) => {
+    if (dragState) return;   // during drag, ignore all hover-state changes —
+                             // the drag tooltip persists even if the cursor
+                             // strays onto other panel elements (switches,
+                             // labels, blank space). Without this guard the
+                             // drag tooltip flickered out the moment the
+                             // cursor crossed any non-knob target.
+    const ctrl = findControl(e.target);
+    if (!isSmoothKnob(ctrl)) { hideKnobValueTooltip(); return; }
+    showKnobValueTooltip(ctrl, ctrl.dataset.param);
+  });
+  svg.addEventListener('mouseout', (e) => {
+    if (dragState) return;   // never hide during active drag — the
+                             // drag tooltip is meant to persist even
+                             // if the cursor strays off the knob.
+    // Only hide if the relatedTarget is outside the knob entirely —
+    // otherwise crossing internal children would flicker the tooltip.
+    const ctrl = findControl(e.target);
+    if (!isSmoothKnob(ctrl)) return;
+    if (ctrl.contains(e.relatedTarget)) return;
+    hideKnobValueTooltip();
+  });
+  svg.addEventListener('dblclick', (e) => {
+    const ctrl = findControl(e.target);
+    if (!isSmoothKnob(ctrl)) return;
+    openKnobNumericEdit(ctrl, ctrl.dataset.param);
+    e.preventDefault();
   });
 }
 
@@ -1485,10 +1782,46 @@ function renderPatchList() {
     num.className = 'patch-number';
     num.textContent = key + ':';
 
+    // Modified indicator (2026-05-25) — small Roland-red dot shown when
+    // current slot params differ from cleanParams (the last "fresh
+    // load" baseline). Clickable: opens a confirm to revert this slot
+    // to its baseline. Hidden entirely when slot is not modified.
+    const modified = isPatchModified(selBank, slot);
+    let modDot = null;
+    if (modified) {
+      modDot = document.createElement('button');
+      modDot.className = 'patch-modified-dot';
+      modDot.type = 'button';
+      modDot.title = 'This patch has unsaved edits — click to revert';
+      modDot.innerHTML =
+        '<svg viewBox="0 0 8 8" width="8" height="8" aria-hidden="true">' +
+          '<circle cx="4" cy="4" r="3.2" fill="currentColor"/>' +
+        '</svg>';
+      modDot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const slotKeyStr = slotKey(selBank, slot);
+        const patchLabel = patchName(selBank, slot) || `(unnamed)`;
+        showConfirmModal({
+          title: `Revert ${slotKeyStr}?`,
+          body:
+            `Revert *${patchLabel}* to its original state? Your edits ` +
+            `since the last library load (or import) will be discarded.\n\n` +
+            'This is undoable.',
+          confirmLabel: 'Revert',
+          confirmStyle: 'danger',
+          onConfirm: () => revertPatchToOriginal(selBank, slot),
+        });
+      });
+      modDot.addEventListener('mousedown', (e) => e.stopPropagation());
+    }
+
     const nm = document.createElement('span');
     nm.className = 'patch-name-span' + (name ? '' : ' unnamed');
     nm.textContent = name || patchPlaceholder(selBank, slot);
-    if (!name) appendRenamePencil(nm);
+    // Rename pencil: shown on EVERY entry (2026-05-25 change) so the
+    // edit affordance is always discoverable. Click only fires on the
+    // pencil itself — clicking the name span just selects the row.
+    appendRenamePencil(nm);
 
     const inp = document.createElement('input');
     inp.className = 'patch-name-edit';
@@ -1522,6 +1855,7 @@ function renderPatchList() {
     // and a better UX; the per-row swap shortcut was redundant.)
 
     item.appendChild(num);
+    if (modDot) item.appendChild(modDot);
     item.appendChild(nm);
     item.appendChild(inp);
     item.appendChild(info);
@@ -1532,7 +1866,7 @@ function renderPatchList() {
         commitWriteTo(selBank, slot);
         return;
       }
-      if (nm.contains(e.target) && slot === selSlot) {
+      if (e.target.closest('.patch-rename-icon')) {
         startNameEdit(slot, nm, inp);
         return;
       }
@@ -1593,26 +1927,37 @@ function renderPatchList() {
     });
     item.addEventListener('dragend', () => {
       item.classList.remove('dragging');
-      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        el.classList.remove('drag-over', 'drag-over-bottom');
+      });
     });
     item.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      list.querySelectorAll('.drag-over').forEach((el) => {
-        if (el !== item) el.classList.remove('drag-over');
+      // Detect top-half vs bottom-half so the user can drop AFTER the
+      // last row (needed to make "move to last position" reachable —
+      // dropping on top-half of last row resolves to its current slot,
+      // which is a no-op for the second-to-last item).
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over', 'drag-over-bottom');
       });
-      item.classList.add('drag-over');
+      item.classList.toggle('drag-over',        !isBottomHalf);
+      item.classList.toggle('drag-over-bottom',  isBottomHalf);
     });
     item.addEventListener('dragleave', (e) => {
       if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
-        item.classList.remove('drag-over');
+        item.classList.remove('drag-over', 'drag-over-bottom');
       }
     });
     item.addEventListener('drop', (e) => {
       e.preventDefault();
-      item.classList.remove('drag-over');
+      item.classList.remove('drag-over', 'drag-over-bottom');
       const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const toIdx = slot;
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      const toIdx = isBottomHalf ? slot + 1 : slot;
       if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
       reorderBankSlot(selBank, fromIdx, toIdx);
     });
@@ -1674,6 +2019,12 @@ function relativeTime(isoString) {
 
 function handleSaveBanksToLibrary() {
   if (!patches || !Array.isArray(patches.banks)) return;
+  // Saving a library snapshot is the user declaring "this is my new
+  // baseline" — clear any modified indicators by re-snapshotting clean
+  // params against the just-saved state. Must happen BEFORE we clone
+  // slotMeta into the package, so the package's slotMeta also carries
+  // the fresh cleanParams (relevant when the package gets re-loaded).
+  snapshotCleanParamsAll();
   const now = new Date();
   const pkg = {
     id: now.toISOString(),
@@ -1725,7 +2076,7 @@ function renderLibraryList(list) {
     const nm = document.createElement('span');
     nm.className = 'package-name-span' + (pkg.customName ? '' : ' unnamed');
     nm.textContent = pkg.customName || pkg.defaultName;
-    if (!pkg.customName) appendRenamePencil(nm);
+    appendRenamePencil(nm);  // always shown — see renderPatchList for rationale
 
     const def = document.createElement('span');
     def.className = 'package-default-name';
@@ -1749,7 +2100,7 @@ function renderLibraryList(list) {
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
-      if (nm.contains(e.target) && idx === selPackage) {
+      if (e.target.closest('.patch-rename-icon')) {
         startPackageNameEdit(idx, nm, def, inp);
         return;
       }
@@ -1769,28 +2120,36 @@ function renderLibraryList(list) {
     });
     item.addEventListener('dragend', () => {
       item.classList.remove('dragging');
-      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        el.classList.remove('drag-over', 'drag-over-bottom');
+      });
     });
     item.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      list.querySelectorAll('.drag-over').forEach((el) => {
-        if (el !== item) el.classList.remove('drag-over');
+      // Top-half vs bottom-half — see active-bank reorder for rationale.
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over', 'drag-over-bottom');
       });
-      item.classList.add('drag-over');
+      item.classList.toggle('drag-over',        !isBottomHalf);
+      item.classList.toggle('drag-over-bottom',  isBottomHalf);
     });
     item.addEventListener('dragleave', (e) => {
       // Only remove the indicator when the pointer actually leaves the row,
       // not when it crosses internal children.
       if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
-        item.classList.remove('drag-over');
+        item.classList.remove('drag-over', 'drag-over-bottom');
       }
     });
     item.addEventListener('drop', (e) => {
       e.preventDefault();
       const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const toIdx = idx;
-      item.classList.remove('drag-over');
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      const toIdx = isBottomHalf ? idx + 1 : idx;
+      item.classList.remove('drag-over', 'drag-over-bottom');
       if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
       reorderPackage(fromIdx, toIdx);
     });
@@ -1824,19 +2183,131 @@ function reorderPackage(fromIdx, toIdx) {
   });
 }
 
+// Snapshot-naming modal used by the "Save and load" rescue path in
+// handleLoadLibraryBanks. Standalone (not via showConfirmModal —
+// showConfirmModal doesn't support text inputs). Calls onSaved with
+// the entered (or default) name when the user clicks Save; calls
+// onCancelled on Esc / Cancel / click-outside so the caller can
+// abandon the whole flow rather than fall through to load anyway.
+function showSaveAndContinueModal({ defaultName, onSaved, onCancelled }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal seq-save-modal';   // reuse the seq-save layout (title + input + buttons)
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = 'Save current C/D banks to Library';
+
+  const body = document.createElement('p');
+  body.className = 'modal-body';
+  body.textContent =
+    'Name this snapshot, then click Save to preserve your current C/D ' +
+    'banks before loading the new one.';
+
+  const nameSec = document.createElement('div');
+  nameSec.className = 'seq-modal-section';
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = 'NAME:';
+  const nameInput = document.createElement('input');
+  nameInput.type        = 'text';
+  nameInput.className   = 'seq-modal-name';
+  nameInput.maxLength   = 60;
+  nameInput.spellcheck  = false;
+  nameInput.autocomplete = 'off';
+  nameInput.value       = defaultName;
+  nameSec.appendChild(nameLabel);
+  nameSec.appendChild(nameInput);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'modal-btn modal-btn-confirm';
+  saveBtn.textContent = 'Save';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(body);
+  modal.appendChild(nameSec);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const doSave   = () => { const name = nameInput.value.trim(); close(); if (onSaved)     onSaved(name); };
+  const doCancel = () => { close();                                       if (onCancelled) onCancelled(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') doCancel();
+    if (e.key === 'Enter')  doSave();
+  };
+  cancelBtn.addEventListener('click', doCancel);
+  saveBtn.addEventListener('click', doSave);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) doCancel(); });
+  document.addEventListener('keydown', onKey);
+
+  nameInput.focus();
+  nameInput.select();
+}
+
 function handleLoadLibraryBanks(idx) {
   if (idx === undefined) idx = selPackage;
   if (idx == null) return;
   const pkg = library.packages[idx];
   if (!pkg) return;
   const pkgName = pkg.customName || pkg.defaultName || 'This package';
+  const modifiedCount = countModifiedSlots();
+
+  // Branch: if active C/D has unsaved edits, offer the "Save and load"
+  // rescue path so the user doesn't silently lose work. If everything
+  // is clean (just-loaded baseline state), keep the simple 2-button
+  // confirm — no extra friction when there's nothing at risk.
+  if (modifiedCount === 0) {
+    showConfirmModal({
+      title: 'Loading new C/D banks to JP Patches',
+      body:
+        `*${pkgName}* will replace the current C and D banks in the JP Patches app.\n\n` +
+        `Use the **Tone → Save to JX-3P** button to send *${pkgName}* to your synth.`,
+      confirmLabel: 'Load',
+      onConfirm: () => loadPackageIntoActiveBanks(pkg),
+    });
+    return;
+  }
+
+  // Modifications present — three-button rescue flow. "Save and load"
+  // is the green primary (safer default given unsaved work is at risk);
+  // "Load without saving" is the blue alt-style tertiary (explicit
+  // opt-in to lose the modifications).
+  const editLabel = modifiedCount === 1 ? '1 unsaved edit' : `${modifiedCount} unsaved edits`;
   showConfirmModal({
     title: 'Loading new C/D banks to JP Patches',
     body:
-      `*${pkgName}* will replace the current C and D banks in the JP Patches app.\n\n` +
-      `Use the **Tone → Save to JX-3P** button to send *${pkgName}* to your synth.`,
-    confirmLabel: 'Load',
-    onConfirm: () => loadPackageIntoActiveBanks(pkg),
+      `Your active C/D banks have **${editLabel}**. Loading *${pkgName}* ` +
+      'will replace them.\n\n' +
+      `Use **Tone → Save to JX-3P** to send *${pkgName}* to your synth afterward.`,
+    confirmLabel: 'Save and load',
+    confirmStyle: 'confirm',
+    onConfirm: () => {
+      // Open the snapshot-naming modal. On save → background-save
+      // (no Library-tab navigation), then load the selected package.
+      showSaveAndContinueModal({
+        defaultName: packageDefaultName(new Date()),
+        onSaved: (name) => {
+          saveSnapshotInBackground(name);
+          loadPackageIntoActiveBanks(pkg);
+        },
+        onCancelled: () => {},  // abandon whole flow — user can re-click LOAD to retry
+      });
+    },
+    tertiaryLabel: 'Load without saving',
+    tertiaryStyle: 'alt',
+    onTertiary: () => loadPackageIntoActiveBanks(pkg),
   });
 }
 
@@ -1877,6 +2348,10 @@ function loadPackageIntoActiveBanks(pkg) {
       }
     });
   }
+  // Reset clean-params baseline for the modified-indicator — loading a
+  // package is a "fresh slate" and any previously-tracked edits are
+  // discarded along with the previous active state.
+  snapshotCleanParamsAll();
   saveLibraryDebounced();
 
   // Surface the loaded banks: switch to Bank C and select the first slot.
@@ -2160,7 +2635,7 @@ function renderSequencesList(list) {
     const nm = document.createElement('span');
     nm.className = 'package-name-span' + (seq.customName ? '' : ' unnamed');
     nm.textContent = seq.customName || seq.defaultName;
-    if (!seq.customName) appendRenamePencil(nm);
+    appendRenamePencil(nm);  // always shown — see renderPatchList for rationale
 
     const def = document.createElement('span');
     def.className = 'package-default-name';
@@ -2176,15 +2651,19 @@ function renderSequencesList(list) {
     item.appendChild(nm);
     item.appendChild(def);
     item.appendChild(inp);
-    item.appendChild(buildLoadToAppIcon(
-      () => handleLoadLibrarySequence(idx),
-      'Load this sequence (and its original paired patch) to app',
-    ));
+    // Sequence info icon — replaces the in-app LOAD button (removed
+    // 2026-05-25). The old LOAD action restored the paired patch into
+    // its original C/D slot, which silently overwrote any edits the
+    // user had made there. Sequences also don't NEED to be "loaded"
+    // into JP — they live in the Library entry and get sent to the JX
+    // via Sequencer → Load to JX-3P directly. The paired-patch context
+    // remains discoverable via this info icon for users who want it.
+    item.appendChild(buildSequenceInfoIcon(idx));
     item.appendChild(buildSequenceTrashIcon(idx));
     list.appendChild(item);
 
     item.addEventListener('click', (e) => {
-      if (nm.contains(e.target) && idx === selSequence) {
+      if (e.target.closest('.patch-rename-icon')) {
         startSequenceNameEdit(idx, nm, def, inp);
         return;
       }
@@ -2204,26 +2683,34 @@ function renderSequencesList(list) {
     });
     item.addEventListener('dragend', () => {
       item.classList.remove('dragging');
-      list.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        el.classList.remove('drag-over', 'drag-over-bottom');
+      });
     });
     item.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      list.querySelectorAll('.drag-over').forEach((el) => {
-        if (el !== item) el.classList.remove('drag-over');
+      // Top-half vs bottom-half — see active-bank reorder for rationale.
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      list.querySelectorAll('.drag-over, .drag-over-bottom').forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over', 'drag-over-bottom');
       });
-      item.classList.add('drag-over');
+      item.classList.toggle('drag-over',        !isBottomHalf);
+      item.classList.toggle('drag-over-bottom',  isBottomHalf);
     });
     item.addEventListener('dragleave', (e) => {
       if (e.currentTarget === item && !item.contains(e.relatedTarget)) {
-        item.classList.remove('drag-over');
+        item.classList.remove('drag-over', 'drag-over-bottom');
       }
     });
     item.addEventListener('drop', (e) => {
       e.preventDefault();
       const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const toIdx = idx;
-      item.classList.remove('drag-over');
+      const rect = item.getBoundingClientRect();
+      const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+      const toIdx = isBottomHalf ? idx + 1 : idx;
+      item.classList.remove('drag-over', 'drag-over-bottom');
       if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
       reorderSequence(fromIdx, toIdx);
     });
@@ -2373,20 +2860,69 @@ function renderSequencesActions(_actions) {
   //   sequence is selected).
 }
 
-function handleLoadLibrarySequence(idx) {
+// Sequence info icon (replaces the removed in-app LOAD button). Hover-
+// revealed; clicking opens a read-only modal with the paired-patch
+// reference, any notes the user attached at save time, and the save date.
+// Matches the style of the .patch-info-btn used on active C/D slots so
+// the visual vocabulary is consistent between bank-row and sequence-row
+// info affordances.
+function buildSequenceInfoIcon(idx) {
+  const btn = document.createElement('button');
+  btn.className = 'package-info-btn';
+  btn.type = 'button';
+  btn.title = 'Sequence info';
+  btn.innerHTML =
+    '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">' +
+      '<circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="0.9"/>' +
+      '<line x1="6" y1="5.2" x2="6" y2="8.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>' +
+      '<circle cx="6" cy="3.4" r="0.65" fill="currentColor"/>' +
+    '</svg>';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showSequenceInfo(idx);
+  });
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  return btn;
+}
+
+function showSequenceInfo(idx) {
   if (idx === undefined) idx = selSequence;
   if (idx == null) return;
-  const seq = library.sequences[idx];
+  const seq = library.sequences && library.sequences[idx];
   if (!seq) return;
   migrateSequenceShape(seq);
-  const seqName = seq.customName || seq.defaultName || 'this sequence';
+
+  const pp = (seq.app && seq.app.pairedPatch) || {};
+  const note = (seq.app && seq.app.patchNote) || '';
+  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
+  const pName = pp.patchName || '(unnamed)';
+
+  const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
+
+  // Body lines — paired patch (always present), optional user notes,
+  // optional saved date if savedAt is a valid timestamp.
+  const lines = [`**Paired patch:** ${where} / ${pName}`];
+  if (note) {
+    lines.push('');
+    lines.push(`**Notes:** ${note}`);
+  }
+  if (seq.savedAt) {
+    const d = new Date(seq.savedAt);
+    if (!Number.isNaN(d.getTime())) {
+      const formatted = d.toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      });
+      lines.push('');
+      lines.push(`**Saved:** ${formatted}`);
+    }
+  }
+
   showConfirmModal({
-    title: 'Loading Sequence to JP Patches',
-    body:
-      `*${seqName}* will load to the app — it will recall the original sequence patch.\n\n` +
-      'To load the sequence into your synth, use the **Sequencer → Load to JX-3P** button.',
-    confirmLabel: 'Load',
-    onConfirm: () => loadSequenceIntoActivePatch(seq),
+    title: 'Sequence info',
+    subtitle: seqName,
+    body: lines.join('\n'),
+    confirmLabel: 'Close',
+    onConfirm: () => {},
   });
 }
 
@@ -2500,23 +3036,6 @@ function showLoadSequenceModal({ seq, onSend }) {
   document.addEventListener('keydown', onKey);
 }
 
-function loadSequenceIntoActivePatch(seq) {
-  const pp = seq && seq.app && seq.app.pairedPatch;
-  if (!pp || !pp.bank) return;
-  const bankIdx = pp.bank === 'D' ? 1 : 0;
-  if (patches && Array.isArray(patches.banks) && patches.banks[bankIdx] && pp.params) {
-    patches.banks[bankIdx][pp.slot] = JSON.parse(JSON.stringify(pp.params));
-  }
-  selBank = pp.bank === 'D' ? 'D' : 'C';
-  selSlot = typeof pp.slot === 'number' ? pp.slot : 0;
-  document.querySelectorAll('.tab').forEach((t) => {
-    t.classList.toggle('active', t.dataset.bank === selBank);
-  });
-  renderPatchList();
-  updateSvgPatchName();
-  updateAllControls(currentPatch());
-}
-
 function setupLibSubTabs() {
   document.querySelectorAll('.lib-sub-tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -2598,6 +3117,9 @@ function doWriteTo(destBank, destSlot) {
   const destIdx = destBank === 'D' ? 1 : 0;
   if (!patches.banks[destIdx]) return;
   patches.banks[destIdx][destSlot] = JSON.parse(JSON.stringify(src));
+  // Write IS the user committing a new clean state to the destination
+  // slot — update its baseline so the modified-indicator reads "clean."
+  snapshotCleanParamsAt(destBank, destSlot);
   writePending = false;
   lightButton('write', false);
   // Navigate to the destination so the user sees the result.
@@ -2881,6 +3403,8 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
       m.sourceLabel = sourceLabel || null;
     });
   });
+  // Fresh capture / import = fresh clean baseline for modified-indicator.
+  snapshotCleanParamsAll();
 }
 
 // Each Tape Memory button is wired through setupHwButtons → handleTape*Save/
@@ -5985,8 +6509,29 @@ async function init() {
     if (document.querySelector('.modal-overlay')) return;
     cancelWriteMode();
   });
+  // Snapshot the initial state as "clean" for the modified-indicator —
+  // baseline is whatever loaded at boot (seed on first run, persisted
+  // active C/D thereafter). Backfills cleanParams for any slot that
+  // doesn't already have it (e.g. libraries that predate this feature).
+  // Won't overwrite existing cleanParams from a prior session — only
+  // sets missing entries, so the user's "vs last library load" baseline
+  // is preserved across app restarts.
+  ['C', 'D'].forEach((bank) => {
+    for (let s = 0; s < 16; s++) {
+      const meta = library.slotMeta && library.slotMeta[bank] && library.slotMeta[bank][s];
+      if (meta && !meta.cleanParams) snapshotCleanParamsAt(bank, s);
+    }
+  });
+
   renderPatchList();
   selectPatch(0);
+  // Arm patch-switch animations AFTER the initial paint, so the C1
+  // load doesn't visibly spin every knob from 0° to its real angle on
+  // app launch. After this frame, any subsequent patch switch will
+  // smoothly animate changed knobs to their new positions.
+  requestAnimationFrame(() => {
+    document.body.classList.add('controls-armed');
+  });
 }
 
 function setupHwButtons() {

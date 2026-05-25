@@ -618,6 +618,30 @@ body {
 }
 .patch-item.selected .patch-number { color: #c4dec0; }
 
+/* Modified-state indicator (2026-05-25). Small Roland-red dot between
+   the slot number and the patch name, present only when the slot's
+   current params differ from cleanParams (the baseline captured at last
+   library load / Record / Write / library snapshot save). Clicking the
+   dot opens a confirm modal to revert the slot to its baseline. */
+.patch-modified-dot {
+  background: transparent;
+  border: none;
+  padding: 0 4px 0 0;
+  margin: 0 -2px 0 -4px;
+  cursor: pointer;
+  color: #b94a2e;             /* Roland red */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: opacity 0.12s, transform 0.12s;
+  opacity: 0.85;
+}
+.patch-modified-dot:hover {
+  opacity: 1;
+  transform: scale(1.18);
+}
+
 .patch-name-span {
   color: var(--text-bright);
   white-space: nowrap;
@@ -629,10 +653,33 @@ body {
   color: #4a4a4a;
   font-style: italic;
 }
+/* Rename pencil — shown on EVERY entry (active C/D slots + library
+   rows) but ONLY when the user hovers the row. It IS the rename
+   trigger: click the pencil to open the inline name editor. Clicking
+   the name span itself just selects the row.
+
+   Pre-2026-05-25 behavior was: pencil only on unnamed entries; click
+   on name (anywhere) opened rename when row was already selected. That
+   was too easy to trigger accidentally during reorder/load actions.
+
+   Hidden via opacity:0 (not display:none) so the layout doesn't jump
+   when the row enters/leaves hover. Two specificity tiers: at-rest
+   (row hover) shows the pencil at 55%; direct cursor-over the pencil
+   itself brightens to 100% so the affordance reads as clickable. */
 .patch-rename-icon {
   vertical-align: -1px;
   margin-left: 4px;
-  opacity: 0.85;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.patch-item:hover    .patch-rename-icon,
+.package-item:hover  .patch-rename-icon {
+  opacity: 0.55;
+}
+.patch-item:hover    .patch-rename-icon:hover,
+.package-item:hover  .patch-rename-icon:hover {
+  opacity: 1;
 }
 .patch-item.selected .patch-name-span { color: #e8f0e4; }
 
@@ -673,7 +720,10 @@ body {
 /* Drag-and-drop reorder indicators. */
 .patch-item.dragging { opacity: 0.4; }
 .patch-item.drag-over {
-  box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
+  box-shadow: inset 0  2px 0 0 var(--green-sel-bdr);   /* insert ABOVE this row */
+}
+.patch-item.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 0 var(--green-sel-bdr);   /* insert BELOW this row */
 }
 /* Post-reorder destination flash — the row that received the moved patch
    gets a brief cream-tint wash so the user can see exactly where it
@@ -1416,7 +1466,9 @@ body {
 /* Inline "load" text button — sits just left of the trash icon, hidden
    until the user hovers the row. At rest (row hover only) it's faded
    like the trash icon; on direct cursor-over the button lights up with
-   solid cream bg + dark text for explicit affordance feedback. */
+   solid cream bg + dark text for explicit affordance feedback. Used on
+   Tone library rows (sequence rows use .package-info-btn instead since
+   the in-app sequence Load action was removed 2026-05-25). */
 .package-load-btn {
   position: absolute;
   top: 50%;
@@ -1443,6 +1495,33 @@ body {
   border-color: #1a1a1a;
 }
 
+/* Info icon on sequence rows — hover-revealed, sits just left of the
+   trash icon (same slot the LOAD button used to occupy). Click reveals
+   a modal with the paired-patch reference + any user notes + save date.
+   Same SVG / visual treatment as .patch-info-btn on active C/D slots so
+   the info affordance reads consistently across the app. */
+.package-info-btn {
+  position: absolute;
+  top: 50%;
+  right: 40px;
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--text-mid);
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+.package-item:hover .package-info-btn { display: inline-flex; }
+.package-info-btn:hover {
+  color: var(--text-bright);
+  background: rgba(247, 241, 230, 0.1);
+}
+
 /* Destructive — Roland red solid. Same brand-aligned treatment as
    confirm/alt above. Reserved for delete/remove/force-overwrite. */
 .modal-btn-danger {
@@ -1454,7 +1533,10 @@ body {
 .package-item.selected { background: var(--green-sel-bg); }
 .package-item.dragging { opacity: 0.4; }
 .package-item.drag-over {
-  box-shadow: inset 0 2px 0 0 var(--green-sel-bdr);
+  box-shadow: inset 0  2px 0 0 var(--green-sel-bdr);   /* insert ABOVE this row */
+}
+.package-item.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 0 var(--green-sel-bdr);   /* insert BELOW this row */
 }
 
 /* "Deleting" animation — fires when the user confirms a library delete.
@@ -1594,4 +1676,73 @@ body {
   width: 100%;
   height: auto;
   max-width: none;
+}
+
+/* Knob numeric value tooltip + edit overlay (2026-05-25).
+   Logic-style: hover a smooth knob to see its current uint8 value
+   (0–255) in a small floating tooltip. Double-click to swap the
+   tooltip for an editable input centered over the knob. Enter commits,
+   Esc / click-outside cancels, invalid input flashes red.
+   Both elements are absolute-positioned on body (translate(-50%) so
+   the click target's centerpoint becomes their anchor). */
+.knob-value-tooltip {
+  position: fixed;
+  transform: translate(-50%, -160%);   /* centered on knob center, lifted above */
+  background: rgba(26, 26, 26, 0.92);
+  color: #f7f1e6;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.knob-value-edit {
+  position: fixed;
+  transform: translate(-50%, -50%);    /* centered over knob */
+  width: 52px;
+  background: #f7f1e6;
+  color: #1a1a1a;
+  border: 1px solid #1a1a1a;
+  border-radius: 3px;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  padding: 4px 6px;
+  outline: none;
+  z-index: 10000;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+}
+.knob-value-edit:focus { border-color: #1a1a1a; }
+@keyframes knob-value-edit-invalid {
+  0%   { background: #f7f1e6; }
+  40%  { background: #f7c8b9; }   /* light Roland-red wash */
+  100% { background: #f7f1e6; }
+}
+.knob-value-edit.invalid {
+  animation: knob-value-edit-invalid 350ms ease-out;
+}
+
+/* Knob spin animation between patches (2026-05-25). When the user
+   switches to a different patch, each knob whose value changed smoothly
+   rotates to its new angle over 300 ms. Knobs whose value matches the
+   prior patch don't animate (no transform change = no transition).
+   Two guards:
+     - body.controls-armed (added after init's first selectPatch paint)
+       prevents the C1-on-launch render from spinning every knob from 0°.
+     - body.knob-dragging (added during active mousedown→mouseup on a
+       knob) suppresses the transition so the knob tracks the cursor 1:1
+       instead of lagging behind.
+   Honors prefers-reduced-motion so users who've opted out of motion in
+   macOS get the snap-to-value behavior we had before. */
+@media (prefers-reduced-motion: no-preference) {
+  body.controls-armed g.knob[data-param] {
+    transition: transform 300ms ease-out;
+  }
+  body.controls-armed.knob-dragging g.knob[data-param] {
+    transition: none;
+  }
 }
