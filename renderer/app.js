@@ -667,10 +667,24 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
     tertiaryLabel: 'Recalibrate',
     tertiaryStyle: 'alt',
     onTertiary: () => {
+      // Capture the prior gain BEFORE clearing it so we can hand it
+      // forward to the new calibration session as the starting slider
+      // position. Otherwise calibration always opens at 1.0× — which
+      // for the JX-3P's TAPE OUT means the meter looks barely alive
+      // (the whole reason we calibrated to ~13× in the first place is
+      // that unity gain on this hardware is too quiet to read), and
+      // the user has to manually dial gain back up before pass 1 has
+      // anything useful to measure. The calibration math
+      // (newGain = currentGain * TARGET / measurePeak) works from any
+      // starting position, so seeding from the prior gain is purely a
+      // UX improvement — it lets pass 1 land near-target on the first
+      // try instead of requiring the user to re-find the ballpark.
+      const priorCal  = deviceId ? getCalibratedGain(deviceId) : null;
+      const priorGain = priorCal ? priorCal.gain : null;
       if (deviceId) clearCalibratedGain(deviceId);
-      // Re-open in two-pass calibration mode (saved gain cleared).
       showRecordFromJxModal({
         kind,
+        initialGain: priorGain,
         onCaptured: async (tempWavPath, deviceInfo) => {
           if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
           else                     await applyToneCapture(tempWavPath, deviceInfo);
@@ -4262,7 +4276,13 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
   document.addEventListener('keydown', onKey);
 }
 
-async function showRecordFromJxModal({ kind, onCaptured }) {
+// initialGain (optional): seed the gain slider with this value when
+// entering calibration mode (no saved cal exists). Used by the
+// Recalibrate flow to preserve the user's prior calibrated gain as
+// the starting point, instead of resetting to 1.0× and forcing them
+// to manually re-find the ballpark. Ignored when a saved calibration
+// exists for the selected device (capture mode uses cal.gain directly).
+async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
@@ -4609,46 +4629,181 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
   let captured = [];                // Float32Array chunks accumulated during onaudioprocess
   let fskPeak  = 0;                 // max peak observed AFTER FSK start; populated by tickMeter, read by stopRecording for calibration
   let totalSignalMs = 0;            // cumulative time peak > SIGNAL_THRESHOLD_LIVE; modal-scoped so the calibration auto-stop can read it without requiring silence→signal detection
+  let runningPeak = 0;              // running max of LIVE meter peaks; modal-scoped so the post-capture onCaptured handoff can pass capturePeak to the recalibrate flow. (Was previously declared inside startRecording, which made it invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError after the modal had already closed, leaving no save-sequence prompt and no error UI. Fixed 2026-05-25.)
   let levelRaf = null;
   let elapsedTimer = null;
 
-  const close = () => { stopCapture(); overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const close = () => {
+    stopCapture();
+    navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
   const onKey = (e) => { if (e.key === 'Escape' && state !== 'processing') close(); };
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('click', (e) => { if (e.target === overlay && state !== 'processing') close(); });
   cancelBtn.addEventListener('click', close);
 
-  // Populate device list. We need a one-shot permission grant first to get
-  // human-readable device labels; without it, enumerateDevices() returns
-  // anonymized entries like "Audio Input (default)" with no real name.
-  try {
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-    probe.getTracks().forEach((t) => t.stop());
-  } catch (err) {
-    // Permission denied or no devices — surface the error but still let the
-    // user try Record later (a fresh permission prompt may appear).
-    statusText.textContent = `Mic permission: ${err.name}. ${err.message}`;
-  }
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const inputs  = devices.filter((d) => d.kind === 'audioinput');
-    inputs.forEach((d, i) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Audio Input ${i + 1}`;
-      devicePicker.appendChild(opt);
-    });
-    if (!inputs.length) {
-      const opt = document.createElement('option');
-      opt.textContent = '(no audio inputs found)';
-      opt.disabled = true;
-      devicePicker.appendChild(opt);
-      recordBtn.disabled = true;
+  // Inline notice anchored to the device picker. Hidden by default;
+  // surfaced when the audio-device list changes mid-session (USB
+  // hot-plug, power-cycle of an interface, sample-rate change) and
+  // the picker had to update. Anchored here — not at statusText — so
+  // the user's eye lands directly next to the dropdown that needs
+  // re-verification.
+  const deviceNotice = document.createElement('div');
+  deviceNotice.className = 'record-jx-device-notice';
+  deviceNotice.hidden = true;
+  deviceSection.appendChild(deviceNotice);
+  let deviceNoticeTimer = null;
+  const showDeviceNotice = (msg) => {
+    deviceNotice.textContent = msg;
+    deviceNotice.hidden = false;
+    clearTimeout(deviceNoticeTimer);
+    // Auto-fade after 10 s — long enough to read + glance up at the
+    // picker, short enough not to linger after acknowledgement.
+    deviceNoticeTimer = setTimeout(() => { deviceNotice.hidden = true; }, 10000);
+  };
+
+  // Populate (or repopulate) the input-device picker. We need a
+  // one-shot permission grant on the first call to get human-readable
+  // device labels — without it, enumerateDevices() returns anonymized
+  // entries like "Audio Input (default)" with no real name. The
+  // probe-grant persists for the modal's lifetime, so subsequent
+  // calls (fired from the devicechange handler) skip it.
+  //
+  // Returns metadata about what changed so callers can decide whether
+  // to surface a notice and/or restart an in-flight capture:
+  //   - initial:     was this the first populate?
+  //   - hadPrior:    was a deviceId selected before the refresh?
+  //   - restored:    did we successfully restore that prior selection?
+  //   - devicesGone: did enumerate fail or return zero inputs?
+  let probeDone = false;
+  const refreshDeviceList = async ({ initial = false } = {}) => {
+    if (initial && !probeDone) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        probe.getTracks().forEach((t) => t.stop());
+        probeDone = true;
+      } catch (err) {
+        // Permission denied or no devices — surface the error but still
+        // let the user try Record later (a fresh permission prompt may
+        // appear on the next click).
+        statusText.textContent = `Mic permission: ${err.name}. ${err.message}`;
+      }
     }
-  } catch (err) {
-    statusText.textContent = `Couldn't list audio devices: ${err.message}`;
-    recordBtn.disabled = true;
-  }
+    const priorId    = devicePicker.value || null;
+    const priorLabel = priorId && devicePicker.options[devicePicker.selectedIndex]
+                       ? devicePicker.options[devicePicker.selectedIndex].textContent
+                       : null;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs  = devices.filter((d) => d.kind === 'audioinput');
+      devicePicker.innerHTML = '';
+      inputs.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Audio Input ${i + 1}`;
+        devicePicker.appendChild(opt);
+      });
+      if (!inputs.length) {
+        const opt = document.createElement('option');
+        opt.textContent = '(no audio inputs found)';
+        opt.disabled = true;
+        devicePicker.appendChild(opt);
+        // No input device → no point letting the user click Stop on a
+        // capture that never started. (This modal has no separate Record
+        // button; it opens already capturing, so stopBtn is the only
+        // capture-control affordance.)
+        stopBtn.disabled = true;
+        return { initial, hadPrior: !!priorId, restored: false, devicesGone: true };
+      }
+      // Try to restore the prior selection. Match by deviceId first,
+      // then by label — Chromium often re-assigns deviceIds when a USB
+      // device is unplugged + replugged, but the device label (e.g.
+      // "KT USB Audio (31b2:2024)") stays stable, so the label-match
+      // fallback recovers from that case without bothering the user.
+      let restored = false;
+      if (priorId) {
+        if ([...devicePicker.options].some((o) => o.value === priorId)) {
+          devicePicker.value = priorId;
+          restored = true;
+        } else if (priorLabel) {
+          const byLabel = [...devicePicker.options].find((o) => o.textContent === priorLabel);
+          if (byLabel) {
+            devicePicker.value = byLabel.value;
+            restored = true;
+          }
+        }
+      }
+      return { initial, hadPrior: !!priorId, restored, devicesGone: false };
+    } catch (err) {
+      if (initial) statusText.textContent = `Couldn't list audio devices: ${err.message}`;
+      stopBtn.disabled = true;   // see comment above on stopBtn vs (non-existent) recordBtn
+      return { initial, hadPrior: !!priorId, restored: false, devicesGone: true };
+    }
+  };
+  await refreshDeviceList({ initial: true });
+
+  // Hot-plug / unplug handler. macOS + Chromium fire `devicechange`
+  // when audio devices are added, removed, or change session ID (USB
+  // power-cycle counts as the last). Without this, the picker held
+  // stale deviceIds across hardware events: subsequent getUserMedia
+  // calls would either silently return a dead stream or throw
+  // OverconstrainedError, manifesting as "no audio detected" with no
+  // hint about why.
+  //
+  // Behavior: re-enumerate; surface an inline notice next to the
+  // picker reflecting what changed; if a capture is currently running,
+  // tear it down + restart against the (possibly new) selection so the
+  // level meter recovers without user action.
+  const onDeviceChange = async () => {
+    const result = await refreshDeviceList({ initial: false });
+
+    // CRITICAL: Chromium emits `devicechange` for a LOT of reasons —
+    // not just true hot-plug. It also fires when getUserMedia switches
+    // a device's sample rate, when macOS power-cycles a USB interface
+    // for its own reasons (CoreAudio sleep/wake), and when the system
+    // default output changes. If we naïvely tear down + restart an
+    // in-flight capture on every devicechange, we DROP the user's PCM
+    // buffer mid-dump — and since the JX-3P's tape transmission is
+    // one-shot (you have to press Save again to retry), this looks to
+    // the user like the capture inexplicably failed. Decode also fails:
+    // the new capture starts in the middle of the FSK with no leading
+    // silence, so the silence→signal trim has nothing to anchor on.
+    //
+    // Therefore: only act if something MATERIAL changed. If the user's
+    // selected device is still in the list (restored === true), the
+    // current capture is fine — do nothing.
+    if (result.restored && !result.devicesGone) {
+      // Spurious devicechange (or unrelated device added/removed) —
+      // selected device still there. No notice, no capture restart.
+      return;
+    }
+
+    if (result.devicesGone) {
+      showDeviceNotice('⚠ Audio device disconnected. Reconnect it or pick a different INPUT DEVICE above.');
+    } else if (result.hadPrior && !result.restored) {
+      showDeviceNotice('Audio device changed — INPUT DEVICE was reset. Verify your selection above before pressing Save on the JX-3P.');
+    } else {
+      // Device list changed but we had no prior selection (first-time
+      // user, hadn't clicked the picker yet). Mild informational.
+      showDeviceNotice('Audio device list updated.');
+    }
+
+    if (state === 'recording') {
+      // Reach here only if the selected device is GONE — the in-flight
+      // capture is dead anyway, so restart against whatever fell back
+      // in. User will need to press Save on the JX again.
+      stopCapture();
+      configureForCurrentDevice();
+      await startRecording();
+    } else {
+      // Not capturing yet — still re-read calibration for the (possibly
+      // changed) selection so the gain text + warnings reflect reality.
+      configureForCurrentDevice();
+    }
+  };
+  navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
 
   // Decide first-time-calibration vs single-pass based on whether this device
   // has a saved calibrated gain in library.json. Called now (initial open) and
@@ -4696,12 +4851,22 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
         `<p style="margin: 6px 0 0; color: var(--text-mid); font-size: 12px;">Capture finishes automatically when the JX dump completes (~30 s). Click <b>Cancel</b> to abort if no audio is being received. The level shown reflects your saved calibration (${formatGain(cal.gain)} gain) for this device.</p>`;
     } else {
       isCalibrating = true;
-      // First-time: start at unity gain. Calibration will measure and set the
-      // multiplier post-pass-1 so pass 2 captures at the right level.
-      gainSlider.value = '20';
-      gainValueLabel.textContent = '1.0×';
-      if (gainNode) gainNode.gain.value = 1.0;
-      gainKnob.setGain(1.0);
+      // Pick the starting gain for pass 1:
+      //   - If the caller supplied initialGain (Recalibrate flow handing
+      //     forward the prior calibrated value), use it so the meter
+      //     opens at the level the user is accustomed to.
+      //   - Otherwise (genuine first-time calibration on a never-seen
+      //     device), default to 1.0× — a known baseline.
+      // Either way, the calibration math (newGain = currentGain * TARGET
+      // / measurePeak) computes the correct new gain from the measured
+      // peak; the starting position is purely a UX seed.
+      const startGain = (typeof initialGain === 'number' && initialGain > 0)
+        ? initialGain
+        : 1.0;
+      gainSlider.value = String(gainToSlider(startGain));
+      gainValueLabel.textContent = formatGain(startGain);
+      if (gainNode) gainNode.gain.value = startGain;
+      gainKnob.setGain(startGain);
       h.textContent = 'Step 1 of 2: Calibrate volume';
       // Calibration layout: show the cal-row with BOTH columns (gain knob
       // + level meter). Remove .capture-mode so the .cal-gain-col CSS rule
@@ -4876,7 +5041,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
     let activeMs     = 0;         // accumulated time inside FSK transmission
     totalSignalMs    = 0;         // reset between record sessions (modal-scoped)
     let lastTickMs   = null;
-    let runningPeak  = 0;
+    runningPeak  = 0;             // reset between record sessions (modal-scoped — see declaration at top of showRecordFromJxModal)
     fskPeak = 0;                  // reset between record sessions (modal-scoped)
     // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
     // the arrow's .pulsing class flips off the instant peak dips below

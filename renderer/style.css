@@ -328,6 +328,21 @@ body {
   min-height: 0;
   padding: 4px 0;
   position: relative;  /* containing block for cross-bank swap ghost */
+  /* Bank tabs render exactly 16 .patch-item rows. Make the list a flex
+     column so those rows can grow to fill the column when the window
+     is tall enough — C16 / D16 land flush at the bottom instead of
+     leaving dead space. .package-item (Library + Sequences) doesn't
+     get the flex treatment, so those lists keep their natural row
+     heights and scroll normally. */
+  display: flex;
+  flex-direction: column;
+}
+/* Equal-stretch only for active-bank rows; never shrink below the
+   natural 22px row height, so on short windows overflow-y still kicks
+   in and you can scroll. */
+#patch-list > .patch-item {
+  flex: 1 1 0;
+  min-height: 22px;
 }
 /* Highlight while a file is being dragged from the desktop into the list. */
 #patch-list.drop-target {
@@ -1318,6 +1333,26 @@ body {
   padding-right: 30px;     /* small inset so the text doesn't kiss the modal's right edge */
   min-height: 1.2em;       /* reserve a line so the layout doesn't jump on populate/clear */
 }
+
+/* Inline device-change notice anchored to the INPUT DEVICE picker.
+   Surfaced when the audio-device list changes mid-session (USB
+   hot-plug, interface power-cycle) so the user sees the alert
+   directly next to the dropdown that needs re-verification rather
+   than buried in the general status text. Same amber as the no-audio
+   warnings (#c39a3a) so the visual signal reads as "heads up, not an
+   error". 10 s auto-fade — long enough to read + glance up at the
+   picker, short enough not to linger. */
+.record-jx-device-notice {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #c39a3a;
+  background: rgba(195, 154, 58, 0.10);
+  border-left: 2px solid #c39a3a;
+  border-radius: 2px;
+}
+.record-jx-device-notice[hidden] { display: none; }
 
 /* ───────────────────────────────────────────────────────────────────────
    Button-name hint pill
