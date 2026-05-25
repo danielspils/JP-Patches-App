@@ -22,6 +22,7 @@
         <button class="lib-sub-tab active" data-libtab="tones">Tones</button>
         <button class="lib-sub-tab"        data-libtab="sequences">Sequences</button>
       </div>
+      <div id="active-source-label" hidden></div>
       <div id="patch-list"></div>
       <div id="bottom-actions"></div>
     </aside>
@@ -64,6 +65,10 @@
           </div>
         </div>
       </div>
+      <div id="hw-tape-caption">
+        These buttons move banks C/D and sequences<br>
+        between the JP Patches app and JX-3P synth
+      </div>
     </div>
   </div>
 
@@ -76,6 +81,7 @@
          centered "Create Custom Banks" key when closed; expands into a
          shared action bar + a 4x8 grid (C bank as cols 1-2, D bank as
          cols 3-4) on a red background when open. -->
+    <div id="sequence-visualizer" hidden></div>
     <div id="custom-builder">
       <button id="custom-builder-toggle" class="jx3p-key">Create Custom Banks</button>
       <div id="cb-actions">

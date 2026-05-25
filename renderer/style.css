@@ -126,6 +126,20 @@ body {
   gap: 0;
 }
 
+/* Explanatory caption under the Tape Memory button grid — orients
+   first-time users to what these buttons actually do. Small italic
+   cream-secondary text, centered, with a touch of top padding so it
+   reads as caption-on-the-section rather than crowding the buttons. */
+#hw-tape-caption {
+  padding: 14px 12px 6px;
+  color: var(--text-mid);
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .hw-section {
   flex: 1;
   display: flex;
@@ -265,6 +279,28 @@ body {
 }
 #lib-sub-tabs[hidden] { display: none; }
 
+/* Active library context — compact italic subtitle showing which
+   library package currently sources the active C/D banks (e.g.
+   "Spils Sounds"). Sits between the bank tabs and the patch list when
+   relevant. Hidden on the Library tab and when active C/D has no
+   library origin (seed / Record-from-JX / drag-drop WAV with no
+   sourceLabel). Sized tight so it doesn't push C16 below the window
+   fold — every extra row of vertical chrome here forces scroll. */
+#active-source-label {
+  padding: 2px 12px 3px;
+  color: var(--text-mid);
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.3;
+  background: #000;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#active-source-label[hidden] { display: none; }
+
 .lib-sub-tab {
   flex: 1;
   padding: 6px 4px;
@@ -339,6 +375,147 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+#custom-builder[hidden] { display: none; }
+
+/* Sequence visualizer — read-only piano-roll view that takes over the
+   below-panel space when the user is on Library → Sequences with a
+   row selected. Shares the same flex slot as #custom-builder; only
+   one is visible at a time (see renderCustomBuilder for the hand-off).
+   Header + SVG + page labels stacked vertically. */
+#sequence-visualizer {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  background: #0a0a0a;
+  border-top: 1px solid #1f1f1f;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 6px;
+  color: var(--text-bright);
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+}
+#sequence-visualizer[hidden] { display: none; }
+.seq-viz-header {
+  font-size: 12px;
+  color: var(--text-mid);
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+.seq-viz-name { color: var(--text-bright); font-weight: 600; }
+.seq-viz-paired { color: var(--text-bright); font-style: italic; }
+/* Container for the keyboard column + roll. Flex row so they share
+   the same vertical extent — pitch rows in the keyboard align with
+   pitch rows in the roll because both SVGs render with the same
+   viewBox height + preserveAspectRatio="none". */
+.seq-viz-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: 0;
+  border: 1px solid #1f1f1f;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+/* Piano keyboard column — vertical strip showing the 49 keys (C2–C6
+   in standard MIDI; matches the JX-3P keyboard span). Fixed pixel
+   width so the keyboard doesn't shrink/grow with zoom level. */
+.seq-viz-keyboard {
+  flex: 0 0 40px;
+  height: 100%;
+  background: #050505;
+  border-right: 1px solid #1f1f1f;
+}
+
+.seq-viz-svg {
+  flex: 1;
+  height: 100%;
+  background: #050505;
+  min-width: 0;
+}
+
+/* Piano key hover — subtle lightening on the white and black keys
+   gives visual feedback that the key is interactive. The shared
+   hover tooltip (see .seq-viz-hover-tip below) then surfaces the
+   exact pitch name (e.g. "C3", "F#4") as the cursor moves. We can't
+   use CSS to set cursor on SVG <rect> children reliably across
+   engines via the parent, so the cursor hint goes on the keys
+   themselves. */
+.seq-viz-key {
+  transition: fill 0.08s ease-out;
+  cursor: pointer;
+}
+.seq-viz-key-white:hover { fill: #e6dfcd; }
+.seq-viz-key-black:hover { fill: #2d2d2d; }
+
+/* Hover tooltip — small floating chip showing the pitch name (e.g.
+   "C4", "F#3") at the cursor's vertical position as it moves over the
+   piano roll. Position: fixed (anchored to viewport so the position
+   math matches clientX/clientY). pointer-events: none so it doesn't
+   interfere with mousemove tracking. */
+.seq-viz-hover-tip {
+  position: fixed;
+  background: rgba(26, 26, 26, 0.92);
+  color: #f7f1e6;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.seq-viz-hover-tip[hidden] { display: none; }
+/* Page selector — clickable buttons below the piano roll.
+   "ALL" + 8 page buttons. Active button has cream-on-Roland-green
+   treatment matching the active Library sub-tab. Click an inactive
+   button to zoom into that page; click the active button (or ALL when
+   already on ALL) to return to the all-pages overview. */
+.seq-viz-pages {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+.seq-viz-page-btn {
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-mid);
+  border: 1px solid #2c2c2c;
+  border-radius: 2px;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.seq-viz-page-btn:hover {
+  background: #1c1c1c;
+  color: var(--text-bright);
+  border-color: #444;
+}
+.seq-viz-page-btn.active {
+  background: #1f6e5b;      /* Roland green — single-page focus (1–8) */
+  color: #f7f1e6;
+  border-color: #1f6e5b;
+}
+.seq-viz-page-btn.active:hover { background: #2a8870; border-color: #2a8870; }
+/* ALL button uses Roland blue when active — distinguishes the "overview"
+   choice from the per-page focus buttons. Mirrors the Library sub-tab
+   convention (Sequences = blue, Tones = green). */
+.seq-viz-page-btn[data-page="all"].active {
+  background: #33508f;
+  border-color: #33508f;
+}
+.seq-viz-page-btn[data-page="all"].active:hover {
+  background: #4264a8;
+  border-color: #4264a8;
 }
 
 /* Closed state — show only the centered toggle key. */
@@ -577,9 +754,9 @@ body {
 .patch-item {
   display: flex;
   align-items: center;
-  padding: 4px 16px;
+  padding: 3px 16px;
   cursor: pointer;
-  gap: 6px;
+  gap: 4px;
   font-size: 13px;
   line-height: 1.2;
 }
@@ -764,8 +941,8 @@ body {
 
 .save-banks-btn {
   display: block;
-  margin: 4px 12px;
-  padding: 6px 12px;
+  margin: 2px 12px;
+  padding: 4px 12px;
   width: calc(100% - 24px);
   background: #f7f1e6;
   border: none;

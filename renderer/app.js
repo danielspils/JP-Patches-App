@@ -129,6 +129,7 @@ let selectedRange = null;
 let rangeAnchor = { bank: 'C', slot: 0 };
 let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
+let selSeqVizPage = null;  // null = show all 8 pages overview; 0–7 = zoom into one page
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
 // pkg.id of a freshly-saved library package that should animate into the list
 // on the next render. Cleared once the row is created. NOTE: live above any
@@ -1330,7 +1331,8 @@ function handleSwitchClick(body) {
     patch[param] = spec.vals[(i + 1) % spec.vals.length];
   }
   updateSwitches(patch);
-  renderPatchList();   // refresh the modified-indicator dot for this slot
+  renderPatchList();        // refresh the modified-indicator dot for this slot
+  saveLibraryDebounced();   // persist active state — see saveLibraryDebounced comment
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1431,7 +1433,8 @@ function setupInteraction(svg) {
         const nextIdx = curIdx < 0 ? 0 : (curIdx + 1) % cycle.length;
         patch[param] = cycle[nextIdx];
         updateKnobs(patch);
-        renderPatchList();   // refresh the modified-indicator dot
+        renderPatchList();        // refresh the modified-indicator dot
+        saveLibraryDebounced();   // persist active state across restarts
       } else {
         // SMOOTH: drag up/down, 1° per 1px
         const knob = svg.querySelector(`g.knob[data-param="${param}"]`);
@@ -1472,8 +1475,9 @@ function setupInteraction(svg) {
       const patch = currentPatch();
       if (patch) {
         patch[dragState.param] = value;
-        updateKnobs(patch);   // snaps discrete knobs to nearest position
-        renderPatchList();    // refresh the modified-indicator dot
+        updateKnobs(patch);     // snaps discrete knobs to nearest position
+        renderPatchList();      // refresh the modified-indicator dot
+        saveLibraryDebounced(); // persist active state across restarts
       }
       dragState = null;
       document.body.classList.remove('knob-dragging');
@@ -1621,7 +1625,8 @@ function setupInteraction(svg) {
       if (Number.isFinite(n) && n >= 0 && n <= 100) {
         patch[param] = displayToUint8(n);
         updateKnobs(patch);
-        renderPatchList();          // refresh modified-indicator
+        renderPatchList();        // refresh modified-indicator
+        saveLibraryDebounced();   // persist active state across restarts
         closeEditInput();
         return true;
       }
@@ -1722,6 +1727,7 @@ function renderPatchList() {
   const list = document.getElementById('patch-list');
   const actions = document.getElementById('bottom-actions');
   const subTabs = document.getElementById('lib-sub-tabs');
+  const sourceLabel = document.getElementById('active-source-label');
   list.innerHTML = '';
   actions.innerHTML = '';
   updateTapeButtonStates();
@@ -1733,6 +1739,7 @@ function renderPatchList() {
         t.classList.toggle('active', t.dataset.libtab === selLibTab);
       });
     }
+    if (sourceLabel) sourceLabel.hidden = true;     // not relevant on Library tab
     if (selLibTab === 'sequences') {
       renderSequencesList(list);
       renderSequencesActions(actions);
@@ -1744,6 +1751,20 @@ function renderPatchList() {
   }
 
   if (subTabs) subTabs.hidden = true;
+
+  // Active library context — shows the name of the most-recently-loaded
+  // library package that currently sources the active C/D banks (e.g.
+  // "Spils Sounds"). Hidden when active banks were assembled from
+  // scratch (seed, Record-from-JX, drag-drop WAV) and have no library
+  // origin. Visible only on Bank C / Bank D tabs.
+  if (sourceLabel) {
+    if (activeBanksSourceLabel) {
+      sourceLabel.textContent = activeBanksSourceLabel;
+      sourceLabel.hidden = false;
+    } else {
+      sourceLabel.hidden = true;
+    }
+  }
 
   // First-run / no-patches-loaded empty state. The user can populate this by
   // importing a JX-3P tape dump WAV (or a previously-exported JSON) via
@@ -2665,7 +2686,9 @@ function renderSequencesList(list) {
         return;
       }
       selSequence = idx;
+      selSeqVizPage = null;     // reset zoom when switching sequences
       renderPatchList();
+      renderCustomBuilder();    // refresh the visualizer for the newly-selected sequence
     });
     inp.addEventListener('keydown', (e) => {
       if (e.key === 'Enter')  commitSequenceNameEdit(idx, nm, def, inp);
@@ -3042,6 +3065,7 @@ function setupLibSubTabs() {
       if (next === 'tones')     selSequence = null;
       else if (next === 'sequences') selPackage  = null;
       renderPatchList();
+      renderCustomBuilder();   // refresh visualizer / builder visibility
     });
   });
 }
@@ -3117,6 +3141,7 @@ function doWriteTo(destBank, destSlot) {
   // Write IS the user committing a new clean state to the destination
   // slot — update its baseline so the modified-indicator reads "clean."
   snapshotCleanParamsAt(destBank, destSlot);
+  saveLibraryDebounced();   // persist active state across restarts
   writePending = false;
   lightButton('write', false);
   // Navigate to the destination so the user sees the result.
@@ -3184,7 +3209,20 @@ function cancelListEdit(nm, inp) {
 
 function saveLibraryDebounced() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => window.api.saveLibrary(library), 500);
+  saveTimer = setTimeout(() => {
+    // Persist active C/D banks alongside the library (2026-05-25). The
+    // legacy ~/Desktop/patches.json path is read-only at boot; without
+    // this, patches.banks would silently revert to the seed on every
+    // restart, leaving cleanParams pointing at the LAST library load —
+    // which then shows all 32 slots as "modified" because current (seed)
+    // ≠ clean (last library load). Storing active state on every
+    // mutation flushes that mismatch and gives the user cross-session
+    // edit memory as a bonus.
+    if (patches && Array.isArray(patches.banks)) {
+      library.activePatches = patches.banks;
+    }
+    window.api.saveLibrary(library);
+  }, 500);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3402,6 +3440,7 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
   });
   // Fresh capture / import = fresh clean baseline for modified-indicator.
   snapshotCleanParamsAll();
+  saveLibraryDebounced();   // persist new active state + slotMeta + clean baseline
 }
 
 // Each Tape Memory button is wired through setupHwButtons → handleTape*Save/
@@ -5512,6 +5551,353 @@ function sequenceDefaultName(date) {
 // "save C/D banks to library" but with default name "Custom C/D banks {date}"
 // and empty slots padded with a silent default patch.
 
+// Read-only piano-roll visualization of the selected Library sequence
+// (2026-05-25). Renders below the panel SVG, sharing the custom-bank
+// builder's screen real-estate (whichever is appropriate wins — see
+// renderCustomBuilder's onSeqsWithSel hand-off).
+//
+// Layout: SVG with viewBox 16N × 49 where N is # pages in view (8 in
+// the all-pages overview, 1 when zoomed into a single page).
+//   - X axis: 16 steps per page, divider lines every 16 (only visible
+//     in the all-pages view)
+//   - Y axis: 49 rows (MIDI pitches 36–84, JX-3P keyboard range), high
+//     pitches at top
+//   - Each populated voice slot at (step, pitch) renders as a Roland-
+//     green block. Tied notes (voice.tied === true) render at 55 %
+//     opacity to distinguish from new note attacks.
+//
+// Page buttons below the SVG let the user zoom into one 16-step page
+// (much larger note cells, easier to read) or back out to ALL.
+// `preserveAspectRatio="none"` so the SVG stretches to fill its host
+// — container CSS decides the rendered aspect ratio.
+function renderSequenceVisualizer() {
+  const container = document.getElementById('sequence-visualizer');
+  if (!container) return;
+  if (selBank !== 'L' || selLibTab !== 'sequences' || selSequence === null) {
+    container.hidden = true;
+    return;
+  }
+  const seq = library.sequences && library.sequences[selSequence];
+  if (!seq) { container.hidden = true; return; }
+
+  const PAGES           = 8;
+  const STEPS_PER_PAGE  = 16;
+  const TOTAL_STEPS     = PAGES * STEPS_PER_PAGE;     // 128
+  const LOW_PITCH       = 36;                          // C2
+  const HIGH_PITCH      = 84;                          // C6
+  const PITCH_RANGE     = HIGH_PITCH - LOW_PITCH + 1;  // 49
+
+  // Brand-triad encoding (2026-05-25):
+  //   - New note attack    → Roland red    #b94a2e (primary event)
+  //   - Tied note (hold)   → Roland green  #1f6e5b (continuation)
+  //   - Rest (silent step) → Roland blue   #33508f (absence indicator,
+  //     drawn as a full-column tint at low opacity so it reads as
+  //     "this step is silent" without competing with note bars)
+  const NEW_NOTE_COLOR  = '#b94a2e';
+  const HOLD_NOTE_COLOR = '#1f6e5b';
+  const REST_COLOR      = '#33508f';
+
+  const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+  const populatedCount = pages.filter((p) => p !== null && p !== undefined).length;
+
+  const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
+  const pp = (seq.app && seq.app.pairedPatch) || {};
+  const pairedRef = pp.bank
+    ? `${pp.bank}${(pp.slot || 0) + 1}: ${pp.patchName || '(unnamed)'}`
+    : 'no paired patch';
+
+  // Determine viewBox: zoomed into one page (offset = pageIdx * 16)
+  // or showing all pages (offset = 0, width = 128).
+  const zoomedPage = (selSeqVizPage !== null && selSeqVizPage >= 0 && selSeqVizPage < PAGES)
+    ? selSeqVizPage : null;
+  const viewBoxX     = zoomedPage !== null ? zoomedPage * STEPS_PER_PAGE : 0;
+  const viewBoxWidth = zoomedPage !== null ? STEPS_PER_PAGE : TOTAL_STEPS;
+
+  // Build the SVG content. Background grid lines first, notes on top.
+  const svgParts = [];
+
+  // Page divider lines (only meaningful in all-pages view — not visible
+  // in zoom since the viewBox excludes them anyway)
+  if (zoomedPage === null) {
+    for (let p = 1; p < PAGES; p++) {
+      const x = p * STEPS_PER_PAGE;
+      svgParts.push(`<line x1="${x}" y1="0" x2="${x}" y2="${PITCH_RANGE}" stroke="#222" stroke-width="0.08"/>`);
+    }
+  }
+  // Per-step verticals in the zoomed view — gives a sense of "16 steps"
+  // when only one page is visible.
+  if (zoomedPage !== null) {
+    for (let s = 1; s < STEPS_PER_PAGE; s++) {
+      const x = viewBoxX + s;
+      svgParts.push(`<line x1="${x}" y1="0" x2="${x}" y2="${PITCH_RANGE}" stroke="#161616" stroke-width="0.02"/>`);
+    }
+  }
+  // Horizontal lines at each C (visual pitch anchor — C2, C3, C4, C5, C6)
+  for (let pitch = 36; pitch <= 84; pitch += 12) {
+    const y = HIGH_PITCH - pitch;
+    svgParts.push(`<line x1="${viewBoxX}" y1="${y + 0.5}" x2="${viewBoxX + viewBoxWidth}" y2="${y + 0.5}" stroke="#1c1c1c" stroke-width="0.04"/>`);
+  }
+
+  // Pass 1 — rest indicators (low layer, drawn before notes).
+  // A "rest" is a step where every voice slot is empty. Null pages
+  // (user never reached/programmed them) are treated as 16 rests.
+  // Rendered as a faint full-height blue column so it reads as
+  // "silent step" without overwhelming the notes themselves.
+  for (let pageIdx = 0; pageIdx < PAGES; pageIdx++) {
+    if (zoomedPage !== null && pageIdx !== zoomedPage) continue;
+    const page = pages[pageIdx];
+    for (let s = 0; s < STEPS_PER_PAGE; s++) {
+      const absStep = pageIdx * STEPS_PER_PAGE + s;
+      let isRest;
+      if (!page) {
+        isRest = true;   // entire page absent = all rests
+      } else {
+        const step = page[s];
+        isRest = !step || !Array.isArray(step.voices) || !step.voices.some((v) => v != null);
+      }
+      if (isRest) {
+        svgParts.push(
+          `<rect x="${absStep}" y="0" width="1" height="${PITCH_RANGE}" ` +
+          `fill="${REST_COLOR}" opacity="0.18"/>`
+        );
+      }
+    }
+  }
+
+  // Pass 2 — notes (filtered to visible page range when zoomed —
+  // small perf win and avoids off-canvas geometry for pathological
+  // out-of-range pitches).
+  pages.forEach((page, pageIdx) => {
+    if (!page) return;
+    if (zoomedPage !== null && pageIdx !== zoomedPage) return;
+    page.forEach((step, stepIdx) => {
+      if (!step || !Array.isArray(step.voices)) return;
+      const absStep = pageIdx * STEPS_PER_PAGE + stepIdx;
+      step.voices.forEach((voice) => {
+        if (!voice || typeof voice.note !== 'number') return;
+        const pitch = voice.note;
+        if (pitch < LOW_PITCH || pitch > HIGH_PITCH) return;
+        const y = HIGH_PITCH - pitch;
+        // Color encodes attack-vs-hold; full opacity for both so the
+        // hold doesn't read as a faded attack — it's its own thing.
+        const color = voice.tied ? HOLD_NOTE_COLOR : NEW_NOTE_COLOR;
+        svgParts.push(
+          `<rect x="${absStep}" y="${y}" width="1" height="1" ` +
+          `fill="${color}" rx="0.15"/>`
+        );
+      });
+    });
+  });
+
+  // Page selector buttons. "ALL" + 1–8. Active button = currently
+  // viewed (or all-view). Click an inactive page to zoom; click the
+  // active page (or ALL) to reset.
+  const pageBtns = ['<button class="seq-viz-page-btn' +
+                    (zoomedPage === null ? ' active' : '') +
+                    '" data-page="all">ALL</button>'];
+  for (let i = 0; i < PAGES; i++) {
+    const isActive = zoomedPage === i;
+    const cls = 'seq-viz-page-btn' + (isActive ? ' active' : '');
+    pageBtns.push(`<button class="${cls}" data-page="${i}">${i + 1}</button>`);
+  }
+
+  // Piano keyboard column with realistic piano proportions:
+  //   - 7 white keys per octave, each equal vertical height
+  //   - 5 black keys per octave, narrower horizontally (~65 %) AND
+  //     shorter vertically (~70 %), centered on the boundary between
+  //     the two white keys they sit between
+  // Uses a separate viewBox sized in WHITE-KEY units (29 total = 4
+  // octaves × 7 + 1 for the top C), not semitones. The roll keeps
+  // its 49-semitone grid; both SVGs share the same flex height so
+  // they occupy the same vertical space. Pitch alignment between
+  // roll-row and keyboard-key is approximate (linear-in-semitones
+  // vs linear-in-white-keys diverge slightly per row); user reads
+  // exact pitch from the hover tooltip.
+  const KBD_WIDTH         = 6;
+  const BLACK_KEY_WIDTH   = KBD_WIDTH * 0.65;
+  const BLACK_KEY_HEIGHT  = 0.7;
+  const WHITE_SEMITONES   = [0, 2, 4, 5, 7, 9, 11];   // C D E F G A B (within an octave)
+  // White-key index from LOW_PITCH (0 = C1 at bottom, ascends upward).
+  const whiteKeyIdx = (midiPitch) => {
+    const octavesUp = Math.floor((midiPitch - LOW_PITCH) / 12);
+    const semitone  = ((midiPitch % 12) + 12) % 12;
+    const idxInOct  = WHITE_SEMITONES.indexOf(semitone);
+    if (idxInOct === -1) return null;
+    return octavesUp * 7 + idxInOct;
+  };
+  // Total whites: 4 octaves × 7 + 1 (top C5) = 29
+  const TOTAL_WHITES   = 29;
+  const KBD_VIEW_HEIGHT = TOTAL_WHITES;
+  // Convert white-key index → y coord in keyboard viewBox (top = highest pitch)
+  const whiteKeyY = (idx) => (TOTAL_WHITES - 1) - idx;
+
+  // Each key rect carries a data-pitch attribute so the hover handler
+  // (wired below the SVG render) can identify which note the cursor
+  // is over. C-label text removed — was too small to read at this
+  // scale; the hover tooltip now serves that role.
+  const kbdParts = [];
+  // Pass 1 — white keys (full width, 1 unit tall in white-key space).
+  for (let p = LOW_PITCH; p <= HIGH_PITCH; p++) {
+    if (!isWhiteKey(p)) continue;
+    const idx = whiteKeyIdx(p);
+    if (idx === null) continue;
+    const y = whiteKeyY(idx);
+    kbdParts.push(
+      `<rect class="seq-viz-key seq-viz-key-white" data-pitch="${p}" ` +
+      `x="0" y="${y}" width="${KBD_WIDTH}" height="1" ` +
+      `fill="#cbc4b4" stroke="#0a0a0a" stroke-width="0.05"/>`
+    );
+  }
+  // Pass 2 — black keys, centered on the boundary between adjacent
+  // whites. For a black key at MIDI p, the white BELOW (p−1) gives
+  // us the lower neighbor; its TOP edge (y = whiteY) is where the
+  // boundary is. We center the black key on that boundary.
+  for (let p = LOW_PITCH; p <= HIGH_PITCH; p++) {
+    if (isWhiteKey(p)) continue;
+    const idxBelow = whiteKeyIdx(p - 1);
+    if (idxBelow === null) continue;
+    const yWhiteBelow = whiteKeyY(idxBelow);
+    const blackY      = yWhiteBelow - BLACK_KEY_HEIGHT / 2;
+    kbdParts.push(
+      `<rect class="seq-viz-key seq-viz-key-black" data-pitch="${p}" ` +
+      `x="0" y="${blackY}" width="${BLACK_KEY_WIDTH}" height="${BLACK_KEY_HEIGHT}" ` +
+      `fill="#1a1a1a" rx="0.05"/>`
+    );
+  }
+
+  container.hidden = false;
+  container.innerHTML =
+    `<div class="seq-viz-header">` +
+      `<span class="seq-viz-name">${escapeHtml(seqName)}</span>` +
+      ` · paired with <span class="seq-viz-paired">${escapeHtml(pairedRef)}</span>` +
+      ` · ${populatedCount} of ${PAGES} pages populated` +
+    `</div>` +
+    `<div class="seq-viz-row">` +
+      `<svg class="seq-viz-keyboard" viewBox="0 0 ${KBD_WIDTH} ${KBD_VIEW_HEIGHT}" ` +
+           `preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">` +
+        kbdParts.join('') +
+      `</svg>` +
+      `<svg class="seq-viz-svg" viewBox="${viewBoxX} 0 ${viewBoxWidth} ${PITCH_RANGE}" ` +
+           `preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">` +
+        svgParts.join('') +
+      `</svg>` +
+    `</div>` +
+    `<div class="seq-viz-pages">` + pageBtns.join('') + `</div>` +
+    `<div class="seq-viz-hover-tip" hidden></div>`;
+
+  // Wire page-button clicks
+  container.querySelectorAll('.seq-viz-page-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const v = btn.dataset.page;
+      const next = v === 'all' ? null : parseInt(v, 10);
+      // Click on the currently-active page (or ALL when already all) =
+      // toggle back to all-view; otherwise switch.
+      if (next === selSeqVizPage) selSeqVizPage = null;
+      else selSeqVizPage = next;
+      renderSequenceVisualizer();
+    });
+  });
+
+  // Hover tooltip on the roll — distinguishes three states from the
+  // sequence data:
+  //   - Red note (new attack) → pitch name (e.g. "C3")
+  //   - Green note (tied/hold) → "hold" (pitch is just a continuation
+  //     of the prior step, so the pitch number is meaningless here)
+  //   - Blue rest column (step where ALL voices are empty) → "rest"
+  //     (shown at any pitch within that column — the silence isn't
+  //     pitch-specific)
+  //   - Empty cell in a non-rest step (no voice at this pitch but
+  //     other voices are present) → no tooltip
+  const rollSvg = container.querySelector('.seq-viz-svg');
+  const tip     = container.querySelector('.seq-viz-hover-tip');
+  const visibleSteps = zoomedPage !== null ? STEPS_PER_PAGE : TOTAL_STEPS;
+  const updateTip = (e) => {
+    const r      = rollSvg.getBoundingClientRect();
+    const yRatio = (e.clientY - r.top)  / r.height;
+    const xRatio = (e.clientX - r.left) / r.width;
+    const pitch  = HIGH_PITCH - Math.floor(yRatio * PITCH_RANGE);
+    if (pitch < LOW_PITCH || pitch > HIGH_PITCH) { tip.hidden = true; return; }
+    const stepInView = Math.floor(xRatio * visibleSteps);
+    const absStep    = zoomedPage !== null
+                       ? zoomedPage * STEPS_PER_PAGE + stepInView
+                       : stepInView;
+    if (absStep < 0 || absStep >= TOTAL_STEPS) { tip.hidden = true; return; }
+    const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+    const stepIdx = absStep % STEPS_PER_PAGE;
+    const page    = pages[pageIdx];
+    const step    = page && page[stepIdx];
+
+    // Rest step (null page OR step with no populated voices)
+    const isRestStep = !page || !step || !Array.isArray(step.voices)
+                       || !step.voices.some((v) => v != null);
+    if (isRestStep) {
+      tip.textContent = 'rest';
+      tip.hidden = false;
+      tip.style.left = `${e.clientX + 14}px`;
+      tip.style.top  = `${e.clientY - 18}px`;
+      return;
+    }
+
+    // Populated step — show "hold" for tied notes, pitch name for
+    // new attacks, nothing for empty cells inside a non-rest step.
+    const voiceMatch = step.voices.find((v) => v && v.note === pitch);
+    if (!voiceMatch) { tip.hidden = true; return; }
+    tip.textContent = voiceMatch.tied ? 'hold' : midiPitchName(pitch);
+    tip.hidden = false;
+    tip.style.left = `${e.clientX + 14}px`;
+    tip.style.top  = `${e.clientY - 18}px`;
+  };
+  rollSvg.addEventListener('mousemove', updateTip);
+  rollSvg.addEventListener('mouseleave', () => { tip.hidden = true; });
+
+  // Wire keyboard key hover — show the pitch name in the shared
+  // tooltip (same chip the roll uses). Replaces the small per-octave
+  // C labels that used to render on the keys themselves — those were
+  // too small to read at this scale, so we surface the pitch on
+  // demand via hover instead.
+  container.querySelectorAll('.seq-viz-key').forEach((keyRect) => {
+    keyRect.addEventListener('mousemove', (e) => {
+      const pitch = parseInt(keyRect.dataset.pitch, 10);
+      tip.textContent = midiPitchName(pitch);
+      tip.hidden = false;
+      tip.style.left = `${e.clientX + 14}px`;
+      tip.style.top  = `${e.clientY - 18}px`;
+    });
+    keyRect.addEventListener('mouseleave', () => { tip.hidden = true; });
+  });
+}
+
+// MIDI pitch → JX-3P panel note name (Roland convention, where the
+// JX's lowest key — MIDI 36 — is labeled "C1" on the synth's panel,
+// one octave lower than standard MIDI's "C2"). Middle C reads as
+// "C3" in this convention. Used by the sequence visualizer's
+// keyboard labels and hover tooltip so what JP shows matches what
+// Daniel reads off the physical JX-3P.
+function midiPitchName(midiPitch) {
+  const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const note   = NOTES[((midiPitch % 12) + 12) % 12];
+  const octave = Math.floor(midiPitch / 12) - 2;   // Roland: 1 lower than standard MIDI
+  return `${note}${octave}`;
+}
+
+// White/black key check (returns true for the seven white keys in an
+// octave: C D E F G A B; false for the five black keys).
+function isWhiteKey(midiPitch) {
+  const semitone = ((midiPitch % 12) + 12) % 12;
+  return [0, 2, 4, 5, 7, 9, 11].includes(semitone);
+}
+
+// Defensive HTML escape — sequence names + paired-patch refs are
+// user-supplied, can contain arbitrary characters.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function bucketsState() {
   return library && library.customBuckets;
 }
@@ -5832,6 +6218,36 @@ function renderCustomBuilder() {
   const s = bucketsState();
   if (!s) return;
 
+  // The custom-bank builder is a C/D-bank operation — it stages patches
+  // pulled from those banks. On the Library tab it has no meaningful
+  // source, so the toggle button greys out. If the builder happens to
+  // be open when the user navigates to Library, force-close it so the
+  // staged buckets aren't editable from a context where the source
+  // banks aren't visible. The staged patches themselves persist
+  // (bucketsState is unchanged) so reopening from Bank C/D resumes
+  // exactly where the user left off.
+  const onLibrary = selBank === 'L';
+  toggle.disabled = onLibrary;
+  if (onLibrary && s.active) {
+    s.active = false;
+    saveLibraryDebounced();
+  }
+
+  // Sequence visualizer takes priority over the custom-bank builder when
+  // the user is browsing Library Sequences with a row selected — both
+  // occupy the same space below the panel SVG, and the visualizer is
+  // more useful in that context. Hand off + return.
+  const onSeqsWithSel = selBank === 'L' && selLibTab === 'sequences' && selSequence !== null;
+  const visEl = document.getElementById('sequence-visualizer');
+  if (onSeqsWithSel) {
+    builder.hidden = true;
+    if (visEl) visEl.hidden = false;
+    renderSequenceVisualizer();
+    return;
+  }
+  builder.hidden = false;
+  if (visEl) visEl.hidden = true;
+
   builder.classList.toggle('open', !!s.active);
   if (!s.active) return;
 
@@ -6133,9 +6549,16 @@ function setupTabs() {
     tab.addEventListener('click', () => {
       selBank = tab.dataset.bank;
       selSlot = 0;
+      // Library tab always opens to the Tones sub-tab (2026-05-25) —
+      // most users browse Tones far more than Sequences, and the prior
+      // behavior of remembering the last sub-tab was a subtle UX
+      // gotcha where users would click Library expecting tone
+      // packages and land on whatever sub-tab they last touched.
+      if (selBank === 'L') selLibTab = 'tones';
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       renderPatchList();
+      renderCustomBuilder();   // updates toggle.disabled + force-closes on Library
       if (selBank !== 'L') {
         updateSvgPatchName();
         updateAllControls(currentPatch());
@@ -6502,6 +6925,18 @@ async function init() {
   ensureLibraryShape();
   backfillOriginFields();
 
+  // If library has persisted active patches from a prior session, prefer
+  // them as the source of truth — they're the user's actual most-recent
+  // state, including any in-flight knob/switch edits. Falls back to
+  // whatever loadPatches returned (legacy ~/Desktop/patches.json or the
+  // shipped seed) only when no active state has been saved yet.
+  if (library.activePatches
+      && Array.isArray(library.activePatches)
+      && library.activePatches.length === 2) {
+    patches = patches || { format_version: '1.0', banks: null };
+    patches.banks = JSON.parse(JSON.stringify(library.activePatches));
+  }
+
   // View > zoom presets are owned by main (it resizes the window and
   // applies the renderer zoomFactor). When the user picks a new preset,
   // main pushes the value here so we can persist it for the next launch.
@@ -6544,19 +6979,29 @@ async function init() {
     if (document.querySelector('.modal-overlay')) return;
     cancelWriteMode();
   });
-  // Snapshot the initial state as "clean" for the modified-indicator —
-  // baseline is whatever loaded at boot (seed on first run, persisted
-  // active C/D thereafter). Backfills cleanParams for any slot that
-  // doesn't already have it (e.g. libraries that predate this feature).
-  // Won't overwrite existing cleanParams from a prior session — only
-  // sets missing entries, so the user's "vs last library load" baseline
-  // is preserved across app restarts.
-  ['C', 'D'].forEach((bank) => {
-    for (let s = 0; s < 16; s++) {
-      const meta = library.slotMeta && library.slotMeta[bank] && library.slotMeta[bank][s];
-      if (meta && !meta.cleanParams) snapshotCleanParamsAt(bank, s);
-    }
-  });
+  // One-shot migration for libraries that predate the activePatches
+  // persistence: re-baseline cleanParams to current state. Pre-fix,
+  // patches.banks could silently revert to seed at every boot while
+  // cleanParams persisted from the last library load — leaving all 32
+  // slots looking "modified" against a baseline that no longer exists
+  // in the working state. We detect this case by the absence of
+  // library.activePatches and heal once.
+  const isFirstBootWithActivePatchesSupport = !library.activePatches;
+  if (isFirstBootWithActivePatchesSupport) {
+    snapshotCleanParamsAll();
+    saveLibraryDebounced();   // persist activePatches + freshly-aligned cleanParams
+  } else {
+    // Subsequent boots: only backfill missing cleanParams (slots from
+    // libraries that predate the modified-indicator feature entirely).
+    // Existing cleanParams is preserved so "I had unsaved edits before
+    // quitting" survives the restart.
+    ['C', 'D'].forEach((bank) => {
+      for (let s = 0; s < 16; s++) {
+        const meta = library.slotMeta && library.slotMeta[bank] && library.slotMeta[bank][s];
+        if (meta && !meta.cleanParams) snapshotCleanParamsAt(bank, s);
+      }
+    });
+  }
 
   renderPatchList();
   selectPatch(0);
