@@ -4664,6 +4664,73 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     deviceNoticeTimer = setTimeout(() => { deviceNotice.hidden = true; }, 10000);
   };
 
+  // SEPARATE persistent warning for sample-rate mismatch. Stays
+  // visible until the user fixes the issue (or selects a different
+  // device) because a wrong sample rate WILL silently corrupt every
+  // capture — Chromium resamples device-rate → 44.1 kHz on the fly,
+  // and the resampling artifacts scatter junk frequencies across the
+  // FSK band, breaking decoder bit-timing lock. We learned this the
+  // hard way 2026-05-25 after hours of chasing calibration ghosts:
+  // the KT USB Audio interface was at 48/24 (its macOS default),
+  // every capture produced WAVs that LOOKED structurally correct but
+  // were undecodable. Switching the device to 44.1/24 in Audio MIDI
+  // Setup fixed it instantly. This warning surfaces that condition
+  // proactively. Red border (not amber) to signal "this WILL cause
+  // failures" not "heads up".
+  const deviceRateWarning = document.createElement('div');
+  deviceRateWarning.className = 'record-jx-device-rate-warning';
+  deviceRateWarning.hidden = true;
+  deviceSection.appendChild(deviceRateWarning);
+  const setSampleRateWarning = (msg) => {
+    if (msg) {
+      deviceRateWarning.textContent = msg;
+      deviceRateWarning.hidden = false;
+    } else {
+      deviceRateWarning.hidden = true;
+    }
+  };
+
+  // Probe the selected device's NATIVE sample rate by opening a stream
+  // with no rate constraint and reading what we got back. Chromium's
+  // track.getSettings().sampleRate reflects the actual device rate
+  // when no rate constraint was applied. If the device's native rate
+  // isn't 44.1 kHz, the real capture's `sampleRate: 44100` request
+  // will force Chromium to resample — which breaks FSK decode. We
+  // surface a persistent warning telling the user how to fix it.
+  // Failures here are non-fatal: probing is informational, capture
+  // still runs.
+  const probeDeviceSampleRate = async (deviceId) => {
+    if (!deviceId) return;
+    let probeStream;
+    try {
+      probeStream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId } }
+      });
+      const settings = probeStream.getAudioTracks()[0]?.getSettings() || {};
+      const nativeRate = settings.sampleRate;
+      if (nativeRate && nativeRate !== 44100) {
+        const deviceLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent
+                            || 'this audio device';
+        setSampleRateWarning(
+          `⚠ ${deviceLabel} is running at ${nativeRate / 1000} kHz. ` +
+          `JP needs 44.1 kHz, so Chromium will resample on the fly — ` +
+          `which corrupts FSK decode (every capture will fail). ` +
+          `Open Audio MIDI Setup, select this device, and switch its Format to 44100 Hz before recording.`
+        );
+      } else {
+        setSampleRateWarning(null);   // clear any prior warning
+      }
+    } catch (err) {
+      // Probe failure is non-fatal — log and continue. Most common
+      // cause: device disappeared between enumerate and probe.
+      console.warn('Sample-rate probe failed:', err && err.message);
+    } finally {
+      if (probeStream) {
+        probeStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      }
+    }
+  };
+
   // Populate (or repopulate) the input-device picker. We need a
   // one-shot permission grant on the first call to get human-readable
   // device labels — without it, enumerateDevices() returns anonymized
@@ -4815,6 +4882,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   const configureForCurrentDevice = () => {
     calibrationDeviceId    = devicePicker.value;
     calibrationDeviceLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent || null;
+    // Probe the new selection's native sample rate. Fires async — the
+    // warning shows once the probe resolves. Don't await: we don't
+    // want to block the modal's UI setup on the probe.
+    probeDeviceSampleRate(calibrationDeviceId);
     const cal = getCalibratedGain(calibrationDeviceId);
     if (cal) {
       isCalibrating = false;
@@ -5392,9 +5463,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       // done" message — two clean modal flows, no state-management
       // tangle. The recorder re-opens in single-pass mode because the
       // calibration we just saved exists for this device.
-      stopCapture();
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
+      // (Route through close() — not raw overlay.remove() — so the
+      // devicechange listener gets unwired. Bypassing close() here
+      // was leaking one listener per successful calibration, causing
+      // cross-capture state pollution over the modal's lifetime.)
+      close();
 
       const passOneKind = kind;
       const passOneOnCaptured = onCaptured;
@@ -5583,9 +5656,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
 
     if (!isQuiet && !isClipping) {
       // Clean capture — auto-proceed.
+      // Route the modal dismissal through close() so the devicechange
+      // listener is unwired (raw overlay.remove() bypasses that and
+      // leaks one listener per successful capture). Cross-capture
+      // listener accumulation was a confirmed cause of subtle audio-
+      // pipeline pollution that intermittently corrupted FSK data and
+      // forced full app reboots to recover.
       setTimeout(() => {
-        overlay.remove();
-        document.removeEventListener('keydown', onKey);
+        close();
         onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak });
       }, 800);
       return;
@@ -5606,8 +5684,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     actions.appendChild(tryAgainBtn);
     actions.appendChild(useBtn);
     useBtn.addEventListener('click', () => {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
+      // Route through close() (not raw overlay.remove()) so the
+      // devicechange listener is unwired. See auto-proceed branch
+      // above for the listener-leak rationale.
+      close();
       // Pass deviceInfo so a subsequent all-default decode (which fires
       // the recalibrate prompt) can correctly clear THIS device's saved
       // gain entry. Without it, the recalibrate flow re-opens into Step 2
@@ -5752,14 +5832,20 @@ function renderSequenceVisualizer() {
   const HIGH_PITCH      = 84;                          // C6
   const PITCH_RANGE     = HIGH_PITCH - LOW_PITCH + 1;  // 49
 
-  // Brand-triad encoding (2026-05-25):
+  // Color encoding (2026-05-25, extended with TIE 2026-05-25 evening):
   //   - New note attack    → Roland red    #b94a2e (primary event)
-  //   - Tied note (hold)   → Roland green  #1f6e5b (continuation)
+  //   - Tied note (hold)   → Roland green  #1f6e5b (continuation, OR
+  //     REST-button press — see CLAUDE.md pitfall #16; they're
+  //     indistinguishable when only voice[0] is populated)
+  //   - TIE event          → warning amber #c39a3a (tied voice[0] AND
+  //     new attack voice[1] at SAME pitch in the same step — the JX
+  //     TIE-button signature, per pitfall #16)
   //   - Rest (silent step) → Roland blue   #33508f (absence indicator,
   //     drawn as a full-column tint at low opacity so it reads as
   //     "this step is silent" without competing with note bars)
   const NEW_NOTE_COLOR  = '#b94a2e';
   const HOLD_NOTE_COLOR = '#1f6e5b';
+  const TIE_COLOR       = '#c39a3a';
   const REST_COLOR      = '#33508f';
 
   const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
@@ -5838,14 +5924,34 @@ function renderSequenceVisualizer() {
     page.forEach((step, stepIdx) => {
       if (!step || !Array.isArray(step.voices)) return;
       const absStep = pageIdx * STEPS_PER_PAGE + stepIdx;
+      // Per-pitch classification at this step. We walk all 7 voice
+      // slots first to decide what each pitch IS before painting,
+      // because the JX TIE-button event surfaces as TWO voices at the
+      // same pitch in the same step (one tied, one new attack) — and
+      // we want to render that as a single amber cell, not as a red
+      // cell over a green cell (which is what the old per-voice paint
+      // loop produced). See CLAUDE.md pitfall #16.
+      const cellType = new Map();   // pitch → 'attack' | 'tie' | 'hold-rest'
       step.voices.forEach((voice) => {
         if (!voice || typeof voice.note !== 'number') return;
         const pitch = voice.note;
         if (pitch < LOW_PITCH || pitch > HIGH_PITCH) return;
+        const prev = cellType.get(pitch);
+        if (voice.tied) {
+          if      (prev === 'attack')     cellType.set(pitch, 'tie');
+          else if (prev === undefined)    cellType.set(pitch, 'hold-rest');
+          // 'tie' or 'hold-rest' already → keep
+        } else {
+          if      (prev === 'hold-rest')  cellType.set(pitch, 'tie');
+          else if (prev === undefined)    cellType.set(pitch, 'attack');
+          // 'tie' or 'attack' already → keep
+        }
+      });
+      cellType.forEach((type, pitch) => {
         const y = HIGH_PITCH - pitch;
-        // Color encodes attack-vs-hold; full opacity for both so the
-        // hold doesn't read as a faded attack — it's its own thing.
-        const color = voice.tied ? HOLD_NOTE_COLOR : NEW_NOTE_COLOR;
+        const color = type === 'attack' ? NEW_NOTE_COLOR
+                    : type === 'tie'    ? TIE_COLOR
+                    :                     HOLD_NOTE_COLOR;
         svgParts.push(
           `<rect x="${absStep}" y="${y}" width="1" height="1" ` +
           `fill="${color}" rx="0.15"/>`
@@ -5963,14 +6069,25 @@ function renderSequenceVisualizer() {
     });
   });
 
-  // Hover tooltip on the roll — distinguishes three states from the
-  // sequence data:
-  //   - Red note (new attack) → pitch name (e.g. "C3")
-  //   - Green note (tied/hold) → "hold" (pitch is just a continuation
-  //     of the prior step, so the pitch number is meaningless here)
-  //   - Blue rest column (step where ALL voices are empty) → "rest"
-  //     (shown at any pitch within that column — the silence isn't
-  //     pitch-specific)
+  // Hover tooltip on the roll — distinguishes four states at the
+  // hovered pitch from the sequence data:
+  //   - Red note (new attack only) → pitch name (e.g. "C3")
+  //   - TIE (tied voice + new attack at SAME pitch in another voice
+  //     slot) → "tie". This is the JX-3P TIE-button signature: when
+  //     you hold a note and press TIE, the JX records voice[0] tied
+  //     AND voice[1] as a new attack at the same pitch. The "extra
+  //     same-pitch new attack" is the discriminator. See CLAUDE.md
+  //     pitfall #16.
+  //   - Green note (tied voice only, no same-pitch new attack) →
+  //     "rest". JX REST-button presses encode as tied continuations
+  //     — indistinguishable in data from polyphonic note continuation,
+  //     but the REST-button case is the common single-voice path so
+  //     "rest" is the dominant honest label.
+  //   - Blue rest column (step where ALL voices are empty, byte7=127)
+  //     → "rest" (the silence isn't pitch-specific). Only appears for
+  //     fully-empty steps / null pages — the JX cannot encode a true
+  //     all-voices-empty step inside a populated page from the user-
+  //     facing buttons.
   //   - Empty cell in a non-rest step (no voice at this pitch but
   //     other voices are present) → no tooltip
   const rollSvg = container.querySelector('.seq-viz-svg');
@@ -5992,7 +6109,14 @@ function renderSequenceVisualizer() {
     const page    = pages[pageIdx];
     const step    = page && page[stepIdx];
 
-    // Rest step (null page OR step with no populated voices)
+    // Rest step (null page OR step with no populated voices).
+    // NB: This only catches TRUE rests where every voice slot is empty
+    // (typically full null pages the synth never reached). User-input
+    // "rests" via the JX-3P's REST button are NOT detected here — the
+    // JX encodes those as tied continuations of the previous note, so
+    // they look identical to a held note in the data. See CLAUDE.md
+    // pitfall #16 for the full explanation. Tooltip wording below
+    // reflects this by saying "hold or rest" for tied cells.
     const isRestStep = !page || !step || !Array.isArray(step.voices)
                        || !step.voices.some((v) => v != null);
     if (isRestStep) {
@@ -6003,11 +6127,22 @@ function renderSequenceVisualizer() {
       return;
     }
 
-    // Populated step — show "hold" for tied notes, pitch name for
-    // new attacks, nothing for empty cells inside a non-rest step.
-    const voiceMatch = step.voices.find((v) => v && v.note === pitch);
-    if (!voiceMatch) { tip.hidden = true; return; }
-    tip.textContent = voiceMatch.tied ? 'hold' : midiPitchName(pitch);
+    // Populated step — distinguish three cases at the hovered pitch:
+    //   1. New attack only (no tied voice at same pitch) → pitch name
+    //   2. Tied voice + new attack at SAME pitch in another voice slot
+    //      → "tie" (this is the JX-3P TIE-button signature; see
+    //      CLAUDE.md pitfall #16)
+    //   3. Tied voice only (no same-pitch new attack) → "rest" (the
+    //      JX REST button encodes as a tied continuation, indistinguish-
+    //      able in the data from a normal polyphonic note continuation;
+    //      "rest" is the dominant single-voice case)
+    //   4. No voice at this pitch → no tooltip
+    const tiedHere = step.voices.find((v) => v && v.note === pitch && v.tied);
+    const newHere  = step.voices.find((v) => v && v.note === pitch && !v.tied);
+    if (!tiedHere && !newHere) { tip.hidden = true; return; }
+    if (tiedHere && newHere)   tip.textContent = 'tie';
+    else if (newHere)          tip.textContent = midiPitchName(pitch);
+    else                       tip.textContent = 'rest';
     tip.hidden = false;
     tip.style.left = `${e.clientX + 14}px`;
     tip.style.top  = `${e.clientY - 18}px`;

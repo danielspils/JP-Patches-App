@@ -317,6 +317,17 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
 14. **Record-from-JX calibration modal hides its Stop button.** Auto-stop fires from `tickMeter` when cumulative FSK signal time hits the expected dump duration or when end-of-dump silence is detected. Exposing Stop during calibration confused users (they'd click it expecting to "confirm calibration done" and instead truncate the measurement). Two-pass flow is cleaner with no Stop control in pass 1.
 
+16. **JX-3P REST and TIE encode differently — but both produce a tied voice[0].** Earlier analysis (based on incomplete test data) concluded they were indistinguishable. They're not. After a proper TIE test (note held WHILE pressing TIE WHILE the previous note still sounds — the procedure in the JX-3P owner's manual), the wire encoding revealed:
+    - **REST press** → `voices: [{note: prev, tied: true}, null, null, null, null, null, null]` — voice[0] tied to the previous pitch, all other voice slots null. Matches Bruce's `sequence.py` comment ("a rest entered via the JX REST button is encoded as a tied continuation").
+    - **TIE press (while holding the note)** → `voices: [{note: prev, tied: true}, {note: prev, tied: false}, null, ...]` — voice[0] tied to the previous pitch AND voice[1] is a NEW attack at the SAME pitch. The new attack in voice[1] is the discriminator.
+    - **Full-empty step (e.g. user never programmed beyond step N)** → `voices: [null × 7], byte7: 127`. byte7=127 is the "step never written" sentinel; populated steps have byte7=1.
+
+    So the discriminator for tooltip / visual coding is: at any step where voice[0] is tied at pitch X, check whether any other voice slot has pitch X as a new attack. If yes → TIE. If no → REST (or polyphonic continuation — see below).
+
+    Caveat: a tied voice without a same-pitch new attack is still ambiguous between (a) a REST button press and (b) a normal polyphonic note continuation from a prior step. The wire data doesn't carry the user's intent. JP's tooltip uses "rest" as the dominant case (REST button is the common single-voice path); the distinction would only matter if JP added polyphonic-aware editing.
+
+    Users coming from other sequencers (where REST creates literal silence in voice[0]) will still report "I recorded rests but they're not showing as blue" — it's a Roland firmware decision, not a JP bug. The blue rest column only appears for fully-empty steps (byte7=127). Bug history: surfaced 2026-05-25 with an inadequate test (`C, REST, C, REST, C-key, C-key`) that didn't capture a TIE event at all, leading to the incorrect "indistinguishable" conclusion. Corrected same day after a proper test sequence (`C, REST, C, TIE+C, C, REST, C`) decoded with the voice[1] new-attack signature for the TIE event.
+
 ## When in doubt
 
 - Read the spec doc before designing a new feature.
