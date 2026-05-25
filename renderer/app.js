@@ -482,28 +482,92 @@ function isDecodeAllDefault(data) {
 }
 
 // Show the recalibrate-or-cancel modal after a failed capture. On
-// confirm: clear this device's saved calibration entry and re-open the
-// Record-from-JX modal (which now opens in two-pass calibration mode
-// since the saved gain is gone). On cancel: do nothing — the user's
-// active C/D banks stay at their pre-record state since we never
-// applied the empty decode.
-function showRecalibratePrompt({ kind, deviceId, deviceLabel }) {
+// Three-state failure prompt, branching on whether the capture had any
+// signal at all:
+//
+//   (a) LOW-SIGNAL (capturePeak < NO_SIGNAL_THRESHOLD):
+//       the JX wasn't transmitting OR the cable/device is wrong. Gain
+//       isn't the problem — recalibration won't help. Two buttons:
+//       [Cancel] [Try again]. Setup-hint copy.
+//
+//   (b) BAD-DECODE (capturePeak >= threshold, but all pages decoded as
+//       empty/null): there's audio, just couldn't decode it. Could be
+//       gain-related OR could be a one-off jitter glitch. Three buttons:
+//       [Cancel] [Recalibrate] [Try again]. "Try again" is primary —
+//       since today's truncation fix landed, most "bad decode" failures
+//       are NOT actually gain-related, so retrying with existing gain
+//       is more likely to work than recalibrating.
+//
+// "Try again" re-opens the Record modal WITHOUT clearing the saved gain
+// — fast single-pass capture. "Recalibrate" clears the gain and forces
+// the two-pass calibration flow.
+//
+// On cancel: do nothing — the active C/D banks / sequences stay at their
+// pre-record state since we never applied the empty decode.
+function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
   const labelText = deviceLabel ? ` *${deviceLabel}*` : '';
   const isSeq = kind === 'sequence';
+  const NO_SIGNAL_THRESHOLD = 0.02;     // matches meter's bottom-segment threshold
+  const isLowSignal = typeof capturePeak === 'number' && capturePeak < NO_SIGNAL_THRESHOLD;
+
+  // Both branches share this — re-opens Record with the saved gain
+  // intact (single-pass capture, faster). Used by both "Try again"
+  // tertiary buttons.
+  const reopenWithoutRecalibrating = () => {
+    showRecordFromJxModal({
+      kind,
+      onCaptured: async (tempWavPath, deviceInfo) => {
+        if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
+        else                     await applyToneCapture(tempWavPath, deviceInfo);
+      },
+    });
+  };
+
+  if (isLowSignal) {
+    // (a) — no signal detected.
+    // Key 11 = Sequencer Save, key 14 = Tone Save in JX-3P Tape Memory mode.
+    const saveKey = isSeq ? '11' : '14';
+    showConfirmModal({
+      title: 'No audio detected',
+      body:
+        `The capture from${labelText} was silent — JP didn't see any audio ` +
+        'come through the cable.\n\n' +
+        `Quick checks:\n` +
+        `• On the JX-3P, press **Tape Memory**, then key **${saveKey}** (Save).\n` +
+        `• Is your cable plugged into the JX **Tape Memory Save** jack ` +
+        `(not Load)?\n` +
+        `• In *Audio MIDI Setup*, is your audio interface selected as the ` +
+        `default input?\n\n` +
+        'Once you\'ve fixed it, try again.',
+      confirmLabel: 'Try again',
+      onConfirm: reopenWithoutRecalibrating,
+    });
+    return;
+  }
+
+  // (b) — had signal but didn't decode.
   const emptyDesc  = isSeq ? 'an empty sequence (no pages decoded)' : 'empty patches';
   const safetyText = isSeq ? 'Your existing sequences will not be modified.'
                            : 'Your active C/D banks will not be modified.';
   showConfirmModal({
     title: 'Recording didn\'t decode cleanly',
     body:
-      `The capture from${labelText} came back as ${emptyDesc}. The most ` +
-      'common cause is the input level being off.\n\n' +
-      `Want to recalibrate the input gain and try again? ${safetyText}`,
-    confirmLabel: 'Recalibrate',
-    onConfirm: () => {
+      `The capture from${labelText} came back as ${emptyDesc}. Audio reached ` +
+      'JP, but the decoder couldn\'t make sense of it.\n\n' +
+      `Most often this is a one-off glitch — **try again** with the same ` +
+      'calibration. If it keeps failing, then try **recalibrating** the ' +
+      `input gain. ${safetyText}`,
+    // Primary (green confirm) = Try again — most likely to fix things now
+    // that truncation is no longer the dominant failure mode.
+    confirmLabel: 'Try again',
+    confirmStyle: 'confirm',
+    onConfirm: reopenWithoutRecalibrating,
+    // Tertiary (cream alt-style) = Recalibrate — fallback when gain really
+    // is the issue.
+    tertiaryLabel: 'Recalibrate',
+    onTertiary: () => {
       if (deviceId) clearCalibratedGain(deviceId);
-      // Re-open the Record modal — it'll now run the two-pass calibration
-      // since this device has no saved gain.
+      // Re-open in two-pass calibration mode (saved gain cleared).
       showRecordFromJxModal({
         kind,
         onCaptured: async (tempWavPath, deviceInfo) => {
@@ -1860,7 +1924,14 @@ function restoreActiveState(snap) {
 }
 
 // Lightweight confirmation modal.
-function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm }) {
+// `tertiaryLabel` / `onTertiary` / `tertiaryStyle` (optional) add a third
+// button between Cancel and Confirm. Use for prompts that need a "primary
+// recommended action" plus a "secondary safe alternative" — e.g. the
+// Record-from-JX failure prompt offering both "Try again" (no recal) and
+// "Recalibrate" (clear gain). Tertiary defaults to no styling (cream
+// alt-button); pass tertiaryStyle: 'confirm' to make it the green primary
+// and tertiaryStyle: 'alt' for the blue alt-style.
+function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm, tertiaryLabel, onTertiary, tertiaryStyle }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
@@ -1918,7 +1989,19 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
   if (confirmStyle === 'danger') confirmBtn.classList.add('modal-btn-danger');
   confirmBtn.textContent = confirmLabel;
 
+  // Optional tertiary button — sits between Cancel and Confirm.
+  let tertiaryBtn = null;
+  if (tertiaryLabel && typeof onTertiary === 'function') {
+    tertiaryBtn = document.createElement('button');
+    tertiaryBtn.className = 'modal-btn';
+    if (tertiaryStyle === 'confirm') tertiaryBtn.classList.add('modal-btn-confirm');
+    else if (tertiaryStyle === 'alt') tertiaryBtn.classList.add('modal-btn-alt');
+    else if (tertiaryStyle === 'danger') tertiaryBtn.classList.add('modal-btn-danger');
+    tertiaryBtn.textContent = tertiaryLabel;
+  }
+
   actions.appendChild(cancelBtn);
+  if (tertiaryBtn) actions.appendChild(tertiaryBtn);
   actions.appendChild(confirmBtn);
   modal.appendChild(h);
   if (sub) modal.appendChild(sub);
@@ -1938,6 +2021,7 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
 
   cancelBtn.addEventListener('click', close);
   confirmBtn.addEventListener('click', () => { onConfirm(); close(); });
+  if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => { onTertiary(); close(); });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   confirmBtn.focus();
@@ -2869,6 +2953,7 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
       kind:        'tone',
       deviceId:    deviceInfo && deviceInfo.deviceId,
       deviceLabel: deviceInfo && deviceInfo.deviceLabel,
+      capturePeak: deviceInfo && deviceInfo.capturePeak,
     });
     return;
   }
@@ -3364,6 +3449,7 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
       kind:        'sequence',
       deviceId:    deviceInfo && deviceInfo.deviceId,
       deviceLabel: deviceInfo && deviceInfo.deviceLabel,
+      capturePeak: deviceInfo && deviceInfo.capturePeak,
     });
     return;
   }
@@ -4736,7 +4822,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       setTimeout(() => {
         overlay.remove();
         document.removeEventListener('keydown', onKey);
-        onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel });
+        onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak });
       }, 800);
       return;
     }
@@ -4763,7 +4849,7 @@ async function showRecordFromJxModal({ kind, onCaptured }) {
       // gain entry. Without it, the recalibrate flow re-opens into Step 2
       // (capture) instead of Step 1 (calibration) because the saved
       // calibration is never cleared.
-      onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel });
+      onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak });
     });
     tryAgainBtn.addEventListener('click', () => {
       try { actions.removeChild(tryAgainBtn); } catch {}
