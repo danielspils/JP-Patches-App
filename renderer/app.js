@@ -2985,66 +2985,25 @@ function showSendToJxFlow(opts) {
   let progressTimer = null;
   let cancelled = false;
 
-  // Audio analysis pipeline — drives the sendArrow pulse from
-  // the actual audio element output. Set up lazily on first Play click
-  // (createMediaElementSource can only run once per element, and we want
-  // it inside a user-gesture handler so the AudioContext starts unblocked).
-  let sendAudioCtx  = null;
-  let sendAnalyser  = null;
-  let sendAnalyserBuf = null;
-  let sendMeterRaf  = null;
-
-  const setupAudioAnalysis = () => {
-    if (!audioEl || sendAudioCtx) return;
-    try {
-      sendAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = sendAudioCtx.createMediaElementSource(audioEl);
-      sendAnalyser = sendAudioCtx.createAnalyser();
-      sendAnalyser.fftSize = 256;
-      // Route source → analyser → destination so audio still plays AND
-      // we can tap the amplitude. If we don't connect to destination,
-      // the audio element stops being audible (createMediaElementSource
-      // takes over the routing).
-      source.connect(sendAnalyser);
-      sendAnalyser.connect(sendAudioCtx.destination);
-      sendAnalyserBuf = new Uint8Array(sendAnalyser.fftSize);
-    } catch (err) {
-      // If analysis setup fails (e.g. CORS on audioEl src), let playback
-      // continue without the meter. Don't break the send flow.
-      console.warn('Send-to-JX meter analysis unavailable:', err.message);
-      sendAudioCtx = null;
-    }
-  };
-
-  const tickSendMeter = () => {
-    if (!sendAnalyser) return;
-    sendAnalyser.getByteTimeDomainData(sendAnalyserBuf);
-    let peak = 0;
-    for (let i = 0; i < sendAnalyserBuf.length; i++) {
-      const v = Math.abs(sendAnalyserBuf[i] - 128) / 128;
-      if (v > peak) peak = v;
-    }
-    // Pulse the arrow while audio is actively flowing — same pattern as
-    // the Record-from-JX arrow during capture. (Level meter removed from
-    // Send-to-JX in favor of the JX-3P logo; analyser still feeds the
-    // arrow-pulse decision.)
-    if (peak > 0.03) {
-      if (!sendArrow.classList.contains('pulsing')) sendArrow.classList.add('pulsing');
-    } else {
-      if (sendArrow.classList.contains('pulsing')) sendArrow.classList.remove('pulsing');
-    }
-    sendMeterRaf = requestAnimationFrame(tickSendMeter);
-  };
+  // NOTE: We deliberately do NOT route the audio element through an
+  // AudioContext + createMediaElementSource for Send-to-JX. That setup
+  // hijacks the audio element's output routing through
+  // AudioContext.destination — and if anything is off (suspended context,
+  // edge-case browser bug), audio becomes silent even though currentTime
+  // advances and the timeline animates. The result: timeline plays
+  // through but the JX hears nothing. (Diagnosed 2026-05-24 — see
+  // docs/future-features.md for the original analysis. Removed in favor
+  // of timer-driven arrow pulse.)
+  //
+  // We don't need real audio analysis here anyway: the level meter that
+  // used to consume the analyser data was replaced by the JX-3P logo, and
+  // Mac volume is fixed at 100% per the setup instructions — there's
+  // nothing for the user to monitor in real-time. The arrow pulse just
+  // signals "audio is actively transmitting", which we know perfectly
+  // well from audioEl's playing state without needing to tap the buffer.
 
   const cleanup = async () => {
     if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
-    if (sendMeterRaf) { cancelAnimationFrame(sendMeterRaf); sendMeterRaf = null; }
-    if (sendAudioCtx) {
-      try { await sendAudioCtx.close(); } catch {}
-      sendAudioCtx = null;
-      sendAnalyser = null;
-      sendAnalyserBuf = null;
-    }
     if (audioEl) {
       try { audioEl.pause(); } catch {}
       audioEl.src = '';
@@ -3162,22 +3121,6 @@ function showSendToJxFlow(opts) {
     primaryBtn.disabled = true;
     cancelBtn.textContent = 'Cancel';
     statusText.textContent = 'Playing…';
-    // Wire up audio analysis BEFORE play() so the meter starts reading on
-    // the first audio frame. setupAudioAnalysis must run inside this
-    // user-gesture handler so the AudioContext starts in 'running' state
-    // (Chrome's autoplay policy blocks contexts created without a gesture).
-    setupAudioAnalysis();
-    // Defensive: even when created in a user gesture, the AudioContext
-    // can occasionally start in 'suspended' state (Chromium edge cases
-    // when a previous context was still being torn down). Without this
-    // resume, createMediaElementSource silently redirects the audio
-    // element's output into a suspended context and NO sound plays —
-    // visually everything looks normal (timeline advances, status reads
-    // "Playing…") but the JX-3P never hears the dump and the user thinks
-    // Send was broken.
-    if (sendAudioCtx && sendAudioCtx.state === 'suspended') {
-      try { await sendAudioCtx.resume(); } catch {}
-    }
     try {
       await audioEl.play();
     } catch (err) {
@@ -3185,10 +3128,11 @@ function showSendToJxFlow(opts) {
       primaryBtn.disabled = false;
       return;
     }
-    // Drive the send-level meter + arrow pulse from the analyser.
-    if (sendAnalyser && !sendMeterRaf) {
-      sendMeterRaf = requestAnimationFrame(tickSendMeter);
-    }
+    // Arrow pulse driven by playback state — not audio analysis. As long
+    // as the audio element is actively playing (not paused / ended), the
+    // arrow pulses. Cleared by the 'ended' handler (which also sets the
+    // .complete state) and by cleanup() on Cancel.
+    sendArrow.classList.add('pulsing');
     progressTimer = setInterval(() => {
       if (!audioEl) return;
       updateIndicator(audioEl.currentTime || 0);
@@ -3228,10 +3172,26 @@ function showSendToJxFlow(opts) {
 
     audioEl = new Audio('file://' + tempPath);
     audioEl.preload = 'auto';
+    audioEl.volume = 1.0;          // defensive — never trust the default
+    audioEl.muted = false;         // defensive — never trust the default
+    console.log('send-to-jx: audio element created, src=' + audioEl.src);
 
     audioEl.addEventListener('loadedmetadata', () => {
+      console.log(`send-to-jx: loadedmetadata duration=${audioEl.duration.toFixed(2)}s readyState=${audioEl.readyState}`);
       enterPlayState(audioEl.duration);
       primaryBtn.dataset.state = 'play';
+    });
+    audioEl.addEventListener('play', () => {
+      console.log(`send-to-jx: PLAY event — muted=${audioEl.muted} volume=${audioEl.volume} readyState=${audioEl.readyState} paused=${audioEl.paused}`);
+    });
+    audioEl.addEventListener('playing', () => {
+      console.log('send-to-jx: PLAYING event — actually started rendering audio');
+    });
+    audioEl.addEventListener('stalled', () => {
+      console.warn('send-to-jx: STALLED — playback stalled waiting for data');
+    });
+    audioEl.addEventListener('suspend', () => {
+      console.warn('send-to-jx: SUSPEND — loading suspended');
     });
 
     audioEl.addEventListener('ended', () => {
