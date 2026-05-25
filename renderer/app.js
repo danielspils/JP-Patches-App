@@ -2271,9 +2271,7 @@ function handleLoadLibraryBanks(idx) {
   if (modifiedCount === 0) {
     showConfirmModal({
       title: 'Loading new C/D banks to JP Patches',
-      body:
-        `*${pkgName}* will replace the current C and D banks in the JP Patches app.\n\n` +
-        `Use the **Tone → Save to JX-3P** button to send *${pkgName}* to your synth.`,
+      body: `*${pkgName}* will replace the current C and D banks in the JP Patches app.`,
       confirmLabel: 'Load',
       onConfirm: () => loadPackageIntoActiveBanks(pkg),
     });
@@ -2289,8 +2287,7 @@ function handleLoadLibraryBanks(idx) {
     title: 'Loading new C/D banks to JP Patches',
     body:
       `Your active C/D banks have **${editLabel}**. Loading *${pkgName}* ` +
-      'will replace them.\n\n' +
-      `Use **Tone → Save to JX-3P** to send *${pkgName}* to your synth afterward.`,
+      'will replace them.',
     confirmLabel: 'Save and load',
     confirmStyle: 'confirm',
     onConfirm: () => {
@@ -3483,7 +3480,45 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
     return;
   }
   const stamp = new Date().toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  await applyToneResult(result, tempWavPath, `JX-3P tape capture · ${stamp}`);
+  const label = `JX-3P tape capture · ${stamp}`;
+
+  // Before applying, check if active C/D has unsaved edits and offer
+  // the "Save and apply" rescue flow — mirrors the library-load path
+  // in handleLoadLibraryBanks. Clean state (no modifications) applies
+  // silently as before; modified state surfaces the 3-button choice so
+  // the user can preserve their work before it's overwritten.
+  const modifiedCount = countModifiedSlots();
+  if (modifiedCount === 0) {
+    await applyToneResult(result, tempWavPath, label);
+    return;
+  }
+
+  // Modifications present — three-button rescue flow.
+  const editLabel  = modifiedCount === 1 ? '1 unsaved edit' : `${modifiedCount} unsaved edits`;
+  const deviceText = deviceInfo && deviceInfo.deviceLabel ? `*${deviceInfo.deviceLabel}*` : 'the JX-3P';
+  showConfirmModal({
+    title: 'Apply captured tape dump?',
+    body:
+      `Your active C/D banks have **${editLabel}**. The capture from ` +
+      `${deviceText} decoded successfully — applying it will replace ` +
+      'your current C/D banks.\n\n' +
+      'Save them to the Library first, or apply directly to discard.',
+    confirmLabel: 'Save and apply',
+    confirmStyle: 'confirm',
+    onConfirm: () => {
+      showSaveAndContinueModal({
+        defaultName: packageDefaultName(new Date()),
+        onSaved: async (name) => {
+          saveSnapshotInBackground(name);
+          await applyToneResult(result, tempWavPath, label);
+        },
+        onCancelled: () => {},  // abandon — capture is discarded
+      });
+    },
+    tertiaryLabel: 'Apply without saving',
+    tertiaryStyle: 'alt',
+    onTertiary: () => applyToneResult(result, tempWavPath, label),
+  });
 }
 
 async function handleToneLoad() {

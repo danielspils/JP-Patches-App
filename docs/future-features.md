@@ -31,6 +31,30 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **README screenshots refresh.** Current screenshots predate the vintage cream palette and the Custom Banks redesign. Capture fresh screenshots and embed in the README.
 
+- **Sequencer visualization + editor (with paired-patch tie-in).** Today the Library Sequences tab shows each sequence as a single row — name, save date, paired-patch reference via the ⓘ icon. No way to SEE the actual notes inside, no way to edit them in JP. The JX-3P sequencer's data is structured (8 pages × 16 steps × 7 voices) and we already preserve every byte on roundtrip, so a visualization layer is buildable.
+
+  **Two layout options worth prototyping:**
+
+  - **Step grid** (closest to how the JX-3P internally represents data): 16-column × 7-row grid per page, each cell showing the note name (e.g. "C4") or empty. Page selector switches between pages 0-7. Tied notes get a subtle horizontal connector to the previous step. Pure HTML grid, easy to build (~3-4 hours), most "honest" to the hardware model — but reads more like a spreadsheet than music.
+
+  - **Piano roll** (MIDI-style horizontal pitch grid): vertical axis = pitch (MIDI 36-84, the JX keyboard range), horizontal axis = time (16 steps × 8 pages = 128 columns). Each note rendered as a colored bar; tied notes are elongated bars spanning multiple steps. Voice density at any step shown by stacked bars. More musically intuitive, requires SVG (~6-8 hours).
+
+  - **Musical notation** (standard staves with note durations) — discussed and parked. HARD: requires a music engraving library (VexFlow, OpenSheetMusicDisplay, ~250-500 KB), time-signature interpretation is ambiguous from JX data (the sequencer's "step" doesn't map to a fixed note duration without user input on tempo/meter), and standard notation is read-only by nature so doesn't help with the editor side. Could be added as a third VIEW option on top of the step grid or piano roll, but only after the primary editor lands.
+
+  **Paired-patch tie-in:**
+  - The sequencer's audible result depends entirely on which patch is loaded — same sequence sounds completely different through a bass patch vs. a pad. Each Library Sequence carries `app.pairedPatch.{bank, slot, params, patchName}` (set at save time, preserved across all roundtrips today).
+  - In the visualization: header shows "playing through: C5 / Warm Pad" with a one-click "Load paired patch to active C/D" action (replacing the in-app Load action that was removed 2026-05-25 specifically because it was confusing in isolation — but in this context, where the user is visualizing a sequence and wants to hear it, the action has clear purpose).
+
+  **Editor side** — minimum viable:
+  - Click an empty step → add a note (defaults to selected pitch or last-edited)
+  - Click an existing note → cycle through voice slots, or context menu (delete, transpose, tie to previous)
+  - Drag a note vertically → transpose
+  - Save → write back into `library.sequences[i].tape.pages`
+
+  **Effort:** 1-2 weekend days for a read-only step grid; 2-3 days for a usable editor; +3-4 days each for piano roll layout and musical notation if added later.
+
+  **Why parked:** v1 ships fine without it. The paired-patch data is already collected, so when this lands the historical data is ready to use. Build when sequencer manipulation feels like a real user request rather than a "nice to have."
+
 - **Multi-capture reliability mode for Record (design ready, build only if real-world failures appear).** Conceived May 25, 2026 when sequence Record was suspected to be probabilistic on cheap USB cables. The 10-of-10 KT bit-perfect test the same day showed Record is now deterministic with current software, so this isn't needed for v1 — but the design is fully worked out and worth shipping IF future user reports surface intermittent Record failures on hardware we can't anticipate.
 
   **Idea:** instead of one ~28 s sequence capture, do 3 (or N) back-to-back, then merge at the page level — for each page, keep the first capture where that page passed checksum from EITHER of its two internal JX-3P transmissions. Final result: one Library entry assembled from the best fragments across N captures.
