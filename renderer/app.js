@@ -342,9 +342,9 @@ function appendRenamePencil(span) {
   );
 }
 
-function displayLabel(b, s) {
-  return `${slotKey(b, s)}: ${patchName(b, s) || patchPlaceholder(b, s)}`;
-}
+// (displayLabel removed 2026-05-26: zero callers; superseded by inline
+// `${slotKey(b,s)}: ${patchName(b,s)}` constructions in the rendering
+// callsites. Flagged by ESLint's no-unused-vars and removed.)
 
 // Patch identity = its 32 parameters. The app keys names against this
 // fingerprint (library.history) so a name survives any roundtrip through the
@@ -1507,7 +1507,9 @@ function findControl(target) {
 function setupInteraction(svg) {
   let dragState = null;
   let downBtnId = null;
-  let downBtnInside = true;
+  // (downBtnInside removed 2026-05-26: was assigned but never read —
+  // remnant of an earlier panel-button hover-inside-outside tracking
+  // that was simplified away.)
 
   function applyDragAngle(clientY) {
     // Drag up (negative dy) = clockwise (positive angle). 2° per 1px (140px = full range).
@@ -1562,7 +1564,6 @@ function setupInteraction(svg) {
       e.preventDefault();
     } else if (type === 'button') {
       downBtnId = ctrl.dataset.buttonId;
-      downBtnInside = true;
       lightButton(downBtnId, true);
       e.preventDefault();
     }
@@ -3107,82 +3108,10 @@ function handleSendSequenceToJX() {
   showSendSequenceToJxModal(exportData, label);
 }
 
-function showLoadSequenceModal({ seq, onSend }) {
-  const pp = (seq.app && seq.app.pairedPatch) || {};
-  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
-  const pName = pp.patchName || '(unnamed)';
-  const note = (seq.app && seq.app.patchNote) || '';
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  const modal = document.createElement('div');
-  modal.className = 'modal seq-save-modal';
-
-  const h = document.createElement('h2');
-  h.className = 'modal-title';
-  h.textContent = 'Send Sequence to JX-3P';
-
-  const intro = document.createElement('div');
-  intro.className = 'seq-modal-captured';
-  intro.textContent =
-    'You will save a WAV file. Play that WAV into the JX-3P\'s tape input ' +
-    'while the synth is in Tape Memory Load mode.';
-
-  // Paired patch reminder.
-  const ppSec = document.createElement('div');
-  ppSec.className = 'seq-modal-section';
-  const ppLabel = document.createElement('label');
-  ppLabel.textContent = 'Paired patch (select this slot on your JX-3P)';
-  const ppValue = document.createElement('div');
-  ppValue.className = 'seq-modal-paired';
-  ppValue.textContent = `${where}: ${pName}`;
-  ppSec.appendChild(ppLabel);
-  ppSec.appendChild(ppValue);
-
-  // Patch note reminder (if present). Built here, appended below in
-  // proper document order (after the paired-patch section, before actions).
-  let noteSec = null;
-  if (note) {
-    noteSec = document.createElement('div');
-    noteSec.className = 'seq-modal-section';
-    const noteLabel = document.createElement('label');
-    noteLabel.textContent = 'NOTES from the person who made this sequence';
-    const noteValue = document.createElement('div');
-    noteValue.className = 'seq-modal-paired';
-    noteValue.textContent = note;
-    noteSec.appendChild(noteLabel);
-    noteSec.appendChild(noteValue);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'modal-actions';
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'modal-btn modal-btn-cancel';
-  cancelBtn.textContent = 'Cancel';
-  const sendBtn = document.createElement('button');
-  sendBtn.className = 'modal-btn modal-btn-confirm';
-  sendBtn.textContent = 'Save WAV…';
-
-  modal.appendChild(h);
-  modal.appendChild(intro);
-  modal.appendChild(ppSec);
-  if (noteSec) modal.appendChild(noteSec);
-  modal.appendChild(actions);
-  actions.appendChild(cancelBtn);
-  actions.appendChild(sendBtn);
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  cancelBtn.addEventListener('click', close);
-  sendBtn.addEventListener('click', () => { close(); onSend(); });
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', onKey);
-}
+// (showLoadSequenceModal removed 2026-05-26: it built a 3rd standalone
+// "send sequence to JX" modal that was superseded by the unified
+// showSendToJxFlow/showSendSequenceToJxModal path. Zero callers
+// remained — flagged by ESLint's no-unused-vars and removed.)
 
 function setupLibSubTabs() {
   document.querySelectorAll('.lib-sub-tab').forEach((tab) => {
@@ -3502,24 +3431,11 @@ function reorderBankSlot(bank, fromIdx, toIdx) {
 // Tape Memory: Save / Load
 // ═══════════════════════════════════════════════════════════════
 
-function buildExportData() {
-  const out = { banks: { C: [], D: [] }, library: [] };
-  ['C', 'D'].forEach((bank) => {
-    const bankIdx = bank === 'D' ? 1 : 0;
-    for (let slot = 0; slot < 16; slot++) {
-      const params = (patches && patches.banks && patches.banks[bankIdx])
-        ? patches.banks[bankIdx][slot] || {}
-        : {};
-      out.banks[bank].push({
-        slot: slot + 1,
-        name: patchName(bank, slot) || null,
-        origin: patchOrigin(bank, slot) || slotKey(bank, slot),
-        params,
-      });
-    }
-  });
-  return out;
-}
+// (buildExportData removed 2026-05-26: it built a name-and-origin-
+// preserving export shape that was replaced by the jPpS RIFF chunk
+// approach in v0.5.11 — slot metadata now travels inside the WAV
+// itself, so this separate JSON construction has zero callers.
+// Flagged by ESLint's no-unused-vars and removed.)
 
 // JSON load — restore an app-saved tape file. Custom names and origins
 // round-trip via the file itself; for any slot the file leaves unnamed, we
@@ -3940,7 +3856,9 @@ function showSendToJxFlow(opts) {
 
   // Cause→effect row (matches Record-from-JX layout pattern, defined in
   // docs/design-system.md §4.3). Construction in buildSendRow above.
-  const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram } = buildSendRow(kind, sourceLabel);
+  // (jxKeyDiagram lives inside sendRow now — no callsite needs the
+  //  reference outside, so destructure-skip it with the _ prefix.)
+  const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram: _jxKeyDiagram } = buildSendRow(kind, sourceLabel);
   modal.appendChild(sendRow);
 
   // Per-segment timeline + indicator + status text. Construction in
@@ -4848,9 +4766,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   let analyserNode = null;
   let processorNode = null;
   let captured = [];                // Float32Array chunks accumulated during onaudioprocess
-  let fskPeak  = 0;                 // max peak observed AFTER FSK start; populated by tickMeter, read by stopRecording for calibration
-  let totalSignalMs = 0;            // cumulative time peak > SIGNAL_THRESHOLD_LIVE; modal-scoped so the calibration auto-stop can read it without requiring silence→signal detection
-  let runningPeak = 0;              // running max of LIVE meter peaks; modal-scoped so the post-capture onCaptured handoff can pass capturePeak to the recalibrate flow. (Was previously declared inside startRecording, which made it invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError after the modal had already closed, leaving no save-sequence prompt and no error UI. Fixed 2026-05-25.)
+  let fskPeak  = 0;                 // max peak observed AFTER FSK start; read by stopRecording's calibration math. Mirrored from captureState.fskPeak each raf tick.
+  let runningPeak = 0;              // running max of LIVE meter peaks; read by stopRecording's onCaptured handoff (capturePeak param). Mirrored from captureState.runningPeak. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
+  // (totalSignalMs mirror removed 2026-05-26: captureState.totalSignalMs
+  // is the only read site now after the Step 3d state-machine extraction.)
   let levelRaf = null;
   let elapsedTimer = null;
   // Periodic re-probe of the selected device's sample rate. Catches
@@ -5369,11 +5288,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // state machine). See renderer/capture-state.js for the shape and
     // for the pure updateCaptureState() that drives the transitions.
     let captureState = makeInitialCaptureState();
-    // Mirror three values back to modal scope so stopRecording's
-    // existing reads still work without refactoring every callsite.
-    runningPeak   = 0;
-    fskPeak       = 0;
-    totalSignalMs = 0;
+    // Mirror two values back to modal scope so stopRecording's existing
+    // reads still work without refactoring every callsite (fskPeak for
+    // the calibration math, runningPeak for the onCaptured handoff).
+    // totalSignalMs is read directly off captureState now.
+    runningPeak = 0;
+    fskPeak     = 0;
 
     const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
 
@@ -5433,13 +5353,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         expectedSignalMs: EXPECTED_SIGNAL_MS,
       });
       captureState = nextCaptureState;
-      // Mirror to modal-scope vars so stopRecording's existing reads
-      // (fskPeak for calibration math, runningPeak for capturePeak
-      // handoff, totalSignalMs for the no-signal-escalated warning)
-      // continue to work without refactoring every callsite.
-      runningPeak   = captureState.runningPeak;
-      fskPeak       = captureState.fskPeak;
-      totalSignalMs = captureState.totalSignalMs;
+      // Mirror two values to modal-scope so stopRecording's existing
+      // reads still work: fskPeak for the calibration math,
+      // runningPeak for the capturePeak handoff to onCaptured.
+      // (totalSignalMs is read directly off captureState below.)
+      runningPeak = captureState.runningPeak;
+      fskPeak     = captureState.fskPeak;
 
       // Apply events: DOM transitions the state machine signaled.
       if (events.fskJustStarted) {
@@ -5658,7 +5577,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     const trimResult        = computeFskTrim(all, actualSampleRate, currentGainAtTrim);
     const trimStart         = trimResult.trimStart;
     const trimmed           = trimStart > 0 ? all.subarray(trimStart) : all;
-    const trimmedLen        = trimmed.length;
 
     // Convert trimmed Float32 → 16-bit signed PCM bytes + measure peak
     // in one pass. See renderer/record-trim.js for the fused-loop
@@ -6166,7 +6084,7 @@ function renderSequenceVisualizer() {
 
   // Wire page-button clicks
   container.querySelectorAll('.seq-viz-page-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', () => {
       const v = btn.dataset.page;
       const next = v === 'all' ? null : parseInt(v, 10);
       // Click on the currently-active page (or ALL when already all) =

@@ -153,40 +153,12 @@
     return any;
   };
 
-  // ── Trim-threshold scaling ──────────────────────────────────────────────
-  //
-  // The JX's between-dumps idle tone is a roughly fixed pre-gain
-  // amplitude (~0.005–0.010). After applying software gain g, it lands at
-  // ~0.005g–0.010g. At low gain (≤4×) idle stays under the default 0.05
-  // silence threshold; at higher gain it crosses and the silence detector
-  // misfires. Scaling both thresholds with current gain (capped at 20× so
-  // SIGNAL doesn't approach the calibrated FSK peak target of ~0.78)
-  // restores correct trim behavior at any saved gain.
-  //
-  // Used in stopRecording's trim algorithm in app.js. See CLAUDE.md
-  // pitfall #12 for the bug-history that motivated this.
-
-  /**
-   * Scale the FSK silence/signal thresholds against the current
-   * software gain. See CLAUDE.md pitfall #12 for the bug history.
-   *
-   * NB: There's a near-identical copy of this function in
-   * `record-trim.js` (which adds a `currentGain || 1` guard against
-   * falsy input). Loaded later, so it wins the global override at
-   * runtime. Should be consolidated; tracked as cleanup. Caller
-   * code paths today reach the record-trim version.
-   *
-   * @param {number} currentGain Software gain multiplier (typically 1–30×)
-   * @returns {{SIGNAL_THRESHOLD: number, SILENCE_THRESHOLD: number}}
-   *   Both thresholds in [0, 1] for direct comparison against peak.
-   */
-  const computeTrimThresholds = (currentGain) => {
-    const thresholdScale  = Math.min(20, Math.max(1, currentGain));
-    return {
-      SIGNAL_THRESHOLD:  Math.max(0.10, 0.025 * thresholdScale),
-      SILENCE_THRESHOLD: Math.max(0.05, 0.012 * thresholdScale),
-    };
-  };
+  // (computeTrimThresholds removed from this module 2026-05-26 —
+  // record-trim.js exports the authoritative version with a falsy-
+  // guard on currentGain. The two were near-identical and the
+  // record-trim version was already winning the global override at
+  // runtime because index.html loads it after calibration-math.js.
+  // ESLint's JSDoc-pass + manual cross-check surfaced the duplicate.)
 
   // ── Calibration peak → saved gain ───────────────────────────────────────
   //
@@ -229,7 +201,6 @@
     gainToAngle,
     angleToGain,
     isDecodeAllDefault,
-    computeTrimThresholds,
     computeCalibratedGain,
   };
 });

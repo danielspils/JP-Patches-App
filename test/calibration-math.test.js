@@ -19,7 +19,6 @@ const {
   gainToAngle,
   angleToGain,
   isDecodeAllDefault,
-  computeTrimThresholds,
   computeCalibratedGain,
 } = require('../renderer/calibration-math.js');
 
@@ -181,37 +180,10 @@ test('isDecodeAllDefault — patch without vca_level field is treated as default
   assert.equal(isDecodeAllDefault(data), true);
 });
 
-// ─── computeTrimThresholds ──────────────────────────────────────────────────
-
-test('computeTrimThresholds — gain 1× uses default floors', () => {
-  const { SIGNAL_THRESHOLD, SILENCE_THRESHOLD } = computeTrimThresholds(1);
-  approx(SIGNAL_THRESHOLD,  0.10, 1e-9, 'default signal threshold');
-  approx(SILENCE_THRESHOLD, 0.05, 1e-9, 'default silence threshold');
-});
-
-test('computeTrimThresholds — gain 11× scales both thresholds', () => {
-  const { SIGNAL_THRESHOLD, SILENCE_THRESHOLD } = computeTrimThresholds(11);
-  approx(SIGNAL_THRESHOLD,  0.275, 1e-9, 'scaled signal threshold at 11×');
-  approx(SILENCE_THRESHOLD, 0.132, 1e-9, 'scaled silence threshold at 11×');
-});
-
-test('computeTrimThresholds — gain 20× hits the cap', () => {
-  const { SIGNAL_THRESHOLD, SILENCE_THRESHOLD } = computeTrimThresholds(20);
-  approx(SIGNAL_THRESHOLD,  0.50, 1e-9);
-  approx(SILENCE_THRESHOLD, 0.24, 1e-9);
-});
-
-test('computeTrimThresholds — gain above 20× caps thresholds', () => {
-  const at20 = computeTrimThresholds(20);
-  const at30 = computeTrimThresholds(30);
-  assert.deepEqual(at30, at20, 'thresholds should cap at gain=20 scaling');
-});
-
-test('computeTrimThresholds — gain below 1× clamps to 1×', () => {
-  const { SIGNAL_THRESHOLD, SILENCE_THRESHOLD } = computeTrimThresholds(0.5);
-  approx(SIGNAL_THRESHOLD,  0.10, 1e-9);
-  approx(SILENCE_THRESHOLD, 0.05, 1e-9);
-});
+// (computeTrimThresholds tests moved to record-trim.test.js where the
+// authoritative function now lives. The calibration-math.js copy was
+// dead code overridden at runtime by record-trim.js — removed
+// 2026-05-26 along with its duplicate tests.)
 
 // ─── computeCalibratedGain ──────────────────────────────────────────────────
 
