@@ -5273,51 +5273,18 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // sample-rate flip on every macOS/Chromium combination. The probe
     // either renews or clears the warning. Fires async; don't await.
     probeDeviceSampleRate(devicePicker.value);
+    // Acquire the input stream with FSK-safe constraints. See
+    // renderer/audio-capture.js for the strict-vs-soft constraint
+    // dance + rationale. The helper handles the OverconstrainedError
+    // fallback internally; we just need to surface a clean error to
+    // the user if both attempts fail.
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId:         devicePicker.value ? { exact: devicePicker.value } : undefined,
-          // Critical: disable any processing that would mangle the FSK signal.
-          // Chromium's voice-call DSP (high-pass filter + AGC + noise gate)
-          // is on by default and the *standard* boolean flags below aren't
-          // always respected — they're treated as soft preferences. The
-          // `{exact: false}` form forces them, and the legacy `googXxx`
-          // flags catch older Chromium versions that ignored the standard
-          // names. Without this, recordings come back with the FSK carrier
-          // partially filtered out — bits decode as noise, no checksums pass.
-          echoCancellation:        { exact: false },
-          noiseSuppression:        { exact: false },
-          autoGainControl:         { exact: false },
-          googEchoCancellation:    false,
-          googAutoGainControl:     false,
-          googNoiseSuppression:    false,
-          googHighpassFilter:      false,
-          googTypingNoiseDetection:false,
-          channelCount:            1,
-          sampleRate:              44100,
-        },
-      });
+      const result = await acquireRawAudioStream(devicePicker.value || undefined);
+      mediaStream = result.mediaStream;
     } catch (err) {
-      // {exact:false} can throw OverconstrainedError on devices that report
-      // they can't comply. Fall back to the soft form so the user can at
-      // least record (degraded quality, but lets them see the level meter).
-      console.warn('Strict raw-audio constraints failed, falling back:', err.name);
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId:         devicePicker.value ? { exact: devicePicker.value } : undefined,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl:  false,
-            channelCount:     1,
-            sampleRate:       44100,
-          },
-        });
-      } catch (err2) {
-        statusText.textContent = `Couldn't start mic: ${err2.name} — ${err2.message}`;
-        stopBtn.disabled = true;
-        return;
-      }
+      statusText.textContent = `Couldn't start mic: ${err.name} — ${err.message}`;
+      stopBtn.disabled = true;
+      return;
     }
     // AudioContext sample rate may differ from what we requested (browser
     // resampler may apply). We read audioContext.sampleRate when shipping
