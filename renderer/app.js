@@ -5334,69 +5334,48 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // tones at 33 s usually escaped by margin alone). Symptom: "Recording
     // didn't decode cleanly" recalibrate prompt for sequences.
     //
-    // Fix: scale the live thresholds with current gain the same way the
-    // trim thresholds in stopRecording are scaled (see ~line 4493). Caps
-    // at 20× scaling so SIGNAL doesn't approach the FSK peak target.
-    // Recomputed every tick because in calibration mode the user can
-    // still adjust the slider during capture.
-    const liveThresholdsFor = (g) => {
-      const scale = Math.min(20, Math.max(1, g || 1));
-      return {
-        silence: Math.max(0.03, 0.012 * scale),
-        signal:  Math.max(0.10, 0.025 * scale),
-      };
-    };
+    // Initial capture state (counters + timestamps for the silence/signal
+    // state machine). See renderer/capture-state.js for the shape and
+    // for the pure updateCaptureState() that drives the transitions.
+    let captureState = makeInitialCaptureState();
+    // Mirror three values back to modal scope so stopRecording's
+    // existing reads still work without refactoring every callsite.
+    runningPeak   = 0;
+    fskPeak       = 0;
+    totalSignalMs = 0;
+
     const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
-    // Track SUSTAINED silence (consecutive below-threshold ticks reset on
-    // any non-silence). Accumulated/total silence isn't enough — the JX
-    // idle tone can dip below threshold briefly and falsely accumulate.
-    let consecSilenceMs = 0;
-    let fskStartMs   = null;      // ms timestamp when FSK actually began (silence→signal pattern detected; may be null if no silence preceded the signal)
-    let firstSignalMs = null;     // ms timestamp when peak FIRST crossed SIGNAL_THRESHOLD_LIVE — robust to no-silence-precursor case; used for the "expected dump duration has elapsed since signal start" auto-stop trigger
-    let activeMs     = 0;         // accumulated time inside FSK transmission
-    totalSignalMs    = 0;         // reset between record sessions (modal-scoped)
-    let lastTickMs   = null;
-    runningPeak  = 0;             // reset between record sessions (modal-scoped — see declaration at top of showRecordFromJxModal)
-    fskPeak = 0;                  // reset between record sessions (modal-scoped)
+
     // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
     // the arrow's .pulsing class flips off the instant peak dips below
     // the silence threshold, even momentarily. At calibrated gains where
     // the scaled silence threshold is close to typical signal-to-silence
     // transitions inside FSK data, this caused visible animation drop-
-    // outs ("the arrow stops, then resumes, then stops"). Mirror the
-    // meter's pattern: rising edge instant (responsiveness when signal
-    // arrives), falling edge requires N consecutive sub-silence ticks.
+    // outs. Mirror the meter's pattern: rising edge instant, falling
+    // edge requires N consecutive sub-silence ticks.
     let arrowBelowSilenceTicks = 0;
     const ARROW_FALLING_DEBOUNCE_TICKS = 8;   // ~130 ms at 60 fps
     // 4-state warning ladder. null = no warning; otherwise one of
     // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
-    // Priority order is the literal order above — higher-severity wins.
     let warnLevel = null;
     const recordStartMs = Date.now();
     const tickMeter = () => {
       if (state !== 'recording') return;
-      analyserNode.getByteTimeDomainData(analyserBuf);
-      let peak = 0;
-      for (let i = 0; i < analyserBuf.length; i++) {
-        const v = Math.abs(analyserBuf[i] - 128) / 128;
-        if (v > peak) peak = v;
-      }
-      // Per-tick scaled thresholds — see the liveThresholdsFor() comment
-      // above. Recomputed here so calibration-mode gain changes take effect
-      // immediately. In capture mode the gain is locked, so this is stable.
-      const { silence: SILENCE_THRESHOLD_LIVE, signal: SIGNAL_THRESHOLD_LIVE } =
-        liveThresholdsFor(gainNode && gainNode.gain.value);
-      // SVG vertical level meter (panel-style 7-segment ladder). setPeak
-      // picks cream/blue/green/amber/red zones per the threshold table.
-      // (The old horizontal HTML meter that used to update here was
-      // removed in the 2026-05-24 cleanup.)
+
+      // Read peak from analyser + compute live thresholds — both
+      // pure helpers in renderer/capture-state.js. Thresholds are
+      // recomputed per tick so calibration-mode slider changes take
+      // effect immediately.
+      const peak = readAnalyserPeak(analyserNode, analyserBuf);
+      const thresholds = liveThresholdsFor(gainNode && gainNode.gain.value);
+
+      // SVG vertical level meter (panel-style 7-segment ladder).
       vmeter.setPeak(peak);
-      // Arrow between key diagram and gain/meter card pulses when there's
-      // any signal coming in — reinforces the visual cause→effect (press
-      // Save on JX → see level respond on Mac). Falling edge is debounced
-      // (see arrowBelowSilenceTicks above) so brief silence dips inside a
-      // sustained FSK transmission don't stop the dash animation.
-      if (peak > SILENCE_THRESHOLD_LIVE) {
+
+      // Arrow .pulsing animation — falling-edge debounced to ride
+      // through brief silence dips inside sustained FSK. Depends
+      // only on the current peak vs the silence threshold.
+      if (peak > thresholds.silence) {
         if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
         arrowBelowSilenceTicks = 0;
       } else {
@@ -5408,103 +5387,54 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
           }
         }
       }
-      if (peak > runningPeak) runningPeak = peak;
 
+      // Pure state-machine tick — see renderer/capture-state.js for
+      // the silence/signal transitions, the fskStarted detection,
+      // and the auto-stop ladder. Returns the new state + events
+      // to act on.
       const now = Date.now();
-      const dtMs = lastTickMs !== null ? (now - lastTickMs) : 0;
-      lastTickMs = now;
+      const { state: nextCaptureState, events } = updateCaptureState(captureState, {
+        peak,
+        now,
+        silenceThreshold: thresholds.silence,
+        signalThreshold:  thresholds.signal,
+        recordStartMs,
+        expectedSignalMs: EXPECTED_SIGNAL_MS,
+      });
+      captureState = nextCaptureState;
+      // Mirror to modal-scope vars so stopRecording's existing reads
+      // (fskPeak for calibration math, runningPeak for capturePeak
+      // handoff, totalSignalMs for the no-signal-escalated warning)
+      // continue to work without refactoring every callsite.
+      runningPeak   = captureState.runningPeak;
+      fskPeak       = captureState.fskPeak;
+      totalSignalMs = captureState.totalSignalMs;
 
-      // Sustained-silence detection: need 500 ms of consecutive ticks below
-      // the silence threshold to register as the "Save press" marker. Any
-      // tick that's not silence resets the streak — that filters out brief
-      // idle-tone dips that aren't actually the JX going quiet.
-      if (peak < SILENCE_THRESHOLD_LIVE) {
-        consecSilenceMs += dtMs;
-      } else {
-        if (peak > SIGNAL_THRESHOLD_LIVE) {
-          totalSignalMs += dtMs;
-          // First time we see real signal — set firstSignalMs so the
-          // (b) auto-stop trigger can anchor to "dump start" rather than
-          // "recording start". This makes the timeout robust to any
-          // pre-roll between modal-open and user pressing Save on the JX.
-          if (firstSignalMs === null) firstSignalMs = now;
-          // Drive the calibration-mode dump-progress bar from WALL-CLOCK
-          // time since signal first arrived (rather than cumulative-pulse
-          // time). The JX dump takes a fixed ~33 s wall-clock from first
-          // signal to last; tracking wall-clock means the bar reaches
-          // 100% exactly when the dump actually ends, not 6–8 s later
-          // after gaps (pre-roll, inter-segment pauses) catch up.
-          if (isCalibrating && firstSignalMs !== null) {
-            const signalElapsed = now - firstSignalMs;
-            const pct = Math.min(100, (signalElapsed / EXPECTED_SIGNAL_MS) * 100);
-            calProgressBar.style.width = `${pct}%`;
-          }
-          if (fskStartMs === null && consecSilenceMs >= 500) {
-            fskStartMs = now;
-            // Two-state row reveal — fires in BOTH calibration and capture
-            // modes. Calibration: knob + meter + arrow fade in after the
-            // user presses Save (reveal as it becomes actionable). Capture:
-            // JP logo + arrow fade in, diagram dims. Gated on fskStartMs
-            // (the silence→signal pattern) rather than firstSignalMs (raw
-            // threshold cross) so pre-roll JX idle tone before the user
-            // presses Save doesn't trigger the transition prematurely. The
-            // 500ms silence requirement filters loose noise.
-            calRow.classList.add('playing');
-          }
-          if (fskStartMs !== null) {
-            activeMs += dtMs;
-            if (peak > fskPeak) {
-              fskPeak = peak;
-              // (Was updating fskPeakBadge here. That element was removed
-              // in the 2026-05-24 cleanup — the SVG vmeter now shows the
-              // peak directly with its color-zoned segments.)
-            }
-            // Calibration auto-stop removed: it tore down capture mid-JX-
-            // transmission, so pass 2 would start mid-dump (no pilot tone)
-            // and the demodulator couldn't calibrate cycle widths → 0
-            // valid records. User now clicks Stop manually after each pass;
-            // the JX has time to finish its dump, and the next Save press
-            // produces a clean pilot-led pass 2 capture.
-          }
-        }
-        consecSilenceMs = 0;
+      // Apply events: DOM transitions the state machine signaled.
+      if (events.fskJustStarted) {
+        // Two-state row reveal in BOTH calibration and capture modes.
+        // Calibration: knob + meter + arrow fade in after Save press.
+        // Capture: JP logo + arrow fade in, diagram dims.
+        calRow.classList.add('playing');
+      }
+      if (isCalibrating && events.progressPct !== null) {
+        // Wall-clock-driven progress bar (not cumulative-signal) so
+        // the bar reaches 100% exactly when the dump actually ends.
+        calProgressBar.style.width = `${events.progressPct}%`;
       }
 
-      // End-of-dump auto-stop. Four triggers, in order of preference:
-      //   (a) Saw ≥5 s of cumulative signal then ≥1 s of contiguous
-      //       silence — the normal "JX finished dumping" case. Fires
-      //       reliably when post-dump audio drops below the live-scaled
-      //       silence floor (see liveThresholdsFor() above).
-      //   (b) Time since firstSignalMs ≥ EXPECTED_SIGNAL_MS + 500 ms.
-      //       Anchored to dump start, robust to pre-roll between modal
-      //       open and user pressing Save on the JX.
-      //   (c) totalSignalMs ≥ EXPECTED_SIGNAL_MS — accumulated FSK time.
-      //       Fires for cases where (a) can't fire because post-dump
-      //       audio stays above the silence floor.
-      //   (d) Safety timeout — elapsedTotal ≥ EXPECTED + 6 s. Hard
-      //       fallback if everything else misfires.
-      // EXPECTED_SIGNAL_MS is sized ABOVE the worst-case real dump length
-      // so (a) wins for normal captures; (b)/(c) only fire when something
-      // about the gain / silence-detect breaks.
-      const elapsedTotal = now - recordStartMs;
-      const signalElapsed = firstSignalMs !== null ? (now - firstSignalMs) : 0;
-      const DUMP_TIMEOUT_MS   = EXPECTED_SIGNAL_MS + 500;   // (b) — anchored to first signal
-      const SAFETY_TIMEOUT_MS = EXPECTED_SIGNAL_MS + 6000;  // (d) — hard fallback
-      if (
-            (totalSignalMs >= 5000 && consecSilenceMs >= 1000) ||
-            (firstSignalMs !== null && signalElapsed >= DUMP_TIMEOUT_MS) ||
-            (totalSignalMs >= EXPECTED_SIGNAL_MS) ||
-            elapsedTotal >= SAFETY_TIMEOUT_MS
-      ) {
-        // Snap the progress bar to 100% before triggering Stop so the
-        // user gets a clean visual closure before the modal advances.
+      // Auto-stop — snap progress to 100% for clean visual closure
+      // before the modal advances, then trigger Stop.
+      if (events.autoStop) {
         if (isCalibrating) calProgressBar.style.width = '100%';
         stopRecording();
         return;
       }
 
-      if (activeMs > 0) {
-        const elapsedSec = activeMs / 1000;
+      // Timeline-segment indicator (drives the "WHAT THE JX-3P SENDS"
+      // segmented progress bar). Driven by activeMs in the new state.
+      if (captureState.activeMs > 0) {
+        const elapsedSec = captureState.activeMs / 1000;
         let acc = 0, activeIdx = segs.length - 1;
         for (let i = 0; i < segs.length; i++) {
           acc += segs[i].estSec;
@@ -5515,11 +5445,13 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         indicator.style.left = `${pct}%`;
       }
 
-      // Live warning classification: see renderer/capture-warnings.js
-      // for the state machine + thresholds. Pure call here; the raf
-      // loop owns the DOM mutation by comparing to the previous state.
-      const elapsedMs = now - recordStartMs;
-      const newWarn = classifyCaptureWarning({ peak, runningPeak, elapsedMs, totalSignalMs });
+      // Live warning classification: see renderer/capture-warnings.js.
+      const newWarn = classifyCaptureWarning({
+        peak,
+        runningPeak:   captureState.runningPeak,
+        elapsedMs:     events.elapsedTotal,
+        totalSignalMs: captureState.totalSignalMs,
+      });
       if (newWarn !== warnLevel) {
         warnLevel = newWarn;
         statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
