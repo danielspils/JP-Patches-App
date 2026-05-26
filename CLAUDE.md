@@ -1,5 +1,15 @@
 # JP Patches — Claude Code project memory
 
+> **🔔 FRESH SESSION? READ THIS NEXT:**
+> Before answering anything substantive, open
+> **[`docs/session-handoff-2026-05-26.md`](docs/session-handoff-2026-05-26.md)**
+> (or the newest `session-handoff-*.md` if one supersedes it).
+> It carries the open threads, recent verbal design decisions,
+> sequencer-editor open questions, and pickup-ready next moves
+> from the prior session. ~3 minutes to read; saves rediscovering
+> everything via git log. Skip only if your task is entirely
+> unrelated to recent work.
+
 Free, open-source macOS Electron app for the Roland JX-3P synthesizer. Author: Daniel Spils (GitHub: `danielspils`). First-time programmer; vibe-coded with Claude Code.
 
 This file is the cold-start summary. Pair it with:
