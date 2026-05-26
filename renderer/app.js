@@ -4467,6 +4467,98 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
   document.addEventListener('keydown', onKey);
 }
 
+// ── Modal-construction helpers for showRecordFromJxModal ───────────
+//
+// These build self-contained chunks of the modal's DOM and return the
+// constructed elements to the modal for assembly. Extracted from the
+// inline modal-builder to give each chunk a name and keep the modal
+// function readable. They live at module scope (hoisted) so they're
+// callable from anywhere in app.js. None depends on modal-scope state.
+
+// Timeline section — the "WHAT THE JX-3P SENDS:" segmented progress
+// bar. Segment definitions vary by kind (tone vs sequence) but the
+// construction shape is identical. The tickMeter raf loop advances
+// the indicator + lights up the active segment based on the returned
+// segs array; the modal stores the indicator/segs in scope for that.
+//
+// Returns: { timelineSection, timeline, segs, indicator }
+//   timelineSection — outer .record-jx-section to append to modal
+//   timeline        — inner flexbox container holding the segs
+//   segs            — Array<{kind, label, pilot, estSec, el}> for the
+//                     raf loop's segment-advancement logic
+//   indicator       — sweep line, modal updates its style.left as
+//                     the dump progresses
+function buildRecordTimelineSection(kind) {
+  const timelineSection = document.createElement('div');
+  timelineSection.className = 'record-jx-section';
+  const timelineLabel = document.createElement('label');
+  timelineLabel.textContent = 'WHAT THE JX-3P SENDS:';
+  const timeline = document.createElement('div');
+  timeline.className = 'send-jx-timeline';
+
+  const segs = (kind === 'sequence'
+    ? [
+        { kind: 'init',     label: 'Init',     pilot: true  },
+        { kind: 'sequence', label: 'Sequence', pilot: false },
+      ]
+    : [
+        { kind: 'init',    label: 'Init',    pilot: true  },
+        { kind: 'bank-c',  label: 'Bank C',  pilot: false },
+        { kind: 'divider', label: 'Divider', pilot: true  },
+        { kind: 'bank-d',  label: 'Bank D',  pilot: false },
+      ]
+  ).map((cfg) => {
+    const seg = document.createElement('div');
+    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
+    // Approximate per-segment durations (seconds) derived from JX-3P
+    // tape-format math: pilots are 4096 bits × 50 samples / 44100 Hz ≈
+    // 4.64 s; data sections depend on bit content (ONE=50 samples vs
+    // ZERO=11 — 4.5× asymmetry). Used only for the progress bar's
+    // visual proportions and sweep timing — auto-stop is governed by
+    // EXPECTED_SIGNAL_MS and silence-detection regardless of this.
+    cfg.estSec = cfg.pilot
+      ? 4.64
+      : kind === 'sequence' ? 22.0 : 16.0;
+    seg.style.flexGrow = String(cfg.estSec);
+    const label = document.createElement('span');
+    label.className = 'send-jx-seg-label';
+    label.textContent = cfg.label.toUpperCase();
+    seg.appendChild(label);
+    timeline.appendChild(seg);
+    return { ...cfg, el: seg };
+  });
+
+  const indicator = document.createElement('div');
+  indicator.className = 'send-jx-indicator';
+  indicator.style.left = '0%';
+  timeline.appendChild(indicator);
+  timelineSection.appendChild(timelineLabel);
+  timelineSection.appendChild(timeline);
+
+  return { timelineSection, timeline, segs, indicator };
+}
+
+// Actions row — Cancel + Stop buttons. Stop is disabled until the
+// capture actually starts (after the permission grant + getUserMedia
+// resolves) so a too-fast Stop click doesn't fire into a half-
+// initialized state.
+//
+// Returns: { actions, cancelBtn, stopBtn }
+function buildRecordActions() {
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'modal-btn modal-btn-confirm';
+  stopBtn.textContent = '■ Stop';
+  stopBtn.disabled = true;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(stopBtn);
+  return { actions, cancelBtn, stopBtn };
+}
+
 // initialGain (optional): seed the gain slider with this value when
 // entering calibration mode (no saved cal exists). Used by the
 // Recalibrate flow to preserve the user's prior calibrated gain as
@@ -4604,75 +4696,16 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // Structure timeline — reuses the .send-jx-* classes from the export modal
   // so the visual matches. Static reference during recording; all segments
   // light up green on successful capture (the "complete" treatment).
-  const timelineSection = document.createElement('div');
-  timelineSection.className = 'record-jx-section';
-  const timelineLabel = document.createElement('label');
-  timelineLabel.textContent = 'WHAT THE JX-3P SENDS:';
-  const timeline = document.createElement('div');
-  timeline.className = 'send-jx-timeline';
-  const segs = (kind === 'sequence'
-    ? [
-        { kind: 'init',     label: 'Init',     pilot: true  },
-        { kind: 'sequence', label: 'Sequence', pilot: false },
-      ]
-    : [
-        { kind: 'init',    label: 'Init',    pilot: true  },
-        { kind: 'bank-c',  label: 'Bank C',  pilot: false },
-        { kind: 'divider', label: 'Divider', pilot: true  },
-        { kind: 'bank-d',  label: 'Bank D',  pilot: false },
-      ]
-  ).map((cfg) => {
-    const seg = document.createElement('div');
-    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
-    // Approximate per-segment durations (in seconds) derived from JX-3P
-    // tape format math: pilots are 4096 bits × 50 samples / 44100 Hz ≈
-    // 4.64 s; data sections depend on bit content (ONE=50 samples vs
-    // ZERO=11 — 4.5× asymmetry). For patches ~16 s per bank-section
-    // (avg of mixed content). For sequences ~22 s for the single data
-    // section (heavy content like Spils Sequence's mix of empty/full
-    // pages). Used only for the progress bar's visual proportions and
-    // sweep timing — auto-stop is governed by EXPECTED_SIGNAL_MS and
-    // silence-detection regardless of this estimate.
-    cfg.estSec = cfg.pilot
-      ? 4.64
-      : kind === 'sequence' ? 22.0 : 16.0;
-    seg.style.flexGrow = String(cfg.estSec);
-    const label = document.createElement('span');
-    label.className = 'send-jx-seg-label';
-    label.textContent = cfg.label.toUpperCase();
-    seg.appendChild(label);
-    timeline.appendChild(seg);
-    return { ...cfg, el: seg };
-  });
-  // Sweeping indicator line — reuses the send-side .send-jx-indicator
-  // styling. Anchored to the moment audio first crosses the signal
-  // threshold (= JX started transmitting), then advances based on the
-  // per-segment estSec values above.
-  const indicator = document.createElement('div');
-  indicator.className = 'send-jx-indicator';
-  indicator.style.left = '0%';
-  timeline.appendChild(indicator);
-  timelineSection.appendChild(timelineLabel);
-  timelineSection.appendChild(timeline);
+  // Construction lives in buildRecordTimelineSection above for navigability.
+  const { timelineSection, timeline, segs, indicator } = buildRecordTimelineSection(kind);
 
   const statusText = document.createElement('div');
   statusText.className = 'record-jx-status';
   statusText.textContent = '';
 
-  const actions = document.createElement('div');
-  actions.className = 'modal-actions';
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'modal-btn modal-btn-cancel';
-  cancelBtn.textContent = 'Cancel';
-  const stopBtn = document.createElement('button');
-  stopBtn.className = 'modal-btn modal-btn-confirm';
-  stopBtn.textContent = '■ Stop';
-  // Disabled until the capture actually starts (after the permission grant
-  // + getUserMedia resolves) so a too-fast Stop click doesn't fire into a
-  // half-initialized state.
-  stopBtn.disabled = true;
-  actions.appendChild(cancelBtn);
-  actions.appendChild(stopBtn);
+  // Cancel + Stop. Construction in buildRecordActions above. Stop is
+  // pre-disabled; enabled after getUserMedia resolves (see startRecording).
+  const { actions, cancelBtn, stopBtn } = buildRecordActions();
 
   // Visual JX-3P key-sequence guide — sits right under the instruction
   // copy so the user reads "Press Save on the JX-3P" and immediately sees
