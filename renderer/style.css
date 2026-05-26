@@ -1275,7 +1275,17 @@ body {
    into a temp WAV that the existing decode pipeline can consume. Mirrors
    the Send-to-JX modal layout: instructions on top, device picker + level
    meter in the middle, Record/Stop in the action row. */
-.record-jx-modal { max-width: 540px; }
+/* max-height + overflow-y: viewport-aware scroll fallback so the modal
+   can NEVER push its action buttons off the bottom of the screen. The
+   sample-rate notice grew large enough on 2026-05-26 to do exactly
+   that. With this rule, even if a future addition makes the modal
+   taller than the viewport, users can still scroll to reach Cancel /
+   Stop. 90vh leaves a small visual margin above + below. */
+.record-jx-modal {
+  max-width: 540px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
 /* Capture-source chooser modal (Save Patches / Save Sequence from JX-3P)
    — three buttons (Cancel + Open WAV file… + Record from JX-3P). Body
    sentence + buttons are both center-justified so the layout reads as a

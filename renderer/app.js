@@ -4766,12 +4766,15 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       const nativeRate = match.sampleRate;
       if (nativeRate !== 44100) {
         const deviceLabel = pickerLabel || match.name || 'this audio device';
+        // Tight 2-line copy: full advisory text was pushing the modal's
+        // action buttons off the bottom of the viewport on smaller
+        // displays. The kHz mismatch + the actionable fix + the "ignore
+        // if locked" escape all need to be present, but every extra
+        // word costs vertical space. Trimmed 2026-05-26.
         setSampleRateWarning(
-          `ℹ︎ ${deviceLabel} is running at ${nativeRate / 1000} kHz. ` +
-          `JP records at 44.1 kHz, so Chromium will resample. Most modern interfaces ` +
-          `survive this cleanly — but if a capture decodes empty and the gain looks right, ` +
-          `try switching this device's Format to 44100 Hz in Audio MIDI Setup. ` +
-          `(Some interfaces lock the input side to one rate; if there's no 44100 option, ignore this notice.)`
+          `ℹ︎ ${deviceLabel} is at ${nativeRate / 1000} kHz; JP needs 44.1 (Chromium will resample). ` +
+          `Usually fine. If captures decode empty, switch Format to 44100 in Audio MIDI Setup — ` +
+          `or ignore this if the dropdown only offers ${nativeRate / 1000}.`
         );
       } else {
         setSampleRateWarning(null);   // clear any prior warning
