@@ -1,5 +1,13 @@
 'use strict';
 
+/* global buildJxKeyDiagram */
+// buildJxKeyDiagram is declared in app.js (which loads after this file)
+// and used by buildSendRow below. The /* global */ directive tells
+// ESLint the reference is intentional without making it a project-wide
+// global (which would defeat the no-redeclare check that catches
+// shadow-bug duplicates like isDecodeAllDefault). Tests stub via
+// `global.buildJxKeyDiagram = ...` before requiring this module.
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Modal-construction builders.
 //
@@ -162,6 +170,66 @@
     return { actions, cancelBtn, saveBtn, primaryBtn };
   }
 
+  // ── Send-to-JX cause→effect row ───────────────────────────────────────────
+  //
+  // Matches the Record-from-JX layout pattern (docs/design-system.md §4.3).
+  // LEFT: JX-3P key diagram showing which key/sub-mode to arm. ARROW:
+  // pulses while audio plays. RIGHT: JX-3P "destination" logo (with
+  // optional "loading: {label}" caption underneath).
+  //
+  // Depends on the global `buildJxKeyDiagram` from app.js. The function
+  // exists by the time buildSendRow is CALLED (script tag order: app.js
+  // loads after modal-builders.js, but buildSendRow is called from
+  // showSendToJxFlow which runs only on user action — well after app.js
+  // has loaded). In Node tests, set `global.buildJxKeyDiagram` to a
+  // stub before invoking — see test/modal-builders.test.js.
+
+  /**
+   * @param {'tone' | 'sequence'} kind   Used to pick the right JX key
+   *   diagram (different keys for Tape Memory → Tone vs → Sequencer)
+   * @param {string | null | undefined} sourceLabel
+   *   Library package name to show under the JX logo. If falsy, the
+   *   label block is omitted entirely.
+   * @returns {{
+   *   sendRow:      HTMLElement,
+   *   sendArrow:    HTMLElement,
+   *   sendJxLogo:   HTMLElement,
+   *   jxKeyDiagram: HTMLElement,
+   * }}
+   */
+  function buildSendRow(kind, sourceLabel) {
+    const jxKeyDiagram = buildJxKeyDiagram({ action: 'load', kind });
+    const sendRow = document.createElement('div');
+    sendRow.className = 'record-jx-cal-row capture-mode';
+    sendRow.style.display = 'none';
+    const sendArrow = document.createElement('div');
+    sendArrow.className = 'record-jx-cal-arrow';
+    sendArrow.innerHTML =
+      `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
+        `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
+        `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
+      `</svg>`;
+    const sendJxLogo = document.createElement('div');
+    sendJxLogo.className = 'record-jx-jx3p-logo';
+    const sendLabelHtml = sourceLabel
+      ? `<div class="record-jx-package-label">` +
+          `<div class="record-jx-package-label-prefix">loading:</div>` +
+          `<div class="record-jx-package-label-name"></div>` +
+        `</div>`
+      : '';
+    sendJxLogo.innerHTML =
+      `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>` +
+      sendLabelHtml;
+    if (sourceLabel) {
+      // textContent so user-supplied labels can't inject HTML.
+      sendJxLogo.querySelector('.record-jx-package-label-name').textContent = sourceLabel;
+    }
+    sendRow.appendChild(jxKeyDiagram);
+    sendRow.appendChild(sendArrow);
+    sendRow.appendChild(sendJxLogo);
+    return { sendRow, sendArrow, sendJxLogo, jxKeyDiagram };
+  }
+
   // ── Send-to-JX status section ─────────────────────────────────────────────
   //
   // Per-segment timeline + sweep indicator + status text line. Hidden
@@ -223,6 +291,7 @@
   return {
     buildRecordTimelineSection,
     buildRecordActions,
+    buildSendRow,
     buildSendActions,
     buildSendStatusSection,
   };

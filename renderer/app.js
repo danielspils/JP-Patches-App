@@ -3730,50 +3730,12 @@ function showSendSequenceToJxModal(exportData, sourceLabel) {
 // onto. Module-scope (hoisted) so they're callable from anywhere in
 // app.js.
 
-// Cause→effect row for the Send modal. LEFT: JX-3P key diagram showing
-// which key/sub-mode to arm. ARROW: pulses while audio is playing.
-// RIGHT: JX-3P "destination" logo (with optional "loading: {label}"
-// caption below it).
-//
-// Returns: { sendRow, sendArrow, sendJxLogo, jxKeyDiagram }
-function buildSendRow(kind, sourceLabel) {
-  const jxKeyDiagram = buildJxKeyDiagram({ action: 'load', kind });
-  const sendRow = document.createElement('div');
-  sendRow.className = 'record-jx-cal-row capture-mode';   // capture-mode = no gain knob
-  sendRow.style.display = 'none';                          // revealed in step 2
-  const sendArrow = document.createElement('div');
-  sendArrow.className = 'record-jx-cal-arrow';
-  sendArrow.innerHTML =
-    `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
-      `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
-      `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
-    `</svg>`;
-  const sendJxLogo = document.createElement('div');
-  sendJxLogo.className = 'record-jx-jx3p-logo';
-  const sendLabelHtml = sourceLabel
-    ? `<div class="record-jx-package-label">` +
-        `<div class="record-jx-package-label-prefix">loading:</div>` +
-        `<div class="record-jx-package-label-name"></div>` +
-      `</div>`
-    : '';
-  sendJxLogo.innerHTML =
-    `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>` +
-    sendLabelHtml;
-  if (sourceLabel) {
-    // textContent so user-supplied labels can't inject HTML
-    sendJxLogo.querySelector('.record-jx-package-label-name').textContent = sourceLabel;
-  }
-  sendRow.appendChild(jxKeyDiagram);
-  sendRow.appendChild(sendArrow);
-  sendRow.appendChild(sendJxLogo);
-  return { sendRow, sendArrow, sendJxLogo, jxKeyDiagram };
-}
-
-// (buildSendStatusSection + buildSendActions moved to
-// renderer/modal-builders.js for JSDOM testability. The buildSendRow
-// helper above stays in app.js because it depends on buildJxKeyDiagram
-// which pulls in too much modal-orchestration context to extract
-// cleanly today.)
+// (buildSendRow + buildSendStatusSection + buildSendActions moved to
+// renderer/modal-builders.js for JSDOM testability. buildSendRow
+// references buildJxKeyDiagram (defined further down in app.js) as a
+// global at CALL time — works in production because both files load
+// before any modal opens. Tests stub buildJxKeyDiagram before exercising
+// buildSendRow.)
 
 function showSendToJxFlow(opts) {
   const { exportData, sourceLabel, kind, encodeApi, saveApi, jxStep2, segments } = opts;

@@ -13,12 +13,25 @@ global.document = dom.window.document;
 global.HTMLElement   = dom.window.HTMLElement;
 global.HTMLButtonElement = dom.window.HTMLButtonElement;
 
+// Stub for buildJxKeyDiagram (defined in app.js; modal-builders.js's
+// buildSendRow references it as a global at call time). The actual
+// diagram is a complex SVG composition; for unit-test purposes we
+// just need SOMETHING DOM-shaped to verify buildSendRow incorporates
+// it correctly.
+global.buildJxKeyDiagram = ({ action, kind }) => {
+  const div = global.document.createElement('div');
+  div.className = `jx-key-diagram-stub ${action} ${kind}`;
+  div.setAttribute('data-stub', `${action}-${kind}`);
+  return div;
+};
+
 // Now require the module. It detects `typeof module !== 'undefined'`
 // and exports via CommonJS in Node, while still attaching to window
 // in the browser path.
 const {
   buildRecordTimelineSection,
   buildRecordActions,
+  buildSendRow,
   buildSendActions,
   buildSendStatusSection,
 } = require('../renderer/modal-builders.js');
@@ -129,6 +142,64 @@ test('buildSendActions — primary button starts in "Send to JX-3P" state', () =
 test('buildSendActions — Save button has a tooltip explaining the file alternative', () => {
   const { saveBtn } = buildSendActions();
   assert.match(saveBtn.title, /file instead/i);
+});
+
+// ── buildSendRow ───────────────────────────────────────────────────
+
+test('buildSendRow — returns sendRow + sendArrow + sendJxLogo + jxKeyDiagram', () => {
+  const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram } = buildSendRow('tone', 'Spils Sounds');
+  assert.ok(sendRow);
+  assert.ok(sendArrow);
+  assert.ok(sendJxLogo);
+  assert.ok(jxKeyDiagram);
+});
+
+test('buildSendRow — row uses capture-mode class (no gain knob) + hidden by default', () => {
+  const { sendRow } = buildSendRow('tone', null);
+  assert.ok(sendRow.className.includes('record-jx-cal-row'));
+  assert.ok(sendRow.className.includes('capture-mode'));
+  assert.equal(sendRow.style.display, 'none');
+});
+
+test('buildSendRow — sourceLabel populates the "loading: X" label', () => {
+  const { sendJxLogo } = buildSendRow('tone', 'Spils Sounds');
+  const labelName = sendJxLogo.querySelector('.record-jx-package-label-name');
+  assert.ok(labelName, 'package-label-name element should exist when sourceLabel is set');
+  assert.equal(labelName.textContent, 'Spils Sounds');
+});
+
+test('buildSendRow — null sourceLabel omits the label block entirely', () => {
+  const { sendJxLogo } = buildSendRow('tone', null);
+  assert.equal(sendJxLogo.querySelector('.record-jx-package-label-name'), null);
+});
+
+test('buildSendRow — XSS-safe: uses textContent for the source label', () => {
+  // Daniel calls his packages whatever he wants. If a label ever
+  // contained HTML (e.g. someone named a package <img onerror=alert(1)>),
+  // it must NOT execute. textContent is the right primitive for this.
+  const malicious = '<img src=x onerror="alert(1)">';
+  const { sendJxLogo } = buildSendRow('tone', malicious);
+  const labelName = sendJxLogo.querySelector('.record-jx-package-label-name');
+  // The text reads back as the literal string with the angle brackets,
+  // not as an interpreted IMG element.
+  assert.equal(labelName.textContent, malicious);
+  // And the dangerous fragment was NOT injected as actual DOM:
+  assert.equal(sendJxLogo.querySelectorAll('img').length, 1);   // just the JX logo
+});
+
+test('buildSendRow — DOM order: jxKeyDiagram, arrow, jxLogo (cause→effect L→R)', () => {
+  const { sendRow, jxKeyDiagram, sendArrow, sendJxLogo } = buildSendRow('tone', null);
+  assert.equal(sendRow.children[0], jxKeyDiagram);
+  assert.equal(sendRow.children[1], sendArrow);
+  assert.equal(sendRow.children[2], sendJxLogo);
+});
+
+test('buildSendRow — kind=sequence passes through to jxKeyDiagram (via stub data attr)', () => {
+  const { jxKeyDiagram } = buildSendRow('sequence', null);
+  // Our test stub writes data-stub="<action>-<kind>" so we can verify
+  // buildSendRow forwarded the kind correctly without depending on the
+  // real diagram's internals.
+  assert.equal(jxKeyDiagram.getAttribute('data-stub'), 'load-sequence');
 });
 
 // ── buildSendStatusSection ─────────────────────────────────────────

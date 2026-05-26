@@ -80,6 +80,7 @@ export default [
         // Globals exposed by renderer/modal-builders.js
         buildRecordTimelineSection: 'readonly',
         buildRecordActions:         'readonly',
+        buildSendRow:               'readonly',
         buildSendActions:           'readonly',
         buildSendStatusSection:     'readonly',
 
