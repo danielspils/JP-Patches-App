@@ -5009,10 +5009,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       if (nativeRate !== 44100) {
         const deviceLabel = pickerLabel || match.name || 'this audio device';
         setSampleRateWarning(
-          `⚠ ${deviceLabel} is running at ${nativeRate / 1000} kHz. ` +
-          `JP needs 44.1 kHz; running at a different rate forces Chromium to resample, ` +
-          `which often corrupts FSK decode. ` +
-          `Open Audio MIDI Setup, select this device, and switch its Format to 44100 Hz before recording.`
+          `ℹ︎ ${deviceLabel} is running at ${nativeRate / 1000} kHz. ` +
+          `JP records at 44.1 kHz, so Chromium will resample. Most modern interfaces ` +
+          `survive this cleanly — but if a capture decodes empty and the gain looks right, ` +
+          `try switching this device's Format to 44100 Hz in Audio MIDI Setup. ` +
+          `(Some interfaces lock the input side to one rate; if there's no 44100 option, ignore this notice.)`
         );
       } else {
         setSampleRateWarning(null);   // clear any prior warning

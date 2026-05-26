@@ -1411,29 +1411,27 @@ body {
 }
 .record-jx-device-notice[hidden] { display: none; }
 
-/* Persistent sample-rate-mismatch warning. Distinct from the amber
-   .record-jx-device-notice ("heads up, you might want to know"): this
-   one is Roland red (#b94a2e) because it predicts certain capture
-   failure unless the user changes the device's sample rate in Audio
-   MIDI Setup. Doesn't auto-fade — stays until the probe re-fires and
-   the rate matches 44.1 kHz. Solid 2px left border (vs the 2px on
-   the amber) for visual parity. */
+/* Persistent sample-rate-mismatch notice. Started life as a Roland-red
+   warning predicting "certain failure," but real-world testing showed
+   modern interfaces survive 48→44.1 resampling cleanly more often than
+   not. Downgraded to amber-on-dim with an informational ℹ︎ glyph so
+   the visual matches the advisory tone of the copy. Still doesn't
+   auto-fade — stays visible until the device's actual rate matches
+   44.1 kHz or the user dismisses it via Re-check. */
 .record-jx-device-rate-warning {
   margin-top: 8px;
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.45;
-  color: #e7a795;
-  background: rgba(185, 74, 46, 0.14);
-  border-left: 2px solid #b94a2e;
+  color: #c39a3a;
+  background: rgba(195, 154, 58, 0.10);
+  border-left: 2px solid #c39a3a;
   border-radius: 2px;
 }
 .record-jx-device-rate-warning[hidden] { display: none; }
 
-/* Re-check button inside the sample-rate warning. Small, inline-block
-   on its own line below the warning text. Subdued (not Roland-red) so
-   it doesn't compete with the warning's tone — just an "ok, I fixed
-   it, refresh" affordance. */
+/* Re-check button inside the sample-rate notice. Subdued cream-outline
+   button — sized small so it reads as a secondary affordance. */
 .record-jx-device-rate-recheck {
   display: inline-block;
   margin-top: 6px;
@@ -1442,13 +1440,13 @@ body {
   font-size: 11px;
   color: #f7f1e6;
   background: transparent;
-  border: 1px solid rgba(231, 167, 149, 0.5);
+  border: 1px solid rgba(207, 200, 184, 0.5);
   border-radius: 2px;
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s;
 }
-.record-jx-device-rate-recheck:hover  { background: rgba(231, 167, 149, 0.10); border-color: #e7a795; }
-.record-jx-device-rate-recheck:active { background: rgba(231, 167, 149, 0.18); }
+.record-jx-device-rate-recheck:hover  { background: rgba(207, 200, 184, 0.10); border-color: #cfc8b8; }
+.record-jx-device-rate-recheck:active { background: rgba(207, 200, 184, 0.18); }
 .record-jx-device-rate-recheck:disabled {
   opacity: 0.5;
   cursor: wait;
