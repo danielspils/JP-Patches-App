@@ -19,7 +19,8 @@
     "electron": "^35.0.0",
     "electron-builder": "^25.1.8",
     "eslint": "^9.39.4",
-    "globals": "^17.6.0"
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1"
   },
   "build": {
     "appId": "com.danielspils.jp-patches",

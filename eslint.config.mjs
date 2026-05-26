@@ -73,6 +73,12 @@ export default [
         computeSegDurations:    'readonly',
         computeIndicatorPosition:'readonly',
 
+        // Globals exposed by renderer/modal-builders.js
+        buildRecordTimelineSection: 'readonly',
+        buildRecordActions:         'readonly',
+        buildSendActions:           'readonly',
+        buildSendStatusSection:     'readonly',
+
         // Electron-injected globals via preload.js contextBridge
         api:                    'readonly',     // window.api.* — IPC surface
 
