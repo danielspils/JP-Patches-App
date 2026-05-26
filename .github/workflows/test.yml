@@ -1,0 +1,53 @@
+# Automated test + lint on every push + PR to main.
+#
+# Goal: lock in the safety net so a broken commit can't slip past
+# without surfacing immediately. Combined with the local ESLint
+# config + the 127 unit tests, this means any regression in the
+# pure-logic modules OR any new ReferenceError-class bug fails CI
+# loudly before it can reach a release.
+#
+# Runs on ubuntu-latest (cheap, fast, plenty for our pure-JS test
+# suite). No macOS runner needed — the unit tests are platform-
+# agnostic; only the Electron integration tests (none yet) would
+# require macOS, and those would gate releases via the
+# manual smoke-test checklist instead.
+#
+# Node version pinned to the current LTS so we don't get bitten by
+# breaking changes in Node's --test runner across major versions.
+
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Also runnable on demand from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: lint + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'        # current LTS as of 2026-05
+          cache: 'npm'
+
+      - name: Install dependencies
+        # `npm ci` is the CI-flavored install: clean install from
+        # package-lock.json, fails if package.json + lock are out
+        # of sync. Faster + more reproducible than `npm install`.
+        run: npm ci
+
+      - name: Lint (no-undef is an error; warnings don't fail CI)
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
