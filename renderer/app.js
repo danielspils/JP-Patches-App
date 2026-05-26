@@ -5266,7 +5266,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // capture stopped + buffer cleared first).
   const startRecording = async () => {
     statusText.textContent = '';
-    captured = [];
+    // (Used to reset `captured = []` here; setupAudioGraph now creates
+    // a fresh array each call and we reassign the modal-scope reference
+    // below. Same observable behavior, just less duplication.)
     // Re-probe sample rate at every capture-start. Belt-and-suspenders
     // against the case where Audio MIDI Setup changed the device's rate
     // since the last probe — devicechange may not fire reliably for every
@@ -5289,27 +5291,28 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // AudioContext sample rate may differ from what we requested (browser
     // resampler may apply). We read audioContext.sampleRate when shipping
     // the WAV so the header matches the actual data rate.
+    // AudioContext sample rate may differ from what we requested
+    // (browser resampler may apply). We read audioContext.sampleRate
+    // when shipping the WAV so the header matches the actual data rate.
     try {
       audioContext = new AudioContext({ sampleRate: 44100 });
     } catch {
       audioContext = new AudioContext();
     }
-    sourceNode = audioContext.createMediaStreamSource(mediaStream);
-
-    // Software input-gain stage. Sits between the mic source and everything
-    // downstream so both the level meter and the captured PCM reflect the
-    // user's gain choice. Slider position is preserved across restarts
-    // (e.g. on device change) by reading gainSlider.value here rather than
-    // resetting.
-    gainNode = audioContext.createGain();
-    gainNode.gain.value = sliderToGain(parseInt(gainSlider.value, 10));
+    // Wire up the full processing graph in one shot. See
+    // renderer/audio-capture.js for the chain layout (source → gain →
+    // {analyser, processor → muteGain → destination}) and the
+    // ScriptProcessor must-connect-output quirk. Slider position is
+    // preserved across restarts (e.g. on device change) by reading
+    // gainSlider.value here rather than resetting.
+    const initialGain = sliderToGain(parseInt(gainSlider.value, 10));
+    const graph = setupAudioGraph(audioContext, mediaStream, initialGain);
+    sourceNode    = graph.sourceNode;
+    gainNode      = graph.gainNode;
+    analyserNode  = graph.analyserNode;
+    processorNode = graph.processorNode;
+    captured      = graph.captured;
     gainValueLabel.textContent = formatGain(gainNode.gain.value);
-    sourceNode.connect(gainNode);
-
-    // Level meter via AnalyserNode (peaks, not RMS — easier to see clipping).
-    analyserNode = audioContext.createAnalyser();
-    analyserNode.fftSize = 256;
-    gainNode.connect(analyserNode);
     const analyserBuf = new Uint8Array(analyserNode.fftSize);
     // Live peak-tracker for the meter, silence-anchored timeline sweep,
     // and live quiet-input warning all share this RAF loop.
@@ -5526,25 +5529,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     };
     levelRaf = requestAnimationFrame(tickMeter);
 
-    // Capture via ScriptProcessorNode. Deprecated in favor of AudioWorklet
-    // but vastly simpler and still works in Electron 35. ~93 ms latency at
-    // bufferSize=4096 / 44.1kHz, fine for offline capture (we don't monitor
-    // the signal).
-    const BUFFER_SIZE = 4096;
-    processorNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
-    processorNode.onaudioprocess = (e) => {
-      // Must copy: the inputBuffer's channel data is reused by the audio
-      // engine on the next callback.
-      captured.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    };
-    gainNode.connect(processorNode);
-    // ScriptProcessor doesn't fire onaudioprocess unless its output is
-    // connected. We route to a muted GainNode so nothing actually plays
-    // through the speakers (otherwise we'd hear the captured input).
-    const muteGain = audioContext.createGain();
-    muteGain.gain.value = 0;
-    processorNode.connect(muteGain);
-    muteGain.connect(audioContext.destination);
+    // (PCM capture via ScriptProcessor + muteGain destination routing
+    // is now done inside setupAudioGraph() — see audio-capture.js for
+    // the chain layout and the must-connect-output ScriptProcessor
+    // quirk. The captured array on the graph object is the live PCM
+    // buffer; we hold a reference above as `captured` so the rest of
+    // stopRecording can concatenate it.)
 
     stopBtn.disabled = false;
     statusText.style.color = '';
