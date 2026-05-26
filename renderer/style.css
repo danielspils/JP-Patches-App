@@ -4,6 +4,63 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Global error banner stack — pinned to the bottom of the viewport.
+   Populated by the window 'error' / 'unhandledrejection' handlers in
+   app.js. Each row is Roland-red, click-to-dismiss, auto-fades after
+   30 s. z-index above modals so silent failures in modal callbacks
+   still surface. */
+#global-error-stack {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  pointer-events: none;   /* container is invisible; rows enable their own pointer events */
+}
+.global-error-row {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #b94a2e;
+  color: #fff;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.4);
+}
+.global-error-kind {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.global-error-message {
+  flex: 1;
+  word-break: break-word;
+}
+.global-error-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.global-error-dismiss:hover { color: #fff; }
+
 :root {
   --bg-app:        #0a0a0a;
   --bg-left:       #050505;
@@ -1372,6 +1429,30 @@ body {
   border-radius: 2px;
 }
 .record-jx-device-rate-warning[hidden] { display: none; }
+
+/* Re-check button inside the sample-rate warning. Small, inline-block
+   on its own line below the warning text. Subdued (not Roland-red) so
+   it doesn't compete with the warning's tone — just an "ok, I fixed
+   it, refresh" affordance. */
+.record-jx-device-rate-recheck {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #f7f1e6;
+  background: transparent;
+  border: 1px solid rgba(231, 167, 149, 0.5);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.record-jx-device-rate-recheck:hover  { background: rgba(231, 167, 149, 0.10); border-color: #e7a795; }
+.record-jx-device-rate-recheck:active { background: rgba(231, 167, 149, 0.18); }
+.record-jx-device-rate-recheck:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
 
 /* ───────────────────────────────────────────────────────────────────────
    Button-name hint pill

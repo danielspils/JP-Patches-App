@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('api', {
   // Audio + sampleRate + channelCount → temp WAV path. The renderer then
   // hands the path to tapeSaveFromPath / seqTapeSaveFromPath for decoding.
   recordToWav:         (payload)  => ipcRenderer.invoke('record-to-wav', payload),
+  // CoreAudio-level audio-input device query (system_profiler). Used by
+  // the Record-from-JX modal to detect sample-rate mismatches BEFORE
+  // capture, bypassing Chromium's cached-stream behavior that defeats
+  // Web Audio-based probes. Returns the device's CURRENT native rate,
+  // always fresh, never cached. See main.js for shape and rationale.
+  audioInputRates:     ()        => ipcRenderer.invoke('audio-input-rates'),
   seqTapeEncodeToTemp: (data)    => ipcRenderer.invoke('seq-tape-encode-to-temp', data),
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),

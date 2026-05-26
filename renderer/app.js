@@ -1,6 +1,75 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
+// Global error surface — visible diagnostics for silent failures
+// ═══════════════════════════════════════════════════════════════
+//
+// The renderer has many async paths (modals, setTimeout/setInterval
+// callbacks, event handlers, IPC awaits) where an unhandled exception
+// or rejected promise has no UI surface to land on. Before this
+// handler, those failures were invisible: a modal would close
+// silently, a button click would do nothing, and the user would have
+// to open DevTools to even know something went wrong. We hit this
+// pattern multiple times during the 2026-05-25 capture-flow debug
+// session (runningPeak ReferenceError, recordBtn ReferenceError, etc.)
+// — each one ate hours of guessing before someone thought to check
+// the console.
+//
+// This handler catches both classes (synchronous throws via 'error',
+// unhandled promise rejections via 'unhandledrejection') and surfaces
+// them as a red banner anchored to the bottom of the viewport. Errors
+// stack if multiple arrive close together; each auto-dismisses after
+// 30 s or on click. Also logged to console with a clear prefix so
+// the DevTools history stays useful.
+(() => {
+  const ensureContainer = () => {
+    let c = document.getElementById('global-error-stack');
+    if (!c) {
+      c = document.createElement('div');
+      c.id = 'global-error-stack';
+      // Append to <body> when it exists; otherwise defer until DOMContentLoaded.
+      if (document.body) {
+        document.body.appendChild(c);
+      } else {
+        document.addEventListener('DOMContentLoaded', () => document.body.appendChild(c), { once: true });
+      }
+    }
+    return c;
+  };
+
+  const showBanner = (kind, message, detail) => {
+    console.error(`JP:ERROR [${kind}]`, message, detail || '');
+    const c = ensureContainer();
+    const row = document.createElement('div');
+    row.className = 'global-error-row';
+    row.innerHTML =
+      `<span class="global-error-kind">${kind}</span>` +
+      `<span class="global-error-message"></span>` +
+      `<button class="global-error-dismiss" title="Dismiss">×</button>`;
+    row.querySelector('.global-error-message').textContent = message || '(no message)';
+    const dismiss = () => { try { row.remove(); } catch {} };
+    row.querySelector('.global-error-dismiss').addEventListener('click', dismiss);
+    row.addEventListener('click', dismiss);  // click anywhere on the row to dismiss
+    setTimeout(dismiss, 30000);
+    c.appendChild(row);
+  };
+
+  window.addEventListener('error', (e) => {
+    // Skip resource-load errors (missing img, etc.) — not actionable.
+    if (e && e.target && e.target !== window) return;
+    const msg = e.message || (e.error && e.error.message) || 'Uncaught error';
+    const loc = e.filename ? ` (${e.filename}:${e.lineno || '?'})` : '';
+    showBanner('Error', msg + loc, e.error && e.error.stack);
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason;
+    const msg = (reason && (reason.message || String(reason))) || 'Unhandled promise rejection';
+    showBanner('Promise', msg, reason && reason.stack);
+  });
+})();
+
+// ═══════════════════════════════════════════════════════════════
 // Discrete parameter tables (mirrors jx3p/patch.py)
 // ═══════════════════════════════════════════════════════════════
 
@@ -557,6 +626,43 @@ function clearCalibratedGain(deviceId) {
   ensureRecordCalibrationShape();
   delete library.record.calibratedGain[deviceId];
   saveLibraryDebounced();
+}
+
+// ── Capture telemetry ──────────────────────────────────────────────
+// Append a record of every Record-from-JX capture (success OR failure)
+// to library.captureLog, capped at the most recent 30 entries. Also
+// emit a console.log with a clear 'JP:CAPTURE' prefix so you can grep
+// DevTools history. Existence of this log is what lets us actually
+// SEE patterns in intermittent failures instead of guessing — without
+// it, every failure was "Daniel says it failed" with no per-capture
+// data on why. Designed for diffing successes vs. failures by hand
+// (Python one-liner) or in a future visualizer.
+//
+// Schema (all fields optional except timestamp, kind, decode):
+//   {
+//     timestamp:    ISO string, when the capture finished
+//     kind:         'tone' | 'sequence'
+//     deviceLabel:  Chromium picker label of the input device
+//     gain:         applied software gain (from saved calibration)
+//     capturePeak:  max amplitude observed during the LIVE meter (0..1)
+//     decode:       'success' | 'all-null' | 'error'
+//     populatedPages:     for sequences only — count of non-null pages
+//     populatedPatches:   for tones only — count of non-default-vca slots
+//     errorMessage: when decode === 'error'
+//   }
+function logCaptureTelemetry(entry) {
+  try {
+    if (!library) return;
+    if (!Array.isArray(library.captureLog)) library.captureLog = [];
+    const record = Object.assign({ timestamp: new Date().toISOString() }, entry);
+    library.captureLog.push(record);
+    // Cap at most recent 30 — old entries roll off as new ones arrive.
+    while (library.captureLog.length > 30) library.captureLog.shift();
+    saveLibraryDebounced();
+    console.log('JP:CAPTURE', JSON.stringify(record));
+  } catch (err) {
+    console.warn('telemetry log failed:', err && err.message);
+  }
 }
 
 // Heuristic: detect when a decoded jx3p result is "all default empty
@@ -2522,14 +2628,38 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   };
+  // Run an onConfirm / onTertiary callback safely. The callback may be
+  // sync OR async — many callsites pass `async () => { await window.api.X(); ... }`.
+  // Without this wrapper, a thrown sync error or rejected promise from
+  // the callback would vanish (modal already closed, no UI surface).
+  // The wrapper surfaces both cases via the global error banner so
+  // failures are visible. Pulled into a helper here so all three
+  // invocation paths (confirm click, tertiary click, Enter key) share
+  // one safety pattern.
+  const runCallback = (fn, ctx) => {
+    if (typeof fn !== 'function') return;
+    try {
+      const ret = fn();
+      if (ret && typeof ret.catch === 'function') {
+        ret.catch((err) => {
+          console.error(`${ctx} failed:`, err);
+          setTimeout(() => { throw err; }, 0);
+        });
+      }
+    } catch (err) {
+      console.error(`${ctx} failed:`, err);
+      setTimeout(() => { throw err; }, 0);
+    }
+  };
+
   const onKey = (e) => {
     if (e.key === 'Escape') close();
-    if (e.key === 'Enter')  { onConfirm(); close(); }
+    if (e.key === 'Enter')  { runCallback(onConfirm, 'Confirm action'); close(); }
   };
 
   cancelBtn.addEventListener('click', close);
-  confirmBtn.addEventListener('click', () => { onConfirm(); close(); });
-  if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => { onTertiary(); close(); });
+  confirmBtn.addEventListener('click', () => { runCallback(onConfirm, 'Confirm action'); close(); });
+  if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => { runCallback(onTertiary, 'Tertiary action'); close(); });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   confirmBtn.focus();
@@ -3235,7 +3365,24 @@ function saveLibraryDebounced() {
     if (patches && Array.isArray(patches.banks)) {
       library.activePatches = patches.banks;
     }
-    window.api.saveLibrary(library);
+    // Check the IPC result so disk-write failures (full disk, permission
+    // denied, sandbox issue) surface as a visible error instead of silent
+    // data loss. Before this guard, the user would have no idea their last
+    // edits never persisted. The main handler returns {ok: true} on success
+    // and {ok: false, error: ...} on failure (it used to throw, which would
+    // have produced an unhandled-rejection banner; we converted it to an
+    // object return so the renderer can show contextual error info). Both
+    // the success-with-error-shape and the unexpected-rejection paths
+    // surface via the global error banner.
+    const announceSaveError = (msg) => {
+      console.error('Failed to save library to disk:', msg);
+      setTimeout(() => { throw new Error('Library save failed: ' + msg); }, 0);
+    };
+    window.api.saveLibrary(library)
+      .then((res) => {
+        if (!res || res.ok === false) announceSaveError((res && res.error) || 'unknown error');
+      })
+      .catch((err) => announceSaveError(err && err.message || 'IPC rejection'));
   }, 500);
 }
 
@@ -3515,20 +3662,49 @@ async function applyToneResult(result, sourcePath, labelOverride = null) {
 // the recalibrate-prompt (fired on all-default decode) knows which device's
 // saved gain to clear.
 async function applyToneCapture(tempWavPath, deviceInfo) {
+  const di = deviceInfo || {};
+  const calGain = di.deviceId ? (getCalibratedGain(di.deviceId)?.gain ?? null) : null;
   const result = await window.api.tapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
+    logCaptureTelemetry({
+      kind:         'tone',
+      deviceLabel:  di.deviceLabel || null,
+      gain:         calGain,
+      capturePeak:  di.capturePeak ?? null,
+      decode:       'error',
+      errorMessage: (result && result.error) || 'unknown error',
+    });
     showImportError(`Couldn't decode the captured audio: ${result && result.error || 'unknown error'}`);
     return;
   }
-  // All-default decode = checksum failures across the board = capture
-  // didn't work. Offer recalibration instead of silently populating active
-  // C/D with empty patches.
-  if (isDecodeAllDefault(result.data)) {
+  const allDefault = isDecodeAllDefault(result.data);
+  // Count populated patches (non-zero VCA Level across both banks).
+  let populatedPatches = 0;
+  try {
+    const banks = result.data && result.data.banks;
+    if (banks) {
+      for (const bk of ['C', 'D']) {
+        const arr = banks[bk];
+        if (Array.isArray(arr)) {
+          populatedPatches += arr.filter((p) => p && p.vca_level && p.vca_level !== 0).length;
+        }
+      }
+    }
+  } catch {}
+  logCaptureTelemetry({
+    kind:             'tone',
+    deviceLabel:      di.deviceLabel || null,
+    gain:             calGain,
+    capturePeak:      di.capturePeak ?? null,
+    decode:           allDefault ? 'all-null' : 'success',
+    populatedPatches: populatedPatches,
+  });
+  if (allDefault) {
     showRecalibratePrompt({
       kind:        'tone',
-      deviceId:    deviceInfo && deviceInfo.deviceId,
-      deviceLabel: deviceInfo && deviceInfo.deviceLabel,
-      capturePeak: deviceInfo && deviceInfo.capturePeak,
+      deviceId:    di.deviceId,
+      deviceLabel: di.deviceLabel,
+      capturePeak: di.capturePeak,
     });
     return;
   }
@@ -4046,23 +4222,38 @@ async function doSequencerSaveFromFile() {
 }
 
 async function applySequencerCapture(tempWavPath, deviceInfo) {
+  const di = deviceInfo || {};
+  const calGain = di.deviceId ? (getCalibratedGain(di.deviceId)?.gain ?? null) : null;
   const result = await window.api.seqTapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
+    logCaptureTelemetry({
+      kind:         'sequence',
+      deviceLabel:  di.deviceLabel || null,
+      gain:         calGain,
+      capturePeak:  di.capturePeak ?? null,
+      decode:       'error',
+      errorMessage: (result && result.error) || 'unknown error',
+    });
     showImportError(`Couldn't decode the captured sequence: ${result && result.error || 'unknown error'}`);
     return;
   }
-  // For sequences "all-default" means the tape.pages array is fully null —
-  // every page checksum failed. Surface the recalibrate prompt BEFORE
-  // opening the save-sequence modal so the user isn't asked to name an
-  // empty sequence.
   const pages = (result.data && Array.isArray(result.data.pages)) ? result.data.pages : null;
   const isAllNullPages = pages && pages.every((p) => p == null);
+  const populatedPages = pages ? pages.filter((p) => p != null).length : 0;
+  logCaptureTelemetry({
+    kind:           'sequence',
+    deviceLabel:    di.deviceLabel || null,
+    gain:           calGain,
+    capturePeak:    di.capturePeak ?? null,
+    decode:         isAllNullPages ? 'all-null' : 'success',
+    populatedPages: populatedPages,
+  });
   if (isAllNullPages) {
     showRecalibratePrompt({
       kind:        'sequence',
-      deviceId:    deviceInfo && deviceInfo.deviceId,
-      deviceLabel: deviceInfo && deviceInfo.deviceLabel,
-      capturePeak: deviceInfo && deviceInfo.capturePeak,
+      deviceId:    di.deviceId,
+      deviceLabel: di.deviceLabel,
+      capturePeak: di.capturePeak,
     });
     return;
   }
@@ -4632,10 +4823,18 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   let runningPeak = 0;              // running max of LIVE meter peaks; modal-scoped so the post-capture onCaptured handoff can pass capturePeak to the recalibrate flow. (Was previously declared inside startRecording, which made it invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError after the modal had already closed, leaving no save-sequence prompt and no error UI. Fixed 2026-05-25.)
   let levelRaf = null;
   let elapsedTimer = null;
+  // Periodic re-probe of the selected device's sample rate. Catches
+  // changes made externally in Audio MIDI Setup that don't reliably
+  // emit a devicechange event on every macOS/Chromium combination.
+  // Skipped while a capture is actively running (state === 'recording')
+  // to avoid opening a competing getUserMedia stream that could disrupt
+  // the active capture. Cleared in close() to prevent leakage.
+  let sampleRatePollTimer = null;
 
   const close = () => {
     stopCapture();
     navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+    if (sampleRatePollTimer) { clearInterval(sampleRatePollTimer); sampleRatePollTimer = null; }
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   };
@@ -4681,53 +4880,99 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   deviceRateWarning.className = 'record-jx-device-rate-warning';
   deviceRateWarning.hidden = true;
   deviceSection.appendChild(deviceRateWarning);
+  // Warning has two children: a text span for the message + a
+  // "Re-check" button on its own line. The button is needed because
+  // Chromium aggressively caches the per-deviceId stream — once we've
+  // probed and gotten 48 kHz, subsequent probes for the same deviceId
+  // return the cached 48 kHz indefinitely, even after the user fixes
+  // the device in Audio MIDI Setup. The 2 s background poll attempts
+  // to refresh, but on most macOS/Chromium combinations the cache
+  // wins. The manual button forces the user-perceived re-check moment
+  // to align with reality — they fix the device, click, expect fresh
+  // truth. Even when the click ALSO returns cached data, the user
+  // has a deliberate action they can repeat or interpret.
+  const rateWarningText = document.createElement('span');
+  const rateRecheckBtn  = document.createElement('button');
+  rateRecheckBtn.type   = 'button';
+  rateRecheckBtn.className = 'record-jx-device-rate-recheck';
+  rateRecheckBtn.textContent = 'Re-check sample rate';
+  deviceRateWarning.appendChild(rateWarningText);
+  deviceRateWarning.appendChild(rateRecheckBtn);
+  rateRecheckBtn.addEventListener('click', () => {
+    // Briefly disable + relabel during the probe so the click feels
+    // responsive even when the underlying probe hits Chromium's cache
+    // and "succeeds" with the same value.
+    rateRecheckBtn.disabled = true;
+    rateRecheckBtn.textContent = 'Re-checking…';
+    probeDeviceSampleRate(devicePicker.value).finally(() => {
+      rateRecheckBtn.disabled = false;
+      rateRecheckBtn.textContent = 'Re-check sample rate';
+    });
+  });
   const setSampleRateWarning = (msg) => {
     if (msg) {
-      deviceRateWarning.textContent = msg;
+      rateWarningText.textContent = msg + ' ';
       deviceRateWarning.hidden = false;
     } else {
       deviceRateWarning.hidden = true;
     }
   };
 
-  // Probe the selected device's NATIVE sample rate by opening a stream
-  // with no rate constraint and reading what we got back. Chromium's
-  // track.getSettings().sampleRate reflects the actual device rate
-  // when no rate constraint was applied. If the device's native rate
-  // isn't 44.1 kHz, the real capture's `sampleRate: 44100` request
-  // will force Chromium to resample — which breaks FSK decode. We
-  // surface a persistent warning telling the user how to fix it.
-  // Failures here are non-fatal: probing is informational, capture
-  // still runs.
+  // Query the selected device's NATIVE sample rate from CoreAudio via a
+  // main-process system_profiler call. We previously tried a Web Audio
+  // probe (open a stream, read track.getSettings().sampleRate) but
+  // Chromium aggressively caches the negotiated stream per deviceId —
+  // once it returned 48 kHz, repeated probes returned 48 kHz forever,
+  // even after the user changed the device's Format in Audio MIDI
+  // Setup. The CoreAudio path bypasses Chromium entirely and always
+  // reflects current reality, no cache-busting tricks needed.
+  //
+  // Label matching: Chromium's device picker uses labels like
+  // "Default - KT USB Audio (31b2:2024)"; system_profiler returns the
+  // bare device name "KT USB Audio". We match by substring against
+  // each system_profiler device name and pick the one whose name
+  // appears in the Chromium label. Falls back to the system default
+  // input when the picker is set to Chromium's "default" deviceId.
+  // Failures are non-fatal: capture still runs, we just can't warn.
   const probeDeviceSampleRate = async (deviceId) => {
     if (!deviceId) return;
-    let probeStream;
     try {
-      probeStream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: deviceId } }
-      });
-      const settings = probeStream.getAudioTracks()[0]?.getSettings() || {};
-      const nativeRate = settings.sampleRate;
-      if (nativeRate && nativeRate !== 44100) {
-        const deviceLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent
-                            || 'this audio device';
+      const result = await window.api.audioInputRates();
+      if (!result || !result.ok || !Array.isArray(result.devices)) {
+        // system_profiler failed (rare) — silently skip the warning.
+        return;
+      }
+      const pickerLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent || '';
+      // Chromium's "default" deviceId points to whatever CoreAudio
+      // currently has marked as default input. system_profiler exposes
+      // that with isDefaultInput=true.
+      let match;
+      if (deviceId === 'default') {
+        match = result.devices.find((d) => d.isDefaultInput);
+      }
+      if (!match) {
+        // Fallback / non-default: substring match by device name.
+        match = result.devices.find((d) => d.name && pickerLabel.includes(d.name));
+      }
+      if (!match || !match.sampleRate) {
+        // Couldn't identify which CoreAudio device the picker refers to.
+        // Don't warn — better silent than misleading.
+        return;
+      }
+      const nativeRate = match.sampleRate;
+      if (nativeRate !== 44100) {
+        const deviceLabel = pickerLabel || match.name || 'this audio device';
         setSampleRateWarning(
           `⚠ ${deviceLabel} is running at ${nativeRate / 1000} kHz. ` +
-          `JP needs 44.1 kHz, so Chromium will resample on the fly — ` +
-          `which corrupts FSK decode (every capture will fail). ` +
+          `JP needs 44.1 kHz; running at a different rate forces Chromium to resample, ` +
+          `which often corrupts FSK decode. ` +
           `Open Audio MIDI Setup, select this device, and switch its Format to 44100 Hz before recording.`
         );
       } else {
         setSampleRateWarning(null);   // clear any prior warning
       }
     } catch (err) {
-      // Probe failure is non-fatal — log and continue. Most common
-      // cause: device disappeared between enumerate and probe.
       console.warn('Sample-rate probe failed:', err && err.message);
-    } finally {
-      if (probeStream) {
-        probeStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
-      }
     }
   };
 
@@ -4838,12 +5083,20 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // the new capture starts in the middle of the FSK with no leading
     // silence, so the silence→signal trim has nothing to anchor on.
     //
-    // Therefore: only act if something MATERIAL changed. If the user's
-    // selected device is still in the list (restored === true), the
-    // current capture is fine — do nothing.
+    // Therefore: only act on the PICKER/NOTICE/CAPTURE-RESTART side
+    // if something MATERIAL changed. If the user's selected device is
+    // still in the list (restored === true), don't tear down a running
+    // capture or surface a notice.
+    //
+    // BUT — always re-probe the sample rate. Chromium fires devicechange
+    // when a device's configuration changes (sample rate, channel count)
+    // even when the device itself stays present. Without this re-probe,
+    // a user who toggles their interface's sample rate in Audio MIDI
+    // Setup mid-session sees a stale sample-rate warning that doesn't
+    // refresh. The probe is cheap (~100ms getUserMedia round-trip) and
+    // its result either clears or refreshes the warning.
     if (result.restored && !result.devicesGone) {
-      // Spurious devicechange (or unrelated device added/removed) —
-      // selected device still there. No notice, no capture restart.
+      probeDeviceSampleRate(devicePicker.value);
       return;
     }
 
@@ -4871,6 +5124,21 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     }
   };
   navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+
+  // Periodic re-probe (~2s) keeps the sample-rate warning fresh when
+  // the user flips the device's Format in Audio MIDI Setup mid-session.
+  // Chromium's devicechange event is documented for hot-plug but is
+  // inconsistent for sample-rate flips on macOS, so this is the safety
+  // net that guarantees the warning reflects current reality regardless
+  // of what events fire. Runs even during active recording — on macOS,
+  // CoreAudio multiplexes device access, so a brief probe stream
+  // alongside the capture doesn't interrupt it (verified 2026-05-25).
+  // The original "skip while recording" gate left users staring at
+  // stale warnings throughout their entire ~30 s capture window.
+  sampleRatePollTimer = setInterval(() => {
+    if (!devicePicker.value) return;
+    probeDeviceSampleRate(devicePicker.value);
+  }, 2000);
 
   // Decide first-time-calibration vs single-pass based on whether this device
   // has a saved calibrated gain in library.json. Called now (initial open) and
@@ -4999,6 +5267,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   const startRecording = async () => {
     statusText.textContent = '';
     captured = [];
+    // Re-probe sample rate at every capture-start. Belt-and-suspenders
+    // against the case where Audio MIDI Setup changed the device's rate
+    // since the last probe — devicechange may not fire reliably for every
+    // sample-rate flip on every macOS/Chromium combination. The probe
+    // either renews or clears the warning. Fires async; don't await.
+    probeDeviceSampleRate(devicePicker.value);
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -5356,7 +5630,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     if (state !== 'recording') return;
     stopCapture();
     configureForCurrentDevice();
-    startRecording();
+    guardAsync(startRecording(), 'Restart recording (device change)');
   });
 
   // Input gain slider — live update both the gain node (so the captured
@@ -5382,7 +5656,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       state = 'recording';
       cancelBtn.disabled = false;
       // Re-arm capture so the user can try again without re-opening the modal.
-      startRecording();
+      guardAsync(startRecording(), 'Re-arm recording');
       return;
     }
     // Concatenate all captured chunks into one Float32Array.
@@ -5427,7 +5701,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         cancelBtn.disabled = false;
         stopBtn.disabled = false;
         captured = [];
-        startRecording();
+        guardAsync(startRecording(), 'Restart recording (no signal)');
         return;
       }
       const currentGain = sliderToGain(parseInt(gainSlider.value, 10));
@@ -5628,7 +5902,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       statusText.textContent = `Couldn't write WAV: ${result && result.error || 'unknown error'}`;
       state = 'recording';
       cancelBtn.disabled = false;
-      startRecording();
+      guardAsync(startRecording(), 'Restart recording (WAV write failed)');
       return;
     }
     // Light up every segment to mirror the send-modal's "complete" treatment.
@@ -5662,9 +5936,24 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       // listener accumulation was a confirmed cause of subtle audio-
       // pipeline pollution that intermittently corrupted FSK data and
       // forced full app reboots to recover.
+      //
+      // onCaptured is async (applyToneCapture / applySequencerCapture).
+      // We can't surface contextual errors inline because close() has
+      // already removed the modal — but we still want failures to land
+      // in the global error banner instead of vanishing. The .catch()
+      // re-throws via setTimeout(0) so window.unhandledrejection picks
+      // it up; same pattern as the saveLibrary fix.
       setTimeout(() => {
         close();
-        onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak });
+        const captured = onCaptured(result.path, {
+          deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak,
+        });
+        if (captured && typeof captured.catch === 'function') {
+          captured.catch((err) => {
+            console.error('Post-capture handoff failed:', err);
+            setTimeout(() => { throw err; }, 0);
+          });
+        }
       }, 800);
       return;
     }
@@ -5686,14 +5975,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     useBtn.addEventListener('click', () => {
       // Route through close() (not raw overlay.remove()) so the
       // devicechange listener is unwired. See auto-proceed branch
-      // above for the listener-leak rationale.
+      // above for the listener-leak rationale + the .catch rationale.
       close();
-      // Pass deviceInfo so a subsequent all-default decode (which fires
-      // the recalibrate prompt) can correctly clear THIS device's saved
-      // gain entry. Without it, the recalibrate flow re-opens into Step 2
-      // (capture) instead of Step 1 (calibration) because the saved
-      // calibration is never cleared.
-      onCaptured(result.path, { deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak });
+      const captured = onCaptured(result.path, {
+        deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak,
+      });
+      if (captured && typeof captured.catch === 'function') {
+        captured.catch((err) => {
+          console.error('Post-capture handoff failed:', err);
+          setTimeout(() => { throw err; }, 0);
+        });
+      }
     });
     tryAgainBtn.addEventListener('click', () => {
       try { actions.removeChild(tryAgainBtn); } catch {}
@@ -5706,16 +5998,45 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       segs.forEach((s) => s.el.classList.remove('active'));
       timeline.classList.remove('complete');
       state = 'recording';
-      startRecording();
+      guardAsync(startRecording(), 'Restart recording (Try Again)');
     });
   };
 
-  stopBtn.addEventListener('click', () => stopRecording());
+  // Small helper: surface async failures via the global error banner
+  // AND recover the modal's state so a single failed call doesn't
+  // permanently lock the UI (e.g. state === 'processing' with no path
+  // out). Use for any async function called from a fire-and-forget
+  // event handler inside this modal. window.unhandledrejection would
+  // catch these anyway, but the state-recovery here is what prevents
+  // a stuck modal.
+  const guardAsync = (promise, ctx) => {
+    if (!promise || typeof promise.catch !== 'function') return;
+    promise.catch((err) => {
+      console.error(`${ctx} failed:`, err);
+      // Recover from a stuck 'processing' state — the worst lock-out
+      // condition. 'recording' state can be cancelled by the user via
+      // Cancel button, so it's self-healing.
+      if (state === 'processing') {
+        state = 'recording';
+        cancelBtn.disabled = false;
+        stopBtn.disabled   = false;
+        statusText.textContent = `${ctx} failed — ${err && err.message || 'unknown error'}`;
+        statusText.style.color = '#b94a2e';
+      }
+      // Re-throw on the next tick so the global error banner picks
+      // it up too — contextual message above, banner stack below.
+      setTimeout(() => { throw err; }, 0);
+    });
+  };
+
+  stopBtn.addEventListener('click', () => guardAsync(stopRecording(), 'Stop recording'));
 
   // Kick off the capture immediately. macOS will fire the mic-permission
   // prompt on first run; the recording UI is already visible behind it so
-  // the user knows what they're granting permission for.
-  startRecording();
+  // the user knows what they're granting permission for. Guarded so a
+  // permission rejection (or other startup failure) surfaces a contextual
+  // message in the modal instead of just spinning forever with no UI cue.
+  guardAsync(startRecording(), 'Start recording');
 }
 
 function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '' } = {}) {
@@ -5837,15 +6158,17 @@ function renderSequenceVisualizer() {
   //   - Tied note (hold)   → Roland green  #1f6e5b (continuation, OR
   //     REST-button press — see CLAUDE.md pitfall #16; they're
   //     indistinguishable when only voice[0] is populated)
-  //   - TIE event          → warning amber #c39a3a (tied voice[0] AND
+  //   - TIE event          → Roland blue   #33508f (tied voice[0] AND
   //     new attack voice[1] at SAME pitch in the same step — the JX
-  //     TIE-button signature, per pitfall #16)
+  //     TIE-button signature, per pitfall #16). Same hex as REST_COLOR
+  //     but visually distinct: TIE is a single full-opacity cell;
+  //     REST is a full-column tint at 18% opacity.
   //   - Rest (silent step) → Roland blue   #33508f (absence indicator,
   //     drawn as a full-column tint at low opacity so it reads as
   //     "this step is silent" without competing with note bars)
   const NEW_NOTE_COLOR  = '#b94a2e';
   const HOLD_NOTE_COLOR = '#1f6e5b';
-  const TIE_COLOR       = '#c39a3a';
+  const TIE_COLOR       = '#33508f';
   const REST_COLOR      = '#33508f';
 
   const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
@@ -7256,15 +7579,22 @@ async function init() {
   // not a fatal state — the empty-state in renderPatchList prompts the user
   // to import via Tape Memory > Tone > Save. Continue with normal setup.
 
-  // Inject the locked panel SVG
+  // Inject the locked panel SVG. main.js's loadPanelSvg returns null if the
+  // file is missing/unreadable (used to throw, which crashed init mid-way
+  // through; now returns null so we can surface a clear empty state instead).
   const svgText = await window.api.loadPanelSvg();
   const host = document.getElementById('panel-host');
-  host.innerHTML = svgText;
-  const svgEl = host.querySelector('svg');
-  if (svgEl) {
-    svgPatchNameEl = findSvgPatchNameEl(svgEl);
-    tagControls(svgEl);
-    setupInteraction(svgEl);
+  if (!svgText) {
+    host.innerHTML = '<div style="padding:40px;text-align:center;color:#b94a2e;font-family:Helvetica,sans-serif;">Panel SVG asset missing — reinstall the app or report a bug.</div>';
+    console.error('panel.svg failed to load — app state is partial');
+  } else {
+    host.innerHTML = svgText;
+    const svgEl = host.querySelector('svg');
+    if (svgEl) {
+      svgPatchNameEl = findSvgPatchNameEl(svgEl);
+      tagControls(svgEl);
+      setupInteraction(svgEl);
+    }
   }
 
   setupTabs();

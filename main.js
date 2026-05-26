@@ -241,10 +241,25 @@ ipcMain.handle('load-library', () => {
     || { version: '1.0', names: {} };
 });
 ipcMain.handle('save-library', (_e, data) => {
-  fs.writeFileSync(getLibraryPath(), JSON.stringify(data, null, 2), 'utf8');
-  return true;
+  try {
+    fs.writeFileSync(getLibraryPath(), JSON.stringify(data, null, 2), 'utf8');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
-ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
+ipcMain.handle('load-panel-svg', () => {
+  try {
+    return fs.readFileSync(PANEL_SVG_PATH, 'utf8');
+  } catch (err) {
+    // The renderer calls await window.api.loadPanelSvg() during init and
+    // proceeds to inject the result into the DOM. If readFileSync throws,
+    // we return null instead — the renderer guards against null and shows
+    // an "asset missing" empty state instead of crashing init.
+    console.error('Failed to load panel SVG:', err.message);
+    return null;
+  }
+});
 
 // ── Record-from-JX: write captured PCM samples to a temp WAV ───────────────
 //
@@ -256,6 +271,42 @@ ipcMain.handle('load-panel-svg', () => fs.readFileSync(PANEL_SVG_PATH, 'utf8'));
 //
 // Output is a standard mono 44.1 kHz 16-bit WAV (matches the jx3p decoder's
 // expectations exactly; no resampling needed on either side).
+// audio-input-rates: query macOS's CoreAudio directly via system_profiler
+// to get each audio input device's CURRENT native sample rate. This bypasses
+// Chromium's getUserMedia stream-cache entirely, which made the renderer's
+// own probe unreliable: once Chromium negotiated a stream for a given
+// deviceId, subsequent probes returned the cached rate even after the user
+// changed the device's Format in Audio MIDI Setup. system_profiler reads
+// CoreAudio's live state, so it always reflects current reality.
+//
+// Returns: { ok: true, devices: [{ name: 'KT USB Audio', sampleRate: 44100, isDefaultInput: true }, ...] }
+// On failure: { ok: false, error: '...' }
+//
+// Only input devices are returned (coreaudio_device_input > 0). Output-side
+// duplicates of the same device (CoreAudio often lists USB interfaces twice,
+// once as input and once as output, each with its own srate) are filtered out
+// so the renderer doesn't have to deduplicate. Matched against Chromium's
+// deviceId picker labels by substring (Chromium prepends "Default - " and
+// appends VID:PID, e.g. "Default - KT USB Audio (31b2:2024)"; system_profiler
+// returns the bare name "KT USB Audio").
+ipcMain.handle('audio-input-rates', async () => {
+  try {
+    const { stdout } = await execAsync('system_profiler SPAudioDataType -json', { maxBuffer: 4 * 1024 * 1024 });
+    const parsed = JSON.parse(stdout);
+    const items  = (parsed.SPAudioDataType && parsed.SPAudioDataType[0] && parsed.SPAudioDataType[0]._items) || [];
+    const devices = items
+      .filter((it) => (it.coreaudio_device_input || 0) > 0)
+      .map((it) => ({
+        name:           it._name || '(unknown)',
+        sampleRate:     it.coreaudio_device_srate || null,
+        isDefaultInput: it.coreaudio_default_audio_input_device === 'spaudio_yes',
+      }));
+    return { ok: true, devices };
+  } catch (err) {
+    return { ok: false, error: err.stderr || err.message };
+  }
+});
+
 ipcMain.handle('record-to-wav', async (_e, { pcm, sampleRate = 44100, channels = 1, kind = 'tone' }) => {
   if (!pcm || (!Buffer.isBuffer(pcm) && !(pcm instanceof Uint8Array))) {
     return { ok: false, error: 'no PCM payload' };
@@ -402,18 +453,23 @@ async function decodeTapeFile(filePath) {
 }
 
 ipcMain.handle('tape-save', async (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const result = await dialog.showOpenDialog(win, {
-    title: 'Save — import tape dump from JX-3P',
-    properties: ['openFile'],
-    filters: [
-      { name: 'JX-3P files',    extensions: ['wav', 'json'] },
-      { name: 'WAV tape dump',  extensions: ['wav'] },
-      { name: 'JSON library',   extensions: ['json'] },
-    ],
-  });
-  if (result.canceled || !result.filePaths.length) return { loaded: false };
+  // Whole body wrapped in try/catch so a dialog failure (rare on macOS,
+  // but possible — display detached, malformed filter spec) returns a
+  // shaped error to the renderer instead of rejecting the IPC promise.
+  // The renderer's `if (!result.loaded)` guards then surface a clean
+  // import-error modal instead of a generic global-error banner.
   try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Save — import tape dump from JX-3P',
+      properties: ['openFile'],
+      filters: [
+        { name: 'JX-3P files',    extensions: ['wav', 'json'] },
+        { name: 'WAV tape dump',  extensions: ['wav'] },
+        { name: 'JSON library',   extensions: ['json'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths.length) return { loaded: false };
     return await decodeTapeFile(result.filePaths[0]);
   } catch (err) {
     return { loaded: false, error: err.message };
@@ -434,12 +490,20 @@ ipcMain.handle('tape-save-from-path', async (_e, filePath) => {
 // The app is on the sending side: this handler exports a WAV the user plays
 // into the synth's CMT input, encoded via `jx3p json-to-wav`.
 ipcMain.handle('tape-load', async (e, data, suggestedName) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const dlg = await dialog.showSaveDialog(win, {
-    title: 'Load — export tape dump for JX-3P',
-    defaultPath: slugForWav(suggestedName, 'jp-patches-tape'),
-    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
-  });
+  // Whole body wrapped in try/catch — dialog failure outside the inner
+  // try would have rejected the IPC promise. Renderer expects `{saved}`
+  // shape, so we always return that even on edge-case failures.
+  let dlg;
+  try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    dlg = await dialog.showSaveDialog(win, {
+      title: 'Load — export tape dump for JX-3P',
+      defaultPath: slugForWav(suggestedName, 'jp-patches-tape'),
+      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+    });
+  } catch (err) {
+    return { saved: false, error: 'Could not open save dialog: ' + err.message };
+  }
   if (dlg.canceled || !dlg.filePath) return { saved: false };
 
   // Renderer may attach `_slotMeta` to the export payload so we can preserve
@@ -540,14 +604,15 @@ async function decodeSeqFile(filePath) {
 // is on the receiving side: import a sequencer-dump WAV produced by the synth
 // and decode it via `jx3p wav-to-seq-json`.
 ipcMain.handle('seq-tape-save', async (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const result = await dialog.showOpenDialog(win, {
-    title: 'Save — import sequencer dump from JX-3P',
-    properties: ['openFile'],
-    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
-  });
-  if (result.canceled || !result.filePaths.length) return { loaded: false };
+  // Whole body wrapped in try/catch — see tape-save above for rationale.
   try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Save — import sequencer dump from JX-3P',
+      properties: ['openFile'],
+      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+    });
+    if (result.canceled || !result.filePaths.length) return { loaded: false };
     return await decodeSeqFile(result.filePaths[0]);
   } catch (err) {
     return { loaded: false, error: err.stderr || err.message };
@@ -567,12 +632,20 @@ ipcMain.handle('seq-tape-save-from-path', async (_e, filePath) => {
 // seq-tape-load: LOAD on the JX-3P reads sequencer data IN from audio. The app
 // is on the sending side: export a sequence as WAV via `jx3p seq-json-to-wav`.
 ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  const dlg = await dialog.showSaveDialog(win, {
-    title: 'Load — export sequencer dump for JX-3P',
-    defaultPath: slugForWav(suggestedName, 'jp-patches-sequence'),
-    filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
-  });
+  // Dialog acquisition isolated in its own try so a save-dialog failure
+  // returns a shaped {saved:false, error} instead of rejecting the IPC.
+  // See tape-load for rationale.
+  let dlg;
+  try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    dlg = await dialog.showSaveDialog(win, {
+      title: 'Load — export sequencer dump for JX-3P',
+      defaultPath: slugForWav(suggestedName, 'jp-patches-sequence'),
+      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+    });
+  } catch (err) {
+    return { saved: false, error: 'Could not open save dialog: ' + err.message };
+  }
   if (dlg.canceled || !dlg.filePath) return { saved: false };
 
   const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
