@@ -70,6 +70,22 @@
   //   totalSignalMs cumulative ms where peak > SIGNAL_THRESHOLD_LIVE
   //
   // Returns one of: 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet' | null
+  /**
+   * @typedef {'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'} CaptureWarn
+   */
+
+  /**
+   * Classify the current capture state into one of four warning levels
+   * (or null = no warning). Pure — safe to call every raf frame. See
+   * module header for the priority ladder.
+   *
+   * @param {Object} args
+   * @param {number} args.peak           Current frame peak in [0, 1]
+   * @param {number} args.runningPeak    Modal-scoped max-of-all-peaks in [0, 1]
+   * @param {number} args.elapsedMs      Ms since startRecording() began
+   * @param {number} args.totalSignalMs  Cumulative ms above signalThreshold
+   * @returns {CaptureWarn | null}
+   */
   function classifyCaptureWarning({ peak, runningPeak, elapsedMs, totalSignalMs }) {
     const t = CAPTURE_WARN_THRESHOLDS;
     if (peak >= t.CLIPPING_PEAK)                              return 'clipping';

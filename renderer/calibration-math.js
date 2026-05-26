@@ -41,17 +41,34 @@
   //   sliderToGain(100)  = 30
   // gainToSlider is the inverse, clamped to 0–100 and rounded.
 
+  /**
+   * Map slider position (0–100) to gain multiplier on the 0.1×–30× log
+   * scale used by the Record-from-JX modal's INPUT GAIN slider.
+   * @param {number} s Slider position, expected 0–100 (no clamping applied)
+   * @returns {number} Gain multiplier (~0.1 at s=0, ~30 at s=100)
+   */
   const sliderToGain = (s) =>
     0.1 * Math.pow(300, s / 100);
 
+  /**
+   * Inverse of {@link sliderToGain}: map a gain value back to slider
+   * position. Result is clamped to [0, 100] and rounded for direct
+   * assignment to an HTML range input's `value`.
+   * @param {number} g Gain multiplier (any positive number; clamped internally)
+   * @returns {number} Slider position, integer 0–100
+   */
   const gainToSlider = (g) =>
     Math.max(0, Math.min(100,
       Math.round(Math.log(Math.max(g, 0.001) / 0.1) / Math.log(300) * 100)
     ));    // clamp g ≥ 0.001 to avoid Math.log(negative) = NaN crash
 
-  // Format a gain value for display in modal labels. "1×" gets one decimal,
-  // "0.5×" gets two, "30×" gets none — matches the precision the user
-  // can actually read off the meter.
+  /**
+   * Format a gain multiplier for display in modal labels. Precision
+   * matches what the user can actually read off the meter: "1×" gets
+   * one decimal, "0.5×" gets two, "30×" gets none.
+   * @param {number} g Gain multiplier
+   * @returns {string} Formatted as e.g. "0.50×", "1.7×", "13×"
+   */
   const formatGain = (g) =>
     g >= 10 ? `${g.toFixed(0)}×`
     : g >= 1 ? `${g.toFixed(1)}×`
@@ -68,12 +85,28 @@
   //   gainToAngle(~1.73) =    0  (12 o'clock, mid-dial)
   //   gainToAngle(30)    = +135
 
+  /**
+   * Map gain multiplier to knob rotation angle in degrees. Same log
+   * scale as {@link sliderToGain} but parameterized to the knob's
+   * −135° (bottom-left, "0" label) → +135° (bottom-right, "10" label)
+   * rotation range. 270° of total rotation covers the full 0.1×–30×
+   * dynamic range.
+   * @param {number} g Gain multiplier (clamped to [0.1, 30])
+   * @returns {number} Rotation angle in degrees, in [-135, 135]
+   */
   const gainToAngle = (g) => {
     const clamped = Math.max(0.1, Math.min(30, g));
     const k = Math.log(clamped / 0.1) / Math.log(300) * 10;
     return -135 + k * 27;
   };
 
+  /**
+   * Inverse of {@link gainToAngle}: map a knob rotation angle to its
+   * gain multiplier. Used when the user drags the knob and we need to
+   * update the saved-gain value live.
+   * @param {number} a Rotation angle in degrees (clamped to [-135, 135])
+   * @returns {number} Gain multiplier in [0.1, 30]
+   */
   const angleToGain = (a) => {
     const clampedA = Math.max(-135, Math.min(135, a));
     const k = (clampedA + 135) / 27;
@@ -89,6 +122,22 @@
   // default-constructed JX3PPatch instances. Used to trigger the
   // RECALIBRATE_PROMPT flow instead of silently importing empty banks.
 
+  /**
+   * Decode-failure heuristic. Returns true when every patch in the
+   * decoded result has `vca_level === 0` — a strong signal the decoder
+   * returned default-constructed `JX3PPatch()` instances because every
+   * checksum failed. Used to trigger the recalibrate prompt instead of
+   * silently importing 32 empty patches.
+   *
+   * @param {{ banks?: any[] } | null | undefined} data
+   *   The decoded JSON from `jx3p wav-to-json`. Banks may be missing
+   *   (returns false), null (returns false), or arrays with null patches
+   *   inside (skipped).
+   * @returns {boolean}
+   *   true if at least one patch was inspected AND every inspected patch
+   *   had vca_level=0. false otherwise (including the no-patches and
+   *   any-real-VCA-level cases).
+   */
   const isDecodeAllDefault = (data) => {
     if (!data || !Array.isArray(data.banks)) return false;
     let any = false;
@@ -117,6 +166,20 @@
   // Used in stopRecording's trim algorithm in app.js. See CLAUDE.md
   // pitfall #12 for the bug-history that motivated this.
 
+  /**
+   * Scale the FSK silence/signal thresholds against the current
+   * software gain. See CLAUDE.md pitfall #12 for the bug history.
+   *
+   * NB: There's a near-identical copy of this function in
+   * `record-trim.js` (which adds a `currentGain || 1` guard against
+   * falsy input). Loaded later, so it wins the global override at
+   * runtime. Should be consolidated; tracked as cleanup. Caller
+   * code paths today reach the record-trim version.
+   *
+   * @param {number} currentGain Software gain multiplier (typically 1–30×)
+   * @returns {{SIGNAL_THRESHOLD: number, SILENCE_THRESHOLD: number}}
+   *   Both thresholds in [0, 1] for direct comparison against peak.
+   */
   const computeTrimThresholds = (currentGain) => {
     const thresholdScale  = Math.min(20, Math.max(1, currentGain));
     return {
@@ -136,6 +199,22 @@
   // transients dragging the saved gain too low; result clamped to
   // 0.5×–30× to cover the slider's full sane range.
 
+  /**
+   * Compute the gain to save after a calibration pass.
+   *
+   * The math: `newGain = currentGain × TARGET / measurePeak` — normalize
+   * the saved gain so the next capture's peak lands at TARGET regardless
+   * of where the user dialed during pass 1. Both inputs are defensively
+   * clamped: measurePeak ≤ 0.95 to avoid clipping transients dragging
+   * the saved gain too low; result clamped to [0.5, 30] for the slider's
+   * usable range.
+   *
+   * @param {number} currentGain Software gain in effect during pass 1
+   * @param {number} measurePeak Observed FSK peak in [0, 1]
+   * @param {number} [TARGET_PEAK=0.78] Desired peak for pass 2; defaults
+   *   to 0.78 (mid-amber zone of the meter) if not a positive number
+   * @returns {number} New gain to save, clamped to [0.5, 30]
+   */
   const computeCalibratedGain = (currentGain, measurePeak, TARGET_PEAK) => {
     if (typeof TARGET_PEAK !== 'number' || TARGET_PEAK <= 0) TARGET_PEAK = 0.78;
     const cappedMeasurePeak = Math.min(0.95, Math.max(0.001, measurePeak));

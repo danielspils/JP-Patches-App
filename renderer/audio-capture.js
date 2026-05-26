@@ -67,6 +67,24 @@
   // Errors: rejects with whatever getUserMedia rejected with on the
   // soft fallback path. Callers should surface the failure to the user
   // (permission denied, device disconnected, etc.).
+  /**
+   * @typedef {Object} AcquireResult
+   * @property {MediaStream} mediaStream Live audio stream from getUserMedia
+   * @property {boolean} usedFallback   true if the strict constraints
+   *   rejected with OverconstrainedError and we fell back to soft
+   */
+
+  /**
+   * Acquire a MediaStream for FSK capture with appropriate Chromium
+   * audio-processing disables. Strict constraints (forced `{exact:
+   * false}` on echoCancel/AGC/noiseSuppress, plus the legacy googXxx
+   * flags) preferred; soft fallback if the device rejects strict.
+   *
+   * @param {string | undefined} deviceId Specific device or undefined
+   *   for system default
+   * @returns {Promise<AcquireResult>}
+   * @throws {Error} If both strict and soft getUserMedia fail
+   */
   async function acquireRawAudioStream(deviceId) {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia(strictConstraints(deviceId));
@@ -107,6 +125,31 @@
   // rate probe, calibration state machine, etc.) is too entangled
   // with the modal's DOM state to factor cleanly without a much
   // larger rewrite.
+  /**
+   * @typedef {Object} AudioGraph
+   * @property {MediaStreamAudioSourceNode} sourceNode
+   * @property {GainNode} gainNode      Software gain stage; update
+   *   `.gain.value` to adjust mid-capture
+   * @property {AnalyserNode} analyserNode For raf-loop peak reads
+   * @property {ScriptProcessorNode} processorNode Captures PCM into
+   *   the `captured` array via onaudioprocess
+   * @property {GainNode} muteGain      Output sink at volume=0 (required
+   *   for ScriptProcessor to fire callbacks)
+   * @property {Float32Array[]} captured Live PCM chunks; appends as
+   *   audio arrives. Concatenate after stop.
+   */
+
+  /**
+   * Build the audio-processing node graph for a Record-from-JX capture.
+   * See module header for the chain layout.
+   *
+   * @param {AudioContext} audioContext Already-created context (caller
+   *   handles the sampleRate try/catch fallback)
+   * @param {MediaStream} mediaStream Already-acquired stream from
+   *   {@link acquireRawAudioStream}
+   * @param {number} initialGain Initial software gain (1× = unity)
+   * @returns {AudioGraph}
+   */
   function setupAudioGraph(audioContext, mediaStream, initialGain) {
     const sourceNode = audioContext.createMediaStreamSource(mediaStream);
 

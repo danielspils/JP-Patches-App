@@ -37,6 +37,19 @@
   //
   // Returns null for null / non-object / empty params so callers can no-op
   // cleanly on missing data.
+  /**
+   * Canonicalize a patch's parameter object into a stable JSON string
+   * suitable as a history-table key.
+   *
+   * @param {Object<string, any> | null | undefined} params
+   *   The 32-key patch params object (see jx3p/patch.py for canonical
+   *   types). Sorted-key serialization makes the output insensitive to
+   *   property-insertion order across roundtrips.
+   * @returns {string | null}
+   *   Stable JSON-encoded `[[key, value], ...]` array. Returns null when
+   *   `params` is null/undefined, not a plain object, or empty — callers
+   *   should treat null as "no fingerprint available, skip".
+   */
   function paramsFingerprint(params) {
     if (!params || typeof params !== 'object') return null;
     const keys = Object.keys(params).sort();
@@ -64,6 +77,17 @@
   //   computeReorderIdx(5, 2) → 2   (up-move: target unchanged)
   //   computeReorderIdx(3, 3) → 3   (no-op; caller should early-return)
   //   computeReorderIdx(3, 4) → 3   (adjacent down-move = no-op)
+  /**
+   * Adjust a drop-target index for the splice-removes-source semantics
+   * shared by all three drag-reorder paths (bank slots, library packages,
+   * sequences). See the comment above for the off-by-one rationale.
+   *
+   * @param {number} fromIdx Source index (where the drag started)
+   * @param {number} toIdx   Drop-indicator-relative target index
+   * @returns {number}       Post-removal insertion index. Pass to
+   *                         `arr.splice(returned, 0, removedItem)` after
+   *                         doing `arr.splice(fromIdx, 1)` first.
+   */
   function computeReorderIdx(fromIdx, toIdx) {
     return fromIdx < toIdx ? toIdx - 1 : toIdx;
   }

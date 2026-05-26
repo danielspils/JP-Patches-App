@@ -66,6 +66,20 @@
   //
   // MIRROR: tickMeter in app.js uses parallel scaling for its LIVE
   // classifier. Keep the two in sync (CLAUDE.md pitfall #12).
+  /**
+   * Scale FSK silence/signal thresholds against current software gain.
+   * See module header + CLAUDE.md pitfall #12 for the rationale.
+   *
+   * NB: There's a slightly-different copy of this function in
+   * calibration-math.js (loaded earlier, without the falsy guard).
+   * This one wins the global override; calibration-math's is dead.
+   * Should be consolidated — tracked as cleanup.
+   *
+   * @param {number} currentGain Software gain (1× = unity). Falsy
+   *   inputs (0, null, undefined, NaN) clamp to 1×.
+   * @returns {{SIGNAL_THRESHOLD: number, SILENCE_THRESHOLD: number}}
+   *   Both thresholds in [0, 1] for direct comparison against peak.
+   */
   function computeTrimThresholds(currentGain) {
     const thresholdScale = Math.min(20, Math.max(1, currentGain || 1));
     return {
@@ -79,6 +93,19 @@
   // full windows that fit in the buffer; trailing partial window is
   // dropped). Exported so tests can verify classification independently
   // of the trim-selection logic.
+  /**
+   * Classify each ~200 ms window of a capture buffer as signal/silence/
+   * between based on its peak amplitude vs. the given thresholds.
+   * Exposed for tests; production callers go through {@link computeFskTrim}.
+   *
+   * @param {Float32Array | number[]} samples PCM samples in [-1, 1]
+   * @param {number} sampleRate Hz (typically 44100)
+   * @param {{SIGNAL_THRESHOLD: number, SILENCE_THRESHOLD: number}} thresholds
+   *   From {@link computeTrimThresholds}.
+   * @returns {Array<'signal' | 'silence' | 'between'>}
+   *   Length = floor(samples.length / winSize). Trailing partial window
+   *   is dropped.
+   */
   function classifyWindows(samples, sampleRate, thresholds) {
     const winSize    = Math.floor(WIN_SEC * sampleRate);
     const numWindows = Math.floor(samples.length / winSize);
@@ -118,6 +145,29 @@
   //
   // The diagnostic flags let callers log telemetry without re-running
   // the algorithm.
+  /**
+   * @typedef {Object} FskTrimResult
+   * @property {number} trimStart Sample index to trim BEFORE
+   *   (0 = no trim). Pass to `samples.subarray(trimStart)`.
+   * @property {number} numWindows Count of full windows that fit
+   *   in the buffer (trailing partial dropped).
+   * @property {boolean} foundSilenceGap True if pass 1 succeeded —
+   *   clean silence→sustained-signal pattern found.
+   * @property {boolean} usedFallback True if pass 2 ran — longest-
+   *   signal-run fallback was needed because pass 1 found no
+   *   qualifying silence gap.
+   */
+
+  /**
+   * Find where the real FSK transmission starts inside a captured
+   * buffer. See module header for the algorithm.
+   *
+   * @param {Float32Array} samples Captured PCM in [-1, 1]
+   * @param {number} sampleRate Hz (typically 44100)
+   * @param {number} currentGain Software gain at capture time, for
+   *   threshold scaling. 1× = unity; falsy clamps to 1×.
+   * @returns {FskTrimResult}
+   */
   function computeFskTrim(samples, sampleRate, currentGain) {
     const thresholds = computeTrimThresholds(currentGain);
     const winSize    = Math.floor(WIN_SEC * sampleRate);
@@ -192,6 +242,21 @@
   //              data portion of a RIFF/WAVE file at the source rate
   //     peakAmp: max |sample| seen, in [0, 1]
   //   }
+  /**
+   * @typedef {Object} FloatToInt16Result
+   * @property {ArrayBuffer} pcm Little-endian 16-bit signed PCM bytes
+   *   (length = samples.length × 2), drop into a WAV data chunk.
+   * @property {number} peakAmp Max |sample| seen, in [0, 1].
+   */
+
+  /**
+   * Convert a Float32 sample buffer to little-endian 16-bit signed PCM
+   * while measuring the peak amplitude in a single pass. Samples
+   * outside [-1, 1] are clamped before scaling.
+   *
+   * @param {Float32Array} samples Mono PCM samples
+   * @returns {FloatToInt16Result}
+   */
   function floatToInt16WithPeak(samples) {
     const n = samples.length;
     const pcm  = new ArrayBuffer(n * 2);

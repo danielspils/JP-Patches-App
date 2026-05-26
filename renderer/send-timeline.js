@@ -28,6 +28,22 @@
   // share, only happens on malformed WAVs) are clamped to 0 per data
   // segment — pilots still consume their fixed duration, the data
   // segments just collapse visually.
+  /**
+   * @typedef {Object} SendSegment
+   * @property {boolean} pilot True for pilot-tone segments (fixed
+   *   duration); false for data segments (share the remainder)
+   */
+
+  /**
+   * Compute per-segment durations for the Send-to-JX timeline. Pilots
+   * are exact ({@link SEND_PILOT_SEC}); data segments share the
+   * remainder of `totalSec` equally. Negative remainders clamp data
+   * segments to 0.
+   *
+   * @param {number} totalSec Total WAV duration in seconds
+   * @param {SendSegment[]} segments Modal's segment definitions
+   * @returns {number[]} Durations parallel to `segments`
+   */
   function computeSegDurations(totalSec, segments) {
     if (!Array.isArray(segments) || segments.length === 0) return [];
     const numPilots = segments.filter((s) => s.pilot).length;
@@ -49,6 +65,19 @@
   // playhead is the active one. If the playhead is past the end of
   // every segment (shouldn't happen unless the WAV is longer than the
   // sum of segments), the last segment stays active.
+  /**
+   * Compute the timeline indicator's position + which segment is
+   * currently active given the playhead position. Active-segment
+   * selection: first segment whose accumulated end is past the
+   * playhead; falls back to last segment if past everything.
+   *
+   * @param {number} currentSec Current playback time in seconds
+   * @param {number[]} segDurations Per-segment durations from
+   *   {@link computeSegDurations}
+   * @returns {{pct: number, activeIdx: number}}
+   *   pct = indicator's horizontal position (0–100, capped);
+   *   activeIdx = which segment the playhead is inside
+   */
   function computeIndicatorPosition(currentSec, segDurations) {
     if (!Array.isArray(segDurations) || segDurations.length === 0) {
       return { pct: 0, activeIdx: 0 };

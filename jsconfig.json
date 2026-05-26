@@ -1,0 +1,50 @@
+// Plain-JS type checking via the TypeScript language server.
+//
+// Editors that read jsconfig.json (VS Code, Cursor, etc.) honor the
+// JSDoc @param/@returns/@typedef annotations on the modules below
+// and surface type mismatches inline — without introducing
+// TypeScript or .ts files. This is the JP-flavored version of static
+// typing: the safety net of TS without the language switch.
+//
+// checkJs: true     — apply type-check to *.js files (default would
+//                     only check *.ts).
+// noEmit: true      — we never compile anything. The editor just
+//                     reads the JSDoc for in-place hints + errors.
+// allowJs: true     — required alongside checkJs for *.js inclusion.
+// strict: not set   — strict mode would yell at every as-yet-
+//                     unannotated function in app.js. We keep it off
+//                     until the renderer is fully typed.
+//
+// `include` lists the pure-logic modules we annotated; app.js is
+// deliberately excluded (too large + too tightly coupled to the DOM
+// for a useful first pass — annotate it later if/when worth doing).
+{
+  "compilerOptions": {
+    "target":           "ES2022",
+    "module":           "ESNext",
+    "moduleResolution": "node",
+    "checkJs":          true,
+    "noEmit":           true,
+    "allowJs":          true,
+    "lib":              ["ES2022", "DOM"],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "renderer/calibration-math.js",
+    "renderer/library-math.js",
+    "renderer/record-trim.js",
+    "renderer/capture-warnings.js",
+    "renderer/capture-state.js",
+    "renderer/audio-capture.js",
+    "renderer/send-timeline.js",
+    "main.js",
+    "preload.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "vendor",
+    "build",
+    "renderer/app.js"
+  ]
+}

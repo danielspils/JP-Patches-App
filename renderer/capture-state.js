@@ -43,6 +43,14 @@
   // Capped at 20× so the signal threshold doesn't approach the FSK
   // peak target. See CLAUDE.md pitfall #12 for the parallel-scaling
   // contract between this module and record-trim.js.
+  /**
+   * Live silence/signal thresholds scaled against current software
+   * gain. Same scaling factor as record-trim.js's computeTrimThresholds
+   * (CLAUDE.md pitfall #12 — keep in sync).
+   *
+   * @param {number} gain Software gain (1× = unity). Falsy clamps to 1×.
+   * @returns {{silence: number, signal: number}}
+   */
   function liveThresholdsFor(gain) {
     const scale = Math.min(20, Math.max(1, gain || 1));
     return {
@@ -58,6 +66,15 @@
   // modal's startRecording) to avoid per-frame allocation pressure.
   // Bytes are 0..255 with 128 = silence; we shift to [-128..127],
   // take abs, normalize to [0..1].
+  /**
+   * Read the analyser's time-domain bytes and return the peak in
+   * [0, 1]. The `buffer` is reused across ticks (allocated once in
+   * the modal's startRecording) to avoid per-frame allocation.
+   *
+   * @param {AnalyserNode} analyserNode Web Audio analyser node
+   * @param {Uint8Array} buffer Reusable buffer sized to analyserNode.fftSize
+   * @returns {number} Peak amplitude in [0, 1]
+   */
   function readAnalyserPeak(analyserNode, buffer) {
     analyserNode.getByteTimeDomainData(buffer);
     let peak = 0;
@@ -74,6 +91,28 @@
   // all timestamps null. Modal calls this at the start of each
   // startRecording invocation; the returned object is the input to
   // the first updateCaptureState call.
+  /**
+   * @typedef {Object} CaptureState
+   * @property {number} runningPeak     Max peak across the session, [0, 1]
+   * @property {number} fskPeak         Max peak DURING FSK (after
+   *                                    fskStartMs fires), [0, 1]
+   * @property {number} totalSignalMs   Cumulative ms where peak > signalThreshold
+   * @property {number | null} fskStartMs    Wall-clock when silence→signal
+   *                                          pattern detected, or null
+   * @property {number | null} firstSignalMs Wall-clock when peak first
+   *                                          crossed signalThreshold, or null
+   * @property {number} activeMs        Accumulated ms inside FSK transmission
+   * @property {number} consecSilenceMs Current consecutive silence streak
+   * @property {number | null} lastTickMs Wall-clock of previous tick
+   */
+
+  /**
+   * Factory for a fresh capture-session state object. Call at the
+   * start of each `startRecording` invocation; pass the result to
+   * the first {@link updateCaptureState} call.
+   *
+   * @returns {CaptureState}
+   */
   function makeInitialCaptureState() {
     return {
       runningPeak:     0,      // max peak seen across the entire session
@@ -112,6 +151,38 @@
   //                      'dump-timeout', 'total-signal', 'safety-timeout'
   //     elapsedTotal:    ms since recordStartMs (saves caller a Date.now)
   //   }
+  /**
+   * @typedef {Object} CaptureTick
+   * @property {number} peak            Current frame peak in [0, 1]
+   * @property {number} now             Date.now() at this tick
+   * @property {number} silenceThreshold Live silence threshold
+   * @property {number} signalThreshold  Live signal threshold
+   * @property {number} recordStartMs   Date.now() when recording began
+   * @property {number} expectedSignalMs Ms budget for this dump kind
+   *                                     (auto-stop math; tone ~60000,
+   *                                     sequence ~30000)
+   */
+
+  /**
+   * @typedef {Object} CaptureEvents
+   * @property {boolean} fskJustStarted  fskStartMs transitioned from
+   *                                     null to a value THIS tick
+   * @property {number | null} progressPct  Calibration progress 0–100,
+   *                                        or null if firstSignalMs not set
+   * @property {'silence-after-signal' | 'dump-timeout' | 'total-signal' | 'safety-timeout' | null} autoStop
+   *   Which auto-stop trigger fired (or null = none yet)
+   * @property {number} elapsedTotal     Ms since recordStartMs
+   */
+
+  /**
+   * Pure state-machine update. Given the previous state + the current
+   * tick, returns the next state plus an events object describing
+   * transitions the caller may want to react to (typically DOM updates).
+   *
+   * @param {CaptureState} prev
+   * @param {CaptureTick} tick
+   * @returns {{state: CaptureState, events: CaptureEvents}}
+   */
   function updateCaptureState(prev, tick) {
     const { peak, now, silenceThreshold, signalThreshold, recordStartMs, expectedSignalMs } = tick;
     const dtMs = prev.lastTickMs !== null ? (now - prev.lastTickMs) : 0;
