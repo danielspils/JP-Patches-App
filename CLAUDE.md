@@ -7,6 +7,7 @@ This file is the cold-start summary. Pair it with:
 - **[`docs/design-system.md`](docs/design-system.md)** — **the binding design guide.** Color tokens, typography, SVG primitives (buttons, knobs, switches, level meter, arrow), layout patterns, animation, anti-patterns. **Read this before building any new UI component, modal, or visual.** The "Design language" section below is the brief; this doc is the authoritative reference.
 - **[`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md)** — authoritative design spec for Phases 1–4. Phase 2 has an "As-shipped summary" noting where the actual implementation diverged from the original design.
 - **[`docs/record-from-jx.md`](docs/record-from-jx.md)** — shipped-feature reference for in-app JX-3P tape capture + two-pass auto-calibration. The place to land when reading `showRecordFromJxModal` in `app.js`.
+- **[`docs/smoke-test.md`](docs/smoke-test.md)** — pre-release manual QA checklist (11 sections, ~50 individual checks). Run before publishing any release; catches integration issues unit tests can't.
 - **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, app-level Undo/Redo, etc.).
 - **[`README.md`](README.md)** — end-user docs (install, first run, Tape Memory reference, Library, Custom Banks, Roadmap).
 - **GitHub Releases — [github.com/danielspils/JP-Patches-App/releases](https://github.com/danielspils/JP-Patches-App/releases)** — every shipped version has detailed user-facing release notes. The best chronological record of recent UX and behavior changes. `gh release list` and `gh api repos/danielspils/JP-Patches-App/releases --paginate -q '.[].body'` to pull locally.
@@ -38,6 +39,8 @@ Current version: **0.5.13** (May 25, 2026). 25+ public releases since v0.1.0 on 
 │   ├── design-system.md          BINDING design guide — colors, typography, SVG primitives, layout
 │   ├── library-and-midi-spec.md  authoritative design spec (Phases 1–4)
 │   ├── record-from-jx.md         shipped-feature reference: in-app tape capture + auto-cal
+│   ├── smoke-test.md             pre-release manual QA checklist (run before publishing)
+│   ├── release-notes-*.md        drafted user-facing release notes per version
 │   └── future-features.md        parking lot beyond the formal roadmap
 ├── scripts/
 │   └── setup-vendor.sh           populates vendor/ before `npm run dist`
@@ -50,14 +53,29 @@ Current version: **0.5.13** (May 25, 2026). 25+ public releases since v0.1.0 on 
 ├── dist/                         gitignored; electron-builder output (.dmg, .app)
 └── renderer/
     ├── index.html                shell — left panel + #panel-host
-    ├── style.css                 vintage cream hardware aesthetic (~1,200 lines)
-    ├── app.js                    all UI logic — ~3,700 lines
+    ├── style.css                 vintage cream hardware aesthetic (~2,000 lines)
+    ├── app.js                    all UI logic — ~7,500 lines (heavily commented)
+    ├── calibration-math.js       pure math: gain↔angle, decode-all-default heuristic
+    ├── library-math.js           pure math: reorder index, params fingerprint
+    ├── record-trim.js            FSK trim algorithm + Float32→Int16 PCM converter
+    ├── capture-warnings.js       4-state live warning ladder (clipping/no-signal/quiet)
+    ├── capture-state.js          capture state-machine + auto-stop ladder
+    ├── audio-capture.js          getUserMedia constraint fallback + node-graph factory
+    ├── send-timeline.js          send-modal timeline math (pilot/data segment durations)
     ├── panel.svg                 locked PG-200 panel artwork (1050×620 viewBox)
     ├── panel_locked_v2..v6.svg   historical snapshots (v6 is current canonical reference)
     ├── seed/
     │   ├── library.json          first-run Spils Sounds + Spils Sequence
     │   └── patches.json          first-run active C/D banks
     └── assets/jp-logo.png        chrome JP logo embedded in panel
+
+test/                             127 unit tests against the pure-math modules
+├── calibration-math.test.js
+├── library-math.test.js
+├── record-trim.test.js
+├── capture-warnings.test.js
+├── capture-state.test.js
+└── send-timeline.test.js
 ```
 
 ## External runtime dependencies
@@ -269,8 +287,10 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
 ## Recent themes
 
-`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–24 burst:
+`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–25 burst:
 
+- **Capture-pipeline reliability sweep + internal refactor** (v0.5.13, May 25 night) — fixed ~12 silent-failure bugs across the Record-from-JX flow (scope errors, leaked devicechange listeners, unhandled rejections, IPC contract mismatches); added a renderer-wide error banner so future silent failures become visible; added per-capture telemetry to `library.captureLog`; recalibrate now seeds the slider with prior gain instead of resetting to 1×; CoreAudio-based sample-rate advisory; downgraded sample-rate warning from "will fail" to "advisory" after real-world testing proved 48→44.1 resample survivable. Refactor: 6 new pure-logic modules (`record-trim.js`, `capture-warnings.js`, `capture-state.js`, `audio-capture.js`, `send-timeline.js` + the pre-existing math modules) with 77 new unit tests (50 → 127). The two biggest modals (`showRecordFromJxModal`, `showSendToJxFlow`) shrunk by ~550 lines total. Visualizer now distinguishes REST from TIE via the voice[1]-new-attack signature (pitfall #16 was rewritten — earlier conclusion was wrong).
+- Modified-patch indicator + revert + save-and-load rescue (v0.5.12, May 25 morning) — per-slot red dot for unsaved edits with click-to-revert; 3-button confirm modal when loading a library over unsaved active C/D; Logic-style hover/double-click knob value editing; patch-switch knob spin animation.
 - Record-from-JX-3P + two-pass auto-calibration + JX key-sequence diagrams (v0.5.11, May 23–24)
 - Custom WAV-name embedding (jPpS RIFF chunk) for cross-user sharing (v0.5.11)
 - App menu cleanup + View zoom presets (v0.5.10)
