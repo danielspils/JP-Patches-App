@@ -4765,16 +4765,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       }
       const nativeRate = match.sampleRate;
       if (nativeRate !== 44100) {
-        const deviceLabel = pickerLabel || match.name || 'this audio device';
-        // Tight 2-line copy: full advisory text was pushing the modal's
-        // action buttons off the bottom of the viewport on smaller
-        // displays. The kHz mismatch + the actionable fix + the "ignore
-        // if locked" escape all need to be present, but every extra
-        // word costs vertical space. Trimmed 2026-05-26.
+        // Use the short device name from system_profiler ("KT USB
+        // Audio") rather than Chromium's "Default - KT USB Audio
+        // (31b2:2024)" — the short name is what the user sees in
+        // Audio MIDI Setup, which is where the copy is directing
+        // them. Falls back to the picker label if system_profiler
+        // didn't return a name (shouldn't happen but be safe).
+        const deviceLabel = match.name || pickerLabel || 'this audio device';
         setSampleRateWarning(
-          `ℹ︎ ${deviceLabel} is at ${nativeRate / 1000} kHz; JP needs 44.1 (Chromium will resample). ` +
-          `Usually fine. If captures decode empty, switch Format to 44100 in Audio MIDI Setup — ` +
-          `or ignore this if the dropdown only offers ${nativeRate / 1000}.`
+          `ℹ︎ ${deviceLabel} is running at ${nativeRate / 1000}kHz. ` +
+          `JP Patches records at 44.1kHz. JP will resample your data dump, ` +
+          `but it's best to set your device to 44.1kHz in Audio MIDI Setup on your Mac.`
         );
       } else {
         setSampleRateWarning(null);   // clear any prior warning
