@@ -5761,111 +5761,15 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // ── End calibration branch ───────────────────────────────────────────
 
     // Find the actual FSK transmission inside the captured buffer.
-    //
-    // The JX-3P emits a persistent idle tone before AND after the tape
-    // dump. The pre-idle tone has its own crossing pattern (NOT real FSK
-    // cycle widths), which contaminates jx3p's demodulator calibration —
-    // it locks onto the wrong long_width reference and misclassifies every
-    // subsequent crossing.
-    //
-    // Crucially, when the user presses Save on the JX, the idle tone
-    // BRIEFLY PAUSES before the pilot tone starts. That silence gap (~100
-    // ms to a few seconds depending on user timing) is our marker for
-    // where the real FSK begins.
-    //
-    // Algorithm: scan 200 ms windows classifying each as signal (peak >
-    // 0.10), silence (peak < 0.05), or in-between. Find the first
-    // silence → signal transition where the following signal run is at
-    // least 5 s long (real FSK is ~30 s, so anything ≥ 5 s is clearly
-    // not a transient pop). Trim everything before that transition.
-    //
-    // Fallback: if no silence → sustained-signal pattern is found (e.g.,
-    // user already pressed Save before clicking Record, no pre-noise),
-    // use the longest signal run instead.
-    //
-    // Threshold scaling: the JX's between-dumps idle tone is a constant
-    // pre-gain amplitude (~0.005–0.010), so after applying software gain g
-    // it lands at ~0.005g–0.010g. At low gain (≤4×) idle stays under the
-    // default 0.05 silence threshold; at higher gain it crosses, the
-    // silence detector finds no pre-FSK gap, trim falls through to the
-    // longest-signal-run fallback, and jx3p's demodulator calibrates
-    // against idle-tone cycle widths instead of FSK — every checksum
-    // fails. Scale both thresholds with current gain (capped at 20× so
-    // the signal threshold doesn't approach the FSK peak target of 0.6).
-    const currentGainAtTrim  = sliderToGain(parseInt(gainSlider.value, 10));
-    const thresholdScale     = Math.min(20, Math.max(1, currentGainAtTrim));
-    const WIN_SEC            = 0.2;
-    const SIGNAL_THRESHOLD   = Math.max(0.10, 0.025 * thresholdScale);
-    const SILENCE_THRESHOLD  = Math.max(0.05, 0.012 * thresholdScale);
-    const MIN_SILENCE_WINDOWS = Math.ceil(0.30 / WIN_SEC);  // ≥ 300 ms silence
-    const MIN_SIGNAL_WINDOWS  = Math.ceil(5.00 / WIN_SEC);  // ≥ 5 s sustained signal after
-    const winSize    = Math.floor(WIN_SEC * actualSampleRate);
-    const numWindows = Math.floor(totalSamples / winSize);
-
-    // Classify each window once.
-    const klass = new Array(numWindows); // 'signal' | 'silence' | 'between'
-    for (let w = 0; w < numWindows; w++) {
-      let peak = 0;
-      const lo = w * winSize, hi = lo + winSize;
-      for (let i = lo; i < hi; i++) {
-        const v = Math.abs(all[i]);
-        if (v > peak) peak = v;
-      }
-      klass[w] = peak > SIGNAL_THRESHOLD ? 'signal'
-               : peak < SILENCE_THRESHOLD ? 'silence'
-               : 'between';
-    }
-
-    // Pass 1: look for silence ≥ MIN_SILENCE_WINDOWS, then signal that
-    // sustains for ≥ MIN_SIGNAL_WINDOWS. Pick the LATEST matching
-    // transition — recordings can contain multiple silence→signal
-    // patterns (e.g. the JX idle tone briefly hiccupping before Save is
-    // pressed), and the real FSK is always the last sustained signal run
-    // in the buffer (the user clicks Stop right after the dump ends).
-    let trimWindow = -1;
-    let silenceLen = 0;
-    for (let w = 0; w < numWindows; w++) {
-      if (klass[w] === 'silence') {
-        silenceLen += 1;
-      } else if (klass[w] === 'signal' && silenceLen >= MIN_SILENCE_WINDOWS) {
-        // Count how long this signal run continues (signal-or-between
-        // counts; silence breaks it).
-        let signalRun = 0;
-        for (let v = w; v < numWindows && klass[v] !== 'silence'; v++) {
-          if (klass[v] === 'signal') signalRun += 1;
-        }
-        if (signalRun >= MIN_SIGNAL_WINDOWS) {
-          trimWindow = w;  // KEEP looking — we want the latest match
-        }
-        silenceLen = 0;
-      } else {
-        // 'between' or 'signal' without prior qualifying silence
-        if (klass[w] === 'signal') silenceLen = 0;
-      }
-    }
-
-    // Pass 2 (fallback): no silence→signal pattern. Use longest signal run.
-    if (trimWindow < 0) {
-      let bestStart = 0, bestLen = 0, curStart = -1, curLen = 0;
-      for (let w = 0; w < numWindows; w++) {
-        if (klass[w] === 'signal') {
-          if (curStart < 0) curStart = w;
-          curLen += 1;
-          if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; }
-        } else {
-          curStart = -1;
-          curLen   = 0;
-        }
-      }
-      if (bestLen > 0) trimWindow = bestStart;
-    }
-
-    const backoff   = Math.floor(0.05 * actualSampleRate);
-    const trimStart = trimWindow > 0
-      ? Math.max(0, trimWindow * winSize - backoff)
-      : 0;
-    const trimmed    = trimStart > 0 ? all.subarray(trimStart) : all;
-    const trimmedLen = trimmed.length;
+    // Algorithm + rationale: see renderer/record-trim.js. Extracted
+    // into a separate module so it's unit-testable in isolation;
+    // computeFskTrim returns the sample index to trim before, plus
+    // diagnostic flags for telemetry.
+    const currentGainAtTrim = sliderToGain(parseInt(gainSlider.value, 10));
+    const trimResult        = computeFskTrim(all, actualSampleRate, currentGainAtTrim);
+    const trimStart         = trimResult.trimStart;
+    const trimmed           = trimStart > 0 ? all.subarray(trimStart) : all;
+    const trimmedLen        = trimmed.length;
 
     // Convert trimmed Float32 → interleaved 16-bit signed PCM (mono, so
     // no interleaving needed). Track overall peak in the same loop so we
