@@ -1504,25 +1504,118 @@ function findControl(target) {
 // Event delegation for all interactive controls
 // ═══════════════════════════════════════════════════════════════
 
+// setupInteraction — wires all pointer interactions on the SVG panel:
+// knob drag/snap, switch click, button press, the value-tooltip on
+// hover, and the numeric-edit overlay on dblclick. Three logical
+// sections (split into named sub-functions inside the IIFE for
+// readability, since each shares state via closure with the others):
+//
+//   setupKnobDragAndButtons(svg) — mousedown/move/up handlers.
+//     Manages the dragState + button-press tracking. Defines
+//     applyDragAngle which writes both the knob rotation AND the
+//     live tooltip (which is owned by setupKnobTooltipAndEdit).
+//
+//   setupKnobTooltipAndEdit(svg) — hover delay + dblclick numeric
+//     entry. Owns the valueTooltip + editInput DOM elements and
+//     their lifecycle. The drag handlers call into here (via
+//     show/updateDragTooltip + hideKnobValueTooltip) to coordinate.
+//
+// The two sections share several closures (dragState, tooltipTimer,
+// valueTooltip, editInput); rather than splitting into separate
+// modules and threading state between them, we keep them in one
+// function with the structure made visible via the sub-function
+// names + section comments.
 function setupInteraction(svg) {
-  let dragState = null;
-  let downBtnId = null;
-  // (downBtnInside removed 2026-05-26: was assigned but never read —
-  // remnant of an earlier panel-button hover-inside-outside tracking
-  // that was simplified away.)
+  // Shared closure state across the two sub-sections below.
+  let dragState    = null;
+  let downBtnId    = null;
+  let valueTooltip = null;
+  let editInput    = null;
+  let tooltipTimer = null;
+
+  // Display-range conversion (2026-05-25): patches store uint8
+  // (0–255) — the JX-3P tape format precision. Hover tooltip + numeric
+  // edit display as 0–100% because it's easier to read + matches the
+  // forthcoming MIDI 7-bit range (0–127) in spirit. Drag retains full
+  // 256-value access via cursor; typed input loses 2.5× granularity
+  // but well below JND for any continuous JX param.
+  const uint8ToDisplay = (n) => Math.round(n * 100 / 255);
+  const displayToUint8 = (n) => Math.round(n * 255 / 100);
+
+  const isSmoothKnob = (ctrl) => (
+    ctrl && ctrl.dataset.control === 'knob' && !DISCRETE[ctrl.dataset.param]
+  );
+
+  const positionOverlay = (el, knobEl) => {
+    const r = knobEl.getBoundingClientRect();
+    el.style.left = `${r.left + r.width / 2}px`;
+    el.style.top  = `${r.top  + r.height / 2}px`;
+  };
+
+  // ── Tooltip lifecycle (shared by hover, drag, and edit paths) ────
+  const TOOLTIP_HOVER_DELAY_MS = 1000;
+
+  const hideKnobValueTooltip = () => {
+    if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+    if (valueTooltip) { valueTooltip.remove();      valueTooltip = null; }
+  };
+
+  // Hover-delayed: 1 s dwell before showing. Casual fly-overs never
+  // surface a tooltip; only deliberate hover does.
+  const showKnobValueTooltip = (knobEl, param) => {
+    if (dragState || editInput) return;
+    hideKnobValueTooltip();
+    tooltipTimer = setTimeout(() => {
+      tooltipTimer = null;
+      if (dragState || editInput) return;       // re-check at fire time
+      const patch = currentPatch();
+      if (!patch || !(param in patch)) return;
+      const val = patch[param];
+      if (typeof val !== 'number') return;      // discrete enum values skipped
+      valueTooltip = document.createElement('div');
+      valueTooltip.className = 'knob-value-tooltip';
+      valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+      document.body.appendChild(valueTooltip);
+      positionOverlay(valueTooltip, knobEl);
+    }, TOOLTIP_HOVER_DELAY_MS);
+  };
+
+  // During an active drag we bypass the hover delay — the user wants
+  // to see the live value as the knob moves. showDragTooltip is
+  // called from the mousedown handler in setupKnobDragAndButtons;
+  // updateDragTooltip is called from applyDragAngle each mousemove.
+  const showDragTooltip = (knobEl, val) => {
+    hideKnobValueTooltip();
+    valueTooltip = document.createElement('div');
+    valueTooltip.className = 'knob-value-tooltip';
+    valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+    document.body.appendChild(valueTooltip);
+    positionOverlay(valueTooltip, knobEl);
+  };
+  const updateDragTooltip = (val) => {
+    if (valueTooltip) valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
+  };
+
+  // ── Sub-section 1: knob drag + button press handlers ─────────────
+  setupKnobDragAndButtons();
+
+  // ── Sub-section 2: hover tooltip + dblclick numeric edit ─────────
+  setupKnobTooltipAndEdit();
+
+  // ─────────────────────────────────────────────────────────────────
 
   function applyDragAngle(clientY) {
     // Drag up (negative dy) = clockwise (positive angle). 2° per 1px (140px = full range).
     const dy = clientY - dragState.startY;
     const angle = Math.max(-140, Math.min(140, dragState.startAngle - dy * 2));
     dragState.knob.setAttribute('transform', `rotate(${angle.toFixed(1)})`);
-    // Live-update the value tooltip during drag (hover delay is
-    // bypassed — see showDragTooltip / updateDragTooltip below).
+    // Live-update the value tooltip during drag.
     const liveVal = angleToParam(dragState.param, angle);
     if (typeof liveVal === 'number') updateDragTooltip(liveVal);
     return angle;
   }
 
+  function setupKnobDragAndButtons() {
   svg.addEventListener('mousedown', (e) => {
     const ctrl = findControl(e.target);
     if (!ctrl) return;
@@ -1604,88 +1697,28 @@ function setupInteraction(svg) {
       downBtnId = null;
     }
   });
+  }   // end setupKnobDragAndButtons
 
-  // ─── Numeric-edit overlay for smooth knobs (2026-05-25) ──────────────
+  // ─── Sub-section 2: hover tooltip + dblclick numeric edit ────────
   //
   // Logic-style behavior:
-  //   - Hover a smooth knob: small floating tooltip shows the current
-  //     raw uint8 value (0–255).
+  //   - Hover a smooth knob: small floating tooltip shows the
+  //     current value as a percentage (0–100) after a 1 s dwell.
   //   - Double-click: input field appears centered over the knob,
   //     pre-filled with the current value. Type a new number, press
   //     Enter to commit. Esc or click-outside cancels.
   //   - Invalid input on Enter: flash red, keep the input open.
   //
-  // Smooth knobs only — discrete (snap) knobs, switches, and buttons
-  // do nothing on double-click (their value model is a fixed enum, not
-  // a continuous range, so typing 247 makes no sense).
-  let valueTooltip = null;
-  let editInput    = null;
-  let tooltipTimer = null;   // pending hover delay (1 s before tooltip appears)
-
-  // Display-range conversion (2026-05-25): patches are stored as uint8
-  // (0–255) internally — that's the JX-3P tape format precision and
-  // doesn't change. The hover tooltip + numeric edit display in 0–100
-  // (percentage) because it's easier to read and matches the
-  // forthcoming MIDI 7-bit range (0–127) in spirit. Typed input loses
-  // 2.5× addressable granularity vs raw uint8, but the rounded values
-  // are well below the just-noticeable-difference for any continuous
-  // JX param. Drag still gives full 256-value access via cursor.
-  const uint8ToDisplay = (n) => Math.round(n * 100 / 255);
-  const displayToUint8 = (n) => Math.round(n * 255 / 100);
-
-  const isSmoothKnob = (ctrl) => (
-    ctrl && ctrl.dataset.control === 'knob' && !DISCRETE[ctrl.dataset.param]
-  );
-
-  const positionOverlay = (el, knobEl) => {
-    const r = knobEl.getBoundingClientRect();
-    el.style.left = `${r.left + r.width / 2}px`;
-    el.style.top  = `${r.top  + r.height / 2}px`;
-  };
-
-  // Tooltip appears after a 1 s hover hold — protects against accidental
-  // tooltips popping up as the mouse just drifts across the panel. The
-  // 1 s timer is canceled on mouseout, so casual fly-overs never show
-  // a tooltip; only deliberate dwell does.
-  const TOOLTIP_HOVER_DELAY_MS = 1000;
-  const showKnobValueTooltip = (knobEl, param) => {
-    if (dragState || editInput) return;
-    hideKnobValueTooltip();              // clears both pending timer + visible tooltip
-    tooltipTimer = setTimeout(() => {
-      tooltipTimer = null;
-      if (dragState || editInput) return;       // re-check at fire time
-      const patch = currentPatch();
-      if (!patch || !(param in patch)) return;
-      const val = patch[param];
-      if (typeof val !== 'number') return;      // discrete enum values skipped
-      valueTooltip = document.createElement('div');
-      valueTooltip.className = 'knob-value-tooltip';
-      valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
-      document.body.appendChild(valueTooltip);
-      positionOverlay(valueTooltip, knobEl);
-    }, TOOLTIP_HOVER_DELAY_MS);
-  };
-
-  const hideKnobValueTooltip = () => {
-    if (tooltipTimer) { clearTimeout(tooltipTimer); tooltipTimer = null; }
-    if (valueTooltip) { valueTooltip.remove();      valueTooltip = null; }
-  };
-
-  // During a drag we bypass the 1 s hover delay — the user is actively
-  // adjusting and wants to see the live value immediately. Called from
-  // the smooth-knob mousedown handler. updateDragTooltip is called from
-  // applyDragAngle on each mousemove tick to reflect the new value.
-  const showDragTooltip = (knobEl, val) => {
-    hideKnobValueTooltip();                  // clear pending timer + any existing tooltip
-    valueTooltip = document.createElement('div');
-    valueTooltip.className = 'knob-value-tooltip';
-    valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
-    document.body.appendChild(valueTooltip);
-    positionOverlay(valueTooltip, knobEl);
-  };
-  const updateDragTooltip = (val) => {
-    if (valueTooltip) valueTooltip.textContent = `${uint8ToDisplay(val)}%`;
-  };
+  // Smooth knobs only — discrete (snap) knobs, switches, and
+  // buttons do nothing on double-click (their value model is a
+  // fixed enum, not a continuous range, so typing 247 makes no
+  // sense).
+  //
+  // Tooltip lifecycle helpers (show/hide for hover + drag) are
+  // declared higher up because the drag handler in sub-section 1
+  // references them. This sub-function adds the dblclick edit
+  // overlay + the SVG event delegation for hover/dblclick.
+  function setupKnobTooltipAndEdit() {
 
   const closeEditInput = () => {
     if (!editInput) return;
@@ -1786,6 +1819,7 @@ function setupInteraction(svg) {
     openKnobNumericEdit(ctrl, ctrl.dataset.param);
     e.preventDefault();
   });
+  }   // end setupKnobTooltipAndEdit
 }
 
 // ═══════════════════════════════════════════════════════════════
