@@ -3823,6 +3823,112 @@ function showSendSequenceToJxModal(exportData, sourceLabel) {
 // instructions and a Send button; step 2 (after encoding) shows the timeline
 // + Play; on completion, Done closes the modal. Used by both tone patches
 // and sequencer dumps via thin wrappers above.
+// ── Modal-construction helpers for showSendToJxFlow ────────────────
+//
+// Same pattern as the showRecordFromJxModal builders above: self-
+// contained DOM construction that the modal assembles + wires events
+// onto. Module-scope (hoisted) so they're callable from anywhere in
+// app.js.
+
+// Cause→effect row for the Send modal. LEFT: JX-3P key diagram showing
+// which key/sub-mode to arm. ARROW: pulses while audio is playing.
+// RIGHT: JX-3P "destination" logo (with optional "loading: {label}"
+// caption below it).
+//
+// Returns: { sendRow, sendArrow, sendJxLogo, jxKeyDiagram }
+function buildSendRow(kind, sourceLabel) {
+  const jxKeyDiagram = buildJxKeyDiagram({ action: 'load', kind });
+  const sendRow = document.createElement('div');
+  sendRow.className = 'record-jx-cal-row capture-mode';   // capture-mode = no gain knob
+  sendRow.style.display = 'none';                          // revealed in step 2
+  const sendArrow = document.createElement('div');
+  sendArrow.className = 'record-jx-cal-arrow';
+  sendArrow.innerHTML =
+    `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
+      `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
+      `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
+    `</svg>`;
+  const sendJxLogo = document.createElement('div');
+  sendJxLogo.className = 'record-jx-jx3p-logo';
+  const sendLabelHtml = sourceLabel
+    ? `<div class="record-jx-package-label">` +
+        `<div class="record-jx-package-label-prefix">loading:</div>` +
+        `<div class="record-jx-package-label-name"></div>` +
+      `</div>`
+    : '';
+  sendJxLogo.innerHTML =
+    `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>` +
+    sendLabelHtml;
+  if (sourceLabel) {
+    // textContent so user-supplied labels can't inject HTML
+    sendJxLogo.querySelector('.record-jx-package-label-name').textContent = sourceLabel;
+  }
+  sendRow.appendChild(jxKeyDiagram);
+  sendRow.appendChild(sendArrow);
+  sendRow.appendChild(sendJxLogo);
+  return { sendRow, sendArrow, sendJxLogo, jxKeyDiagram };
+}
+
+// Status section for the Send modal: per-segment timeline + sweep
+// indicator + status text. Hidden until step 2 (enterPlayState).
+//
+// Returns: { status, timeline, segs, indicator, statusText }
+//   status     — outer container, append to modal
+//   timeline   — inner flex container holding segs
+//   segs       — Array<{kind, label, pilot, el}> for the playback loop
+//   indicator  — sweep line; updated by computeIndicatorPosition
+//   statusText — "Playing…" / "Saved to …" / error message line
+function buildSendStatusSection(segments) {
+  const status = document.createElement('div');
+  status.className = 'send-jx-status';
+  const timeline = document.createElement('div');
+  timeline.className = 'send-jx-timeline';
+  timeline.style.display = 'none';
+  const segs = segments.map((cfg) => {
+    const seg = document.createElement('div');
+    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
+    const label = document.createElement('span');
+    label.className = 'send-jx-seg-label';
+    label.textContent = cfg.label.toUpperCase();
+    seg.appendChild(label);
+    timeline.appendChild(seg);
+    return { ...cfg, el: seg };
+  });
+  const indicator = document.createElement('div');
+  indicator.className = 'send-jx-indicator';
+  timeline.appendChild(indicator);
+  status.appendChild(timeline);
+  const statusText = document.createElement('div');
+  statusText.className = 'send-jx-status-text';
+  status.appendChild(statusText);
+  return { status, timeline, segs, indicator, statusText };
+}
+
+// Actions row for the Send modal: Cancel + Save WAV (blue alt) +
+// Send to JX-3P (green primary). The primary button's label/state
+// transitions through "Send to JX-3P" → "▶ Play" → "Done" as the
+// flow progresses; the modal wires those state changes onto it.
+//
+// Returns: { actions, cancelBtn, saveBtn, primaryBtn }
+function buildSendActions() {
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'modal-btn modal-btn-alt';
+  saveBtn.textContent = 'Save WAV file';
+  saveBtn.title = 'Export to a file instead of sending directly';
+  const primaryBtn = document.createElement('button');
+  primaryBtn.className = 'modal-btn modal-btn-confirm';
+  primaryBtn.textContent = 'Send to JX-3P';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  actions.appendChild(primaryBtn);
+  return { actions, cancelBtn, saveBtn, primaryBtn };
+}
+
 function showSendToJxFlow(opts) {
   const { exportData, sourceLabel, kind, encodeApi, saveApi, jxStep2, segments } = opts;
 
@@ -3849,94 +3955,19 @@ function showSendToJxFlow(opts) {
   modal.appendChild(body);
 
   // Cause→effect row (matches Record-from-JX layout pattern, defined in
-  // docs/design-system.md §4.3). LEFT: JX-3P key diagram showing which
-  // key/sub-mode to arm. ARROW: pulses while audio is actively playing
-  // out of the Mac. RIGHT: vertical level meter showing the Mac's audio
-  // output amplitude during playback (no gain knob — gain is fixed at
-  // 100% Mac volume per the setup instructions). Hidden during step 1
-  // (the setup checklist) and revealed when enterPlayState fires.
-  const jxKeyDiagram = buildJxKeyDiagram({ action: 'load', kind });
-  const sendRow = document.createElement('div');
-  sendRow.className = 'record-jx-cal-row capture-mode';  // capture-mode = no gain knob
-  sendRow.style.display = 'none';
-  const sendArrow = document.createElement('div');
-  sendArrow.className = 'record-jx-cal-arrow';
-  sendArrow.innerHTML =
-    `<svg viewBox="0 0 80 40" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:auto;">` +
-      `<line x1="4" y1="20" x2="62" y2="20" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>` +
-      `<polygon points="62,12 62,28 76,20" fill="#ffffff"/>` +
-    `</svg>`;
-  // JX-3P "destination" logo — replaces the level meter that used to
-  // live here. For send mode the meter wasn't actionable (Mac volume is
-  // fixed at 100%, user can't tune it), and the logo communicates
-  // "transmission destination" more clearly. Mirrors the Record-from-JX
-  // capture layout where the JP Patches logo sits to the right of the
-  // arrow as the data destination — here the destination is the JX, so
-  // the JX-3P logo appears.
-  const sendJxLogo = document.createElement('div');
-  sendJxLogo.className = 'record-jx-jx3p-logo';
-  // "loading: {sourceLabel}" below the JX-3P logo so the user sees which
-  // package is being sent. sourceLabel comes from activeBanksSourceLabel
-  // (the most recent library load) — null/empty when active C/D was
-  // assembled from scratch, in which case the label block is hidden.
-  const sendLabelHtml = sourceLabel
-    ? `<div class="record-jx-package-label">` +
-        `<div class="record-jx-package-label-prefix">loading:</div>` +
-        `<div class="record-jx-package-label-name"></div>` +
-      `</div>`
-    : '';
-  sendJxLogo.innerHTML =
-    `<img src="assets/jx3p-logo.png" alt="JX-3P" draggable="false"/>` +
-    sendLabelHtml;
-  if (sourceLabel) {
-    sendJxLogo.querySelector('.record-jx-package-label-name').textContent = sourceLabel;
-  }
-  sendRow.appendChild(jxKeyDiagram);
-  sendRow.appendChild(sendArrow);
-  sendRow.appendChild(sendJxLogo);
+  // docs/design-system.md §4.3). Construction in buildSendRow above.
+  const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram } = buildSendRow(kind, sourceLabel);
   modal.appendChild(sendRow);
 
-  // Status row: per-segment timeline (driven by opts.segments) with a
-  // playback indicator, plus a status text line. Hidden until step 2.
-  const status = document.createElement('div');
-  status.className = 'send-jx-status';
-  const timeline = document.createElement('div');
-  timeline.className = 'send-jx-timeline';
-  timeline.style.display = 'none';
-  const segs = segments.map((cfg) => {
-    const seg = document.createElement('div');
-    seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
-    const label = document.createElement('span');
-    label.className = 'send-jx-seg-label';
-    label.textContent = cfg.label.toUpperCase();
-    seg.appendChild(label);
-    timeline.appendChild(seg);
-    return { ...cfg, el: seg };
-  });
-  const indicator = document.createElement('div');
-  indicator.className = 'send-jx-indicator';
-  timeline.appendChild(indicator);
-  status.appendChild(timeline);
-  const statusText = document.createElement('div');
-  statusText.className = 'send-jx-status-text';
-  status.appendChild(statusText);
+  // Per-segment timeline + indicator + status text. Construction in
+  // buildSendStatusSection above. Hidden until enterPlayState (step 2).
+  const { status, timeline, segs, indicator, statusText } = buildSendStatusSection(segments);
   modal.appendChild(status);
 
-  const actions = document.createElement('div');
-  actions.className = 'modal-actions';
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'modal-btn modal-btn-cancel';
-  cancelBtn.textContent = 'Cancel';
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'modal-btn modal-btn-alt';      // Roland blue — alternative path (export instead of live-send)
-  saveBtn.textContent = 'Save WAV file';
-  saveBtn.title = 'Export to a file instead of sending directly';
-  const primaryBtn = document.createElement('button');
-  primaryBtn.className = 'modal-btn modal-btn-confirm';
-  primaryBtn.textContent = 'Send to JX-3P';
-  actions.appendChild(cancelBtn);
-  actions.appendChild(saveBtn);
-  actions.appendChild(primaryBtn);
+  // Three-button actions row. Construction in buildSendActions above.
+  // The primary button cycles through label states ("Send to JX-3P" →
+  // "▶ Play" → "Done") as the flow progresses; modal wires events.
+  const { actions, cancelBtn, saveBtn, primaryBtn } = buildSendActions();
   modal.appendChild(actions);
 
   overlay.appendChild(modal);
@@ -4004,19 +4035,11 @@ function showSendToJxFlow(opts) {
     }
   });
 
-  // Segment boundaries derived from opts.segments. Pilot segments are EXACT
-  // (4096 bits × 50 samples/bit / 44100 Hz = 4.6440s each); non-pilots share
-  // the remaining duration equally.
-  const PILOT_SEC = 4096 * 50 / 44100;
-  let segDurations = null; // per-segment duration in seconds, indexed parallel to `segs`
-
-  const computeSegDurations = (total) => {
-    const numPilots = segs.filter((s) => s.pilot).length;
-    const numData = segs.length - numPilots;
-    const pilotTotal = numPilots * PILOT_SEC;
-    const dataEach = numData > 0 ? Math.max(0, (total - pilotTotal) / numData) : 0;
-    return segs.map((s) => (s.pilot ? PILOT_SEC : dataEach));
-  };
+  // Segment-duration math + indicator-position math both live in
+  // renderer/send-timeline.js so they're unit-tested. The DOM mutation
+  // (style.left + active-class toggle) stays inline below, driven by
+  // the pure computeIndicatorPosition result.
+  let segDurations = null;   // per-segment duration in seconds, indexed parallel to `segs`
 
   const applySegProportions = (durations) => {
     segs.forEach((s, i) => { s.el.style.flexGrow = String(Math.max(0.01, durations[i])); });
@@ -4024,18 +4047,8 @@ function showSendToJxFlow(opts) {
 
   const updateIndicator = (currentSec) => {
     if (!segDurations) return;
-    const total = segDurations.reduce((a, b) => a + b, 0);
-    if (!total) return;
-    const pct = Math.min(100, (currentSec / total) * 100);
+    const { pct, activeIdx } = computeIndicatorPosition(currentSec, segDurations);
     indicator.style.left = `${pct}%`;
-    // Highlight whichever segment the playhead is currently inside.
-    let acc = 0;
-    let activeIdx = 0;
-    for (let i = 0; i < segs.length; i++) {
-      acc += segDurations[i];
-      if (currentSec < acc) { activeIdx = i; break; }
-      activeIdx = i;
-    }
     segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
   };
 
@@ -4059,7 +4072,7 @@ function showSendToJxFlow(opts) {
       // AirPods). Surfacing the device gives the user a one-glance check.
       `<p id="send-jx-output-label" style="margin-top: 8px; color: var(--text-mid); font-size: 11px; font-style: italic;">Audio output device: <span style="color: var(--text-bright); font-style: normal;">checking…</span></p>`;
     statusText.textContent = '';
-    segDurations = computeSegDurations(durationSec);
+    segDurations = computeSegDurations(durationSec, segs);
     applySegProportions(segDurations);
     timeline.style.display = '';
     // Reveal the cause→effect row (diagram + arrow + level meter) — step 2
