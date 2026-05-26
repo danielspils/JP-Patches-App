@@ -5545,46 +5545,15 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         indicator.style.left = `${pct}%`;
       }
 
-      // ── 4-state warning ladder ───────────────────────────────────────
-      // Surface live warnings so the user can fix problems BEFORE the
-      // capture finishes. Each state auto-clears when the underlying
-      // condition resolves (signal recovers, clipping stops, etc.).
-      // Priority order (highest first): clipping → no-signal-escalated
-      // → no-signal → quiet. Higher-priority states pre-empt lower ones.
+      // Live warning classification: see renderer/capture-warnings.js
+      // for the state machine + thresholds. Pure call here; the raf
+      // loop owns the DOM mutation by comparing to the previous state.
       const elapsedMs = now - recordStartMs;
-      let newWarn = null;
-      if (peak >= 0.95) {
-        // Real-time clipping — applies immediately, no settle period.
-        newWarn = 'clipping';
-      } else if (elapsedMs > 20000 && totalSignalMs < 200) {
-        // After 20s of recording, still essentially zero accumulated
-        // signal. Almost certainly wrong device or disconnected cable.
-        newWarn = 'no-signal-escalated';
-      } else if (elapsedMs > 8000 && runningPeak < 0.03) {
-        // After 8s, no peak above the silence floor. Maybe user hasn't
-        // pressed Save yet, or device is dead.
-        newWarn = 'no-signal';
-      } else if (elapsedMs > 6000 && runningPeak < 0.15) {
-        // After 6s, signal is present but very low. User likely needs to
-        // raise input gain.
-        newWarn = 'quiet';
-      }
+      const newWarn = classifyCaptureWarning({ peak, runningPeak, elapsedMs, totalSignalMs });
       if (newWarn !== warnLevel) {
         warnLevel = newWarn;
-        const WARN_COPY = {
-          'clipping':              '⚠ CLIPPING — lower INPUT GAIN immediately or capture will decode as noise.',
-          'no-signal-escalated':   '⚠ No audio detected after 20 s. Check that the right INPUT DEVICE is selected, your cable is connected, and the JX is on. Click Cancel to try again.',
-          'no-signal':             '⚠ No audio detected yet. Press Save on the JX-3P, or check your cable / input device selection above.',
-          'quiet':                 '⚠ Signal is very low. Raise INPUT GAIN until the level reaches the target notch (the yellow segment).',
-        };
-        const WARN_COLOR = {
-          'clipping':              '#b94a2e',  // Roland red — severe
-          'no-signal-escalated':   '#b94a2e',  // Roland red — severe
-          'no-signal':             '#c39a3a',  // amber — informational
-          'quiet':                 '#c39a3a',  // amber — informational
-        };
-        statusText.textContent  = warnLevel ? WARN_COPY[warnLevel] : '';
-        statusText.style.color  = warnLevel ? WARN_COLOR[warnLevel] : '';
+        statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
+        statusText.style.color = warnLevel ? CAPTURE_WARN_COLOR[warnLevel] : '';
       }
       levelRaf = requestAnimationFrame(tickMeter);
     };
