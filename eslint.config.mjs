@@ -66,6 +66,7 @@ export default [
         // Globals exposed by renderer/audio-capture.js
         acquireRawAudioStream:  'readonly',
         setupAudioGraph:        'readonly',
+        startCaptureSession:    'readonly',
 
         // Globals exposed by renderer/send-timeline.js
         SEND_PILOT_SEC:         'readonly',

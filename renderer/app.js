@@ -4759,18 +4759,18 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   let isCalibrating = false;
   let calibrationDeviceId    = null;
   let calibrationDeviceLabel = null;
-  let mediaStream  = null;
-  let audioContext = null;
-  let sourceNode   = null;
-  let gainNode     = null;          // software input-gain stage
-  let analyserNode = null;
-  let processorNode = null;
-  let captured = [];                // Float32Array chunks accumulated during onaudioprocess
-  let fskPeak  = 0;                 // max peak observed AFTER FSK start; read by stopRecording's calibration math. Mirrored from captureState.fskPeak each raf tick.
-  let runningPeak = 0;              // running max of LIVE meter peaks; read by stopRecording's onCaptured handoff (capturePeak param). Mirrored from captureState.runningPeak. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
-  // (totalSignalMs mirror removed 2026-05-26: captureState.totalSignalMs
-  // is the only read site now after the Step 3d state-machine extraction.)
-  let levelRaf = null;
+  let mediaStream = null;
+  // captureSession owns the AudioContext + node graph + raf loop after
+  // the Step 3e factory extraction. Modal mirrors a few values out of
+  // it (audioContext, gainNode, captured, runningPeak, fskPeak) for
+  // legacy stopRecording reads + the slider listener + the post-capture
+  // PCM concat — see comments at each mirror site for details.
+  let captureSession = null;
+  let audioContext = null;          // mirror of session.audioContext; read at WAV-write time for the sampleRate header
+  let gainNode     = null;          // mirror of session.gainNode; slider listener writes .gain.value here
+  let captured     = [];            // mirror of session.captured (the live PCM buffer); concatenated by stopRecording
+  let fskPeak      = 0;             // mirror from captureState.fskPeak each raf tick; read by calibration math
+  let runningPeak  = 0;             // mirror from captureState.runningPeak; read by the onCaptured handoff. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
   let elapsedTimer = null;
   // Periodic re-probe of the selected device's sample rate. Catches
   // changes made externally in Audio MIDI Setup that don't reliably
@@ -5197,14 +5197,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // device change (to restart with a different input) and as part of the
   // full cleanup path. Idempotent.
   const stopCapture = () => {
-    if (levelRaf)     { cancelAnimationFrame(levelRaf); levelRaf = null; }
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
-    try { if (processorNode) { processorNode.disconnect(); processorNode = null; } } catch {}
-    try { if (analyserNode)  { analyserNode.disconnect();  analyserNode  = null; } } catch {}
-    try { if (gainNode)      { gainNode.disconnect();      gainNode      = null; } } catch {}
-    try { if (sourceNode)    { sourceNode.disconnect();    sourceNode    = null; } } catch {}
-    try { if (audioContext && audioContext.state !== 'closed') audioContext.close(); } catch {}
+    if (captureSession) { captureSession.stop(); captureSession = null; }
+    // captureSession.stop() handles raf cancel + node disconnect + audio
+    // context close. mediaStream stays the modal's responsibility — the
+    // factory deliberately doesn't touch it because callers may want to
+    // reuse it across sessions.
     audioContext = null;
+    gainNode     = null;
     if (mediaStream) {
       mediaStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       mediaStream = null;
@@ -5238,185 +5238,119 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       stopBtn.disabled = true;
       return;
     }
-    // AudioContext sample rate may differ from what we requested (browser
-    // resampler may apply). We read audioContext.sampleRate when shipping
-    // the WAV so the header matches the actual data rate.
-    // AudioContext sample rate may differ from what we requested
-    // (browser resampler may apply). We read audioContext.sampleRate
-    // when shipping the WAV so the header matches the actual data rate.
-    try {
-      audioContext = new AudioContext({ sampleRate: 44100 });
-    } catch {
-      audioContext = new AudioContext();
-    }
-    // Wire up the full processing graph in one shot. See
-    // renderer/audio-capture.js for the chain layout (source → gain →
-    // {analyser, processor → muteGain → destination}) and the
-    // ScriptProcessor must-connect-output quirk. Slider position is
-    // preserved across restarts (e.g. on device change) by reading
-    // gainSlider.value here rather than resetting.
+    // ── Capture session ──────────────────────────────────────────
+    //
+    // The audio chain (AudioContext + node graph), the analyser-peak
+    // reader, the pure state machine, and the raf loop all live inside
+    // startCaptureSession() in renderer/audio-capture.js. The modal
+    // here owns the DOM and the post-capture flow; the factory's
+    // onTick fires per frame with peak/thresholds/state/events and the
+    // modal projects those to DOM updates.
+    //
+    // Slider position is preserved across restarts (e.g. on device
+    // change) by reading gainSlider.value here rather than resetting.
     const initialGain = sliderToGain(parseInt(gainSlider.value, 10));
-    const graph = setupAudioGraph(audioContext, mediaStream, initialGain);
-    sourceNode    = graph.sourceNode;
-    gainNode      = graph.gainNode;
-    analyserNode  = graph.analyserNode;
-    processorNode = graph.processorNode;
-    captured      = graph.captured;
-    gainValueLabel.textContent = formatGain(gainNode.gain.value);
-    const analyserBuf = new Uint8Array(analyserNode.fftSize);
-    // Live peak-tracker for the meter, silence-anchored timeline sweep,
-    // and live quiet-input warning all share this RAF loop.
-    //
-    // Timeline sweep: the JX-3P emits a persistent idle tone before the
-    // user presses Save, then pauses briefly, then transmits FSK. So
-    // we DON'T start the sweep on first signal — that's just the idle
-    // tone. We start it only after we've observed a silence gap (the
-    // Save-press marker) followed by signal. This matches the same
-    // silence-then-signal detection used in stopRecording's trim logic.
-    //
-    // Threshold scaling (2026-05-24 sequence bug fix): the analyser sees
-    // POST-gain audio (gainNode → analyserNode). At calibrated gain (e.g.
-    // 11×), the JX's pre-gain idle tone (~0.005–0.010) lands at ~0.055–0.110
-    // post-gain — above the static 0.10 SIGNAL floor, so firstSignalMs sets
-    // immediately on modal open, totalSignalMs accumulates the entire pre-
-    // Save idle period, and the auto-stop trigger (totalSignalMs ≥
-    // EXPECTED_SIGNAL_MS) fires DURING the dump for sequences (21 s budget;
-    // tones at 33 s usually escaped by margin alone). Symptom: "Recording
-    // didn't decode cleanly" recalibrate prompt for sequences.
-    //
-    // Initial capture state (counters + timestamps for the silence/signal
-    // state machine). See renderer/capture-state.js for the shape and
-    // for the pure updateCaptureState() that drives the transitions.
-    let captureState = makeInitialCaptureState();
-    // Mirror two values back to modal scope so stopRecording's existing
-    // reads still work without refactoring every callsite (fskPeak for
-    // the calibration math, runningPeak for the onCaptured handoff).
-    // totalSignalMs is read directly off captureState now.
-    runningPeak = 0;
-    fskPeak     = 0;
+    gainValueLabel.textContent = formatGain(initialGain);
 
+    // Pre-tick state owned by the modal (these aren't part of the
+    // captureState — they drive DOM-only concerns).
     const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
-
     // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
-    // the arrow's .pulsing class flips off the instant peak dips below
-    // the silence threshold, even momentarily. At calibrated gains where
-    // the scaled silence threshold is close to typical signal-to-silence
-    // transitions inside FSK data, this caused visible animation drop-
-    // outs. Mirror the meter's pattern: rising edge instant, falling
-    // edge requires N consecutive sub-silence ticks.
+    // the arrow flips off on brief silence dips inside sustained FSK.
+    // Rising edge instant (responsive); falling edge requires N
+    // consecutive sub-silence ticks.
     let arrowBelowSilenceTicks = 0;
     const ARROW_FALLING_DEBOUNCE_TICKS = 8;   // ~130 ms at 60 fps
     // 4-state warning ladder. null = no warning; otherwise one of
     // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
     let warnLevel = null;
     const recordStartMs = Date.now();
-    const tickMeter = () => {
-      if (state !== 'recording') return;
+    runningPeak = 0;
+    fskPeak     = 0;
 
-      // Read peak from analyser + compute live thresholds — both
-      // pure helpers in renderer/capture-state.js. Thresholds are
-      // recomputed per tick so calibration-mode slider changes take
-      // effect immediately.
-      const peak = readAnalyserPeak(analyserNode, analyserBuf);
-      const thresholds = liveThresholdsFor(gainNode && gainNode.gain.value);
+    captureSession = startCaptureSession({
+      mediaStream,
+      initialGain,
+      recordStartMs,
+      expectedSignalMs: EXPECTED_SIGNAL_MS,
+      isRecording: () => state === 'recording',
+      onTick: ({ peak, thresholds, state: cs, events }) => {
+        // Mirror two values to modal-scope so stopRecording's existing
+        // reads still work: fskPeak for the calibration math,
+        // runningPeak for the capturePeak handoff to onCaptured.
+        runningPeak = cs.runningPeak;
+        fskPeak     = cs.fskPeak;
 
-      // SVG vertical level meter (panel-style 7-segment ladder).
-      vmeter.setPeak(peak);
+        // SVG vertical level meter (panel-style 7-segment ladder).
+        vmeter.setPeak(peak);
 
-      // Arrow .pulsing animation — falling-edge debounced to ride
-      // through brief silence dips inside sustained FSK. Depends
-      // only on the current peak vs the silence threshold.
-      if (peak > thresholds.silence) {
-        if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
-        arrowBelowSilenceTicks = 0;
-      } else {
-        if (calArrow.classList.contains('pulsing')) {
-          arrowBelowSilenceTicks += 1;
-          if (arrowBelowSilenceTicks >= ARROW_FALLING_DEBOUNCE_TICKS) {
-            calArrow.classList.remove('pulsing');
-            arrowBelowSilenceTicks = 0;
+        // Arrow .pulsing animation — falling-edge debounced.
+        if (peak > thresholds.silence) {
+          if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
+          arrowBelowSilenceTicks = 0;
+        } else {
+          if (calArrow.classList.contains('pulsing')) {
+            arrowBelowSilenceTicks += 1;
+            if (arrowBelowSilenceTicks >= ARROW_FALLING_DEBOUNCE_TICKS) {
+              calArrow.classList.remove('pulsing');
+              arrowBelowSilenceTicks = 0;
+            }
           }
         }
-      }
 
-      // Pure state-machine tick — see renderer/capture-state.js for
-      // the silence/signal transitions, the fskStarted detection,
-      // and the auto-stop ladder. Returns the new state + events
-      // to act on.
-      const now = Date.now();
-      const { state: nextCaptureState, events } = updateCaptureState(captureState, {
-        peak,
-        now,
-        silenceThreshold: thresholds.silence,
-        signalThreshold:  thresholds.signal,
-        recordStartMs,
-        expectedSignalMs: EXPECTED_SIGNAL_MS,
-      });
-      captureState = nextCaptureState;
-      // Mirror two values to modal-scope so stopRecording's existing
-      // reads still work: fskPeak for the calibration math,
-      // runningPeak for the capturePeak handoff to onCaptured.
-      // (totalSignalMs is read directly off captureState below.)
-      runningPeak = captureState.runningPeak;
-      fskPeak     = captureState.fskPeak;
+        // State-machine events → DOM.
+        if (events.fskJustStarted) {
+          // Two-state row reveal in BOTH calibration and capture modes.
+          // Calibration: knob + meter + arrow fade in after Save press.
+          // Capture: JP logo + arrow fade in, diagram dims.
+          calRow.classList.add('playing');
+        }
+        if (isCalibrating && events.progressPct !== null) {
+          // Wall-clock-driven progress bar (not cumulative-signal) so
+          // the bar reaches 100% exactly when the dump actually ends.
+          calProgressBar.style.width = `${events.progressPct}%`;
+        }
 
-      // Apply events: DOM transitions the state machine signaled.
-      if (events.fskJustStarted) {
-        // Two-state row reveal in BOTH calibration and capture modes.
-        // Calibration: knob + meter + arrow fade in after Save press.
-        // Capture: JP logo + arrow fade in, diagram dims.
-        calRow.classList.add('playing');
-      }
-      if (isCalibrating && events.progressPct !== null) {
-        // Wall-clock-driven progress bar (not cumulative-signal) so
-        // the bar reaches 100% exactly when the dump actually ends.
-        calProgressBar.style.width = `${events.progressPct}%`;
-      }
+        // Timeline-segment indicator (the "WHAT THE JX-3P SENDS" bar).
+        if (cs.activeMs > 0) {
+          const elapsedSec = cs.activeMs / 1000;
+          let acc = 0, activeIdx = segs.length - 1;
+          for (let i = 0; i < segs.length; i++) {
+            acc += segs[i].estSec;
+            if (elapsedSec < acc) { activeIdx = i; break; }
+          }
+          segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
+          const pct = Math.min(100, (elapsedSec / totalEstSec) * 100);
+          indicator.style.left = `${pct}%`;
+        }
 
-      // Auto-stop — snap progress to 100% for clean visual closure
-      // before the modal advances, then trigger Stop.
-      if (events.autoStop) {
+        // Live warning classification: see renderer/capture-warnings.js.
+        const newWarn = classifyCaptureWarning({
+          peak,
+          runningPeak:   cs.runningPeak,
+          elapsedMs:     events.elapsedTotal,
+          totalSignalMs: cs.totalSignalMs,
+        });
+        if (newWarn !== warnLevel) {
+          warnLevel = newWarn;
+          statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
+          statusText.style.color = warnLevel ? CAPTURE_WARN_COLOR[warnLevel] : '';
+        }
+      },
+      onAutoStop: () => {
+        // Snap progress to 100% for clean visual closure before the
+        // modal transitions to post-capture processing.
         if (isCalibrating) calProgressBar.style.width = '100%';
         stopRecording();
-        return;
-      }
-
-      // Timeline-segment indicator (drives the "WHAT THE JX-3P SENDS"
-      // segmented progress bar). Driven by activeMs in the new state.
-      if (captureState.activeMs > 0) {
-        const elapsedSec = captureState.activeMs / 1000;
-        let acc = 0, activeIdx = segs.length - 1;
-        for (let i = 0; i < segs.length; i++) {
-          acc += segs[i].estSec;
-          if (elapsedSec < acc) { activeIdx = i; break; }
-        }
-        segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
-        const pct = Math.min(100, (elapsedSec / totalEstSec) * 100);
-        indicator.style.left = `${pct}%`;
-      }
-
-      // Live warning classification: see renderer/capture-warnings.js.
-      const newWarn = classifyCaptureWarning({
-        peak,
-        runningPeak:   captureState.runningPeak,
-        elapsedMs:     events.elapsedTotal,
-        totalSignalMs: captureState.totalSignalMs,
-      });
-      if (newWarn !== warnLevel) {
-        warnLevel = newWarn;
-        statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
-        statusText.style.color = warnLevel ? CAPTURE_WARN_COLOR[warnLevel] : '';
-      }
-      levelRaf = requestAnimationFrame(tickMeter);
-    };
-    levelRaf = requestAnimationFrame(tickMeter);
-
-    // (PCM capture via ScriptProcessor + muteGain destination routing
-    // is now done inside setupAudioGraph() — see audio-capture.js for
-    // the chain layout and the must-connect-output ScriptProcessor
-    // quirk. The captured array on the graph object is the live PCM
-    // buffer; we hold a reference above as `captured` so the rest of
-    // stopRecording can concatenate it.)
+      },
+    });
+    // Mirror session pieces out for the legacy modal-scope readers:
+    //   - audioContext: read at WAV-write time for the sampleRate header
+    //   - gainNode:     written by the slider listener for live gain
+    //   - captured:     the live PCM buffer; stopRecording concatenates
+    audioContext = captureSession.audioContext;
+    gainNode     = captureSession.gainNode;
+    captured     = captureSession.captured;
 
     stopBtn.disabled = false;
     statusText.style.color = '';
