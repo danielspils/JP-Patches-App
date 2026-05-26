@@ -116,7 +116,7 @@
     const { peak, now, silenceThreshold, signalThreshold, recordStartMs, expectedSignalMs } = tick;
     const dtMs = prev.lastTickMs !== null ? (now - prev.lastTickMs) : 0;
 
-    let runningPeak     = peak > prev.runningPeak ? peak : prev.runningPeak;
+    const runningPeak   = peak > prev.runningPeak ? peak : prev.runningPeak;
     let fskPeak         = prev.fskPeak;
     let totalSignalMs   = prev.totalSignalMs;
     let fskStartMs      = prev.fskStartMs;

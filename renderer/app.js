@@ -665,27 +665,11 @@ function logCaptureTelemetry(entry) {
   }
 }
 
-// Heuristic: detect when a decoded jx3p result is "all default empty
-// patches" — i.e. every checksum failed and the decoder returned 32 fresh
-// JX3PPatch() instances. We use vca_level === 0 across all 32 slots as the
-// signal: real patches almost always have non-zero VCA Level (otherwise
-// the patch is inaudible), so 32-of-32 zeros is a near-certain decode
-// failure. Used by applyToneCapture / applySequencerCapture to trigger
-// the RECALIBRATE_PROMPT flow instead of silently importing empties.
-function isDecodeAllDefault(data) {
-  if (!data || !Array.isArray(data.banks)) return false;
-  let any = false;
-  for (let bi = 0; bi < data.banks.length; bi++) {
-    const bank = data.banks[bi] || [];
-    for (let s = 0; s < bank.length; s++) {
-      const p = bank[s];
-      if (!p) continue;
-      any = true;
-      if (typeof p.vca_level === 'number' && p.vca_level !== 0) return false;
-    }
-  }
-  return any;
-}
+// isDecodeAllDefault now lives in renderer/calibration-math.js and is
+// exposed as a window global (via <script> tag in index.html, loaded
+// before this file). The previous inline definition here was a
+// duplicate left over from an incomplete extraction — ESLint's
+// no-redeclare rule caught it. Removed 2026-05-25.
 
 // Show the recalibrate-or-cancel modal after a failed capture. On
 // Three-state failure prompt, branching on whether the capture had any
