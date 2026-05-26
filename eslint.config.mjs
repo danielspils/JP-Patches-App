@@ -46,6 +46,10 @@ export default [
         paramsFingerprint:      'readonly',
         computeReorderIdx:      'readonly',
 
+        // Globals exposed by renderer/library-schema.js
+        CURRENT_SCHEMA_VERSION:   'readonly',
+        migrateLibraryToCurrent:  'readonly',
+
         // Globals exposed by renderer/record-trim.js
         computeFskTrim:         'readonly',
         classifyWindows:        'readonly',

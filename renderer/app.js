@@ -7041,6 +7041,14 @@ function backfillOriginFields() {
 async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
+  // Schema-versioned migration (see renderer/library-schema.js).
+  // Runs version-stepped one-time transforms; idempotent on up-to-
+  // date files; stamps schemaVersion if missing. Returns a fresh
+  // empty library if the disk file was null/empty.
+  library = migrateLibraryToCurrent(library);
+  // Per-load shape-invariant ensurer — adds default values for any
+  // missing top-level fields, backfills slotMeta from legacy `names`,
+  // etc. Idempotent + runs on every load regardless of version.
   ensureLibraryShape();
   backfillOriginFields();
 
