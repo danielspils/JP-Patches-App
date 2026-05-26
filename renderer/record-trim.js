@@ -177,15 +177,56 @@
     return { trimStart, numWindows, foundSilenceGap, usedFallback };
   }
 
+  // Convert a Float32 sample buffer to signed-16-bit PCM bytes while
+  // simultaneously measuring the peak amplitude in one pass. The two
+  // operations were fused inline in stopRecording for a small perf
+  // win (avoids a second buffer-length loop just to read the peak);
+  // fused here for the same reason, and exposed as a single pure
+  // function so the conversion arithmetic + peak measurement is
+  // testable in isolation. Mono input → mono output, no interleaving.
+  //
+  // Returns:
+  //   {
+  //     pcm:     ArrayBuffer of (samples.length * 2) bytes, little-endian
+  //              16-bit signed PCM, suitable to drop straight into the
+  //              data portion of a RIFF/WAVE file at the source rate
+  //     peakAmp: max |sample| seen, in [0, 1]
+  //   }
+  function floatToInt16WithPeak(samples) {
+    const n = samples.length;
+    const pcm  = new ArrayBuffer(n * 2);
+    const view = new DataView(pcm);
+    let peakAmp = 0;
+    for (let i = 0; i < n; i++) {
+      // Clamp into [-1, 1] before scaling. Samples can legitimately
+      // exceed this if a previous gain stage drove things into the
+      // red — without clamp, the multiplication below would wrap.
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      const absV = Math.abs(s);
+      if (absV > peakAmp) peakAmp = absV;
+      // Asymmetric Int16 range: negative side uses 0x8000 (-32768),
+      // positive side uses 0x7FFF (32767). Matches Web Audio's de-facto
+      // float→int convention.
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return { pcm, peakAmp };
+  }
+
   // Module API — exposed as window globals so app.js sees them after
   // index.html loads this file before app.js.
   if (typeof window !== 'undefined') {
-    window.computeFskTrim       = computeFskTrim;
-    window.classifyWindows      = classifyWindows;
-    window.computeTrimThresholds = computeTrimThresholds;
+    window.computeFskTrim         = computeFskTrim;
+    window.classifyWindows        = classifyWindows;
+    window.computeTrimThresholds  = computeTrimThresholds;
+    window.floatToInt16WithPeak   = floatToInt16WithPeak;
   }
   // Also support Node's require() so the unit tests can import.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { computeFskTrim, classifyWindows, computeTrimThresholds };
+    module.exports = {
+      computeFskTrim,
+      classifyWindows,
+      computeTrimThresholds,
+      floatToInt16WithPeak,
+    };
   }
 })();

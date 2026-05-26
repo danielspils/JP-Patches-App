@@ -5740,18 +5740,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     const trimmed           = trimStart > 0 ? all.subarray(trimStart) : all;
     const trimmedLen        = trimmed.length;
 
-    // Convert trimmed Float32 → interleaved 16-bit signed PCM (mono, so
-    // no interleaving needed). Track overall peak in the same loop so we
-    // can surface gain-quality feedback to the user after capture.
-    const pcm = new ArrayBuffer(trimmedLen * 2);
-    const view = new DataView(pcm);
-    let peakAmp = 0;
-    for (let i = 0; i < trimmedLen; i++) {
-      const s = Math.max(-1, Math.min(1, trimmed[i]));
-      const absV = Math.abs(s);
-      if (absV > peakAmp) peakAmp = absV;
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }
+    // Convert trimmed Float32 → 16-bit signed PCM bytes + measure peak
+    // in one pass. See renderer/record-trim.js for the fused-loop
+    // rationale and the asymmetric Int16 range note.
+    const { pcm, peakAmp } = floatToInt16WithPeak(trimmed);
     // Visible feedback for debugging the trim path. The status text is
     // already replaced moments later with the peak-quality message, but
     // for ~200 ms it shows whether the trim fired and at what offset.

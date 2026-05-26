@@ -2,7 +2,7 @@
 
 const test   = require('node:test');
 const assert = require('node:assert/strict');
-const { computeFskTrim, classifyWindows, computeTrimThresholds } = require('../renderer/record-trim.js');
+const { computeFskTrim, classifyWindows, computeTrimThresholds, floatToInt16WithPeak } = require('../renderer/record-trim.js');
 
 // ── computeTrimThresholds ───────────────────────────────────────────
 
@@ -188,4 +188,56 @@ test('computeFskTrim — applies ~50 ms backoff before the detected window', () 
   assert.ok(r.trimStart < transition, `trimStart (${r.trimStart}) should be < transition (${transition})`);
   // and within ~250 ms of it
   assert.ok(transition - r.trimStart < 0.25 * sampleRate);
+});
+
+// ── floatToInt16WithPeak ────────────────────────────────────────────
+
+test('floatToInt16WithPeak — empty buffer yields zero-length pcm and peak 0', () => {
+  const r = floatToInt16WithPeak(new Float32Array(0));
+  assert.equal(r.pcm.byteLength, 0);
+  assert.equal(r.peakAmp, 0);
+});
+
+test('floatToInt16WithPeak — output byte length is 2× sample count (mono Int16)', () => {
+  const r = floatToInt16WithPeak(new Float32Array(100));
+  assert.equal(r.pcm.byteLength, 200);
+});
+
+test('floatToInt16WithPeak — peak measurement matches max |sample|', () => {
+  const r = floatToInt16WithPeak(new Float32Array([0.1, -0.3, 0.2, -0.7, 0.4]));
+  assert.ok(Math.abs(r.peakAmp - 0.7) < 1e-6);
+});
+
+test('floatToInt16WithPeak — clamps samples outside [-1, 1] before conversion', () => {
+  // Without clamping, a sample of 1.5 would multiply to 49150 — overflows Int16.
+  const r = floatToInt16WithPeak(new Float32Array([1.5, -1.5]));
+  const view = new DataView(r.pcm);
+  assert.equal(view.getInt16(0, true),  0x7FFF);   // clamped +1.0 → 32767
+  assert.equal(view.getInt16(2, true), -0x8000);   // clamped -1.0 → -32768
+  // Peak is the post-clamp value
+  assert.equal(r.peakAmp, 1.0);
+});
+
+test('floatToInt16WithPeak — uses asymmetric Int16 range (0x7FFF positive, 0x8000 negative)', () => {
+  const r = floatToInt16WithPeak(new Float32Array([1.0, -1.0]));
+  const view = new DataView(r.pcm);
+  assert.equal(view.getInt16(0, true),  32767);
+  assert.equal(view.getInt16(2, true), -32768);
+});
+
+test('floatToInt16WithPeak — zero samples encode to zero bytes', () => {
+  const r = floatToInt16WithPeak(new Float32Array([0, 0, 0]));
+  const view = new DataView(r.pcm);
+  assert.equal(view.getInt16(0, true), 0);
+  assert.equal(view.getInt16(2, true), 0);
+  assert.equal(view.getInt16(4, true), 0);
+  assert.equal(r.peakAmp, 0);
+});
+
+test('floatToInt16WithPeak — output is little-endian (RIFF/WAVE convention)', () => {
+  // 0.5 * 0x7FFF = 16383.5 → 16383 = 0x3FFF; little-endian bytes [0xFF, 0x3F]
+  const r = floatToInt16WithPeak(new Float32Array([0.5]));
+  const bytes = new Uint8Array(r.pcm);
+  assert.equal(bytes[0], 0xFF);
+  assert.equal(bytes[1], 0x3F);
 });
