@@ -8523,6 +8523,14 @@ function renderCustomBuilder() {
 
       // Drop target (within-bucket reorder OR cross-list drop from patch list).
       // For shift-selected ranges, validate the range fits at this slot.
+      //
+      // Within-bucket reorder uses top-half/bottom-half detection so the
+      // user can reach the LAST slot as a destination — without it, the
+      // off-by-one fix in computeReorderIdx makes dragging C15→C16 collapse
+      // to a no-op (raw toIdx=15 minus 1 = 14 = fromIdx). Same pattern as
+      // the Tones-bank and library-package reorders. Cross-list drops
+      // (patch → bucket) still use the raw row index since placement is
+      // an overwrite, not an insert-between.
       row.addEventListener('dragover', (e) => {
         const isPatchSrc  = e.dataTransfer.types.includes('application/x-jp-patch-source');
         const isBucketSrc = e.dataTransfer.types.includes('application/x-jp-bucket-source');
@@ -8538,18 +8546,39 @@ function renderCustomBuilder() {
         // dropEffect when the slot can hold at least one patch.
         const fits = isRange ? (i < 16) : true;
         e.dataTransfer.dropEffect = isBucketSrc ? 'move' : (fits ? 'copy' : 'none');
-        row.classList.toggle('drag-over', fits);
+        // Bottom-half indicator only applies to within-bucket reorder —
+        // for patch-source / range drops the placement is an overwrite,
+        // not an insert-between, so the half doesn't matter.
+        if (isBucketSrc) {
+          const rect = row.getBoundingClientRect();
+          const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+          row.classList.toggle('drag-over',        !isBottomHalf);
+          row.classList.toggle('drag-over-bottom',  isBottomHalf);
+        } else {
+          row.classList.toggle('drag-over', fits);
+          row.classList.remove('drag-over-bottom');
+        }
       });
-      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('drag-over', 'drag-over-bottom');
+      });
       row.addEventListener('drop', (e) => {
-        row.classList.remove('drag-over');
+        row.classList.remove('drag-over', 'drag-over-bottom');
         const bucketJson = e.dataTransfer.getData('application/x-jp-bucket-source');
         if (bucketJson) {
           e.preventDefault();
           e.stopPropagation();
           try {
             const src = JSON.parse(bucketJson);
-            if (src.bank === bank) reorderBucketSlot(bank, src.idx, i);
+            if (src.bank === bank) {
+              // Bottom-half = "insert after this row" → toIdx = i + 1.
+              // This is what makes C15 → C16 reachable (raw 15 + 1 = 16,
+              // then computeReorderIdx(14, 16) = 15 → splice lands at 15).
+              const rect = row.getBoundingClientRect();
+              const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
+              const toIdx = isBottomHalf ? i + 1 : i;
+              reorderBucketSlot(bank, src.idx, toIdx);
+            }
           } catch {}
           return;
         }

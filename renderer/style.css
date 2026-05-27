@@ -1112,7 +1112,20 @@ body.seq-dragging-pitch * {
   border-bottom: 1px solid rgba(255, 255, 255, 0.5);
 }
 .cb-slot.filled { cursor: pointer; }
-.cb-slot.drag-over { background: rgba(255, 255, 255, 0.18); }
+/* Bucket reorder drop indicators — direction matters because the bucket
+   is fixed-length-16 and dropping on the BOTTOM half of the last row is
+   how the user reaches the last slot as a destination (otherwise the
+   off-by-one fix in computeReorderIdx collapses raw toIdx=15 → 14 = a
+   no-op for fromIdx=14). Background tint keeps the existing hover
+   affordance; the 2px green bar shows above/below to disambiguate. */
+.cb-slot.drag-over {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0  2px 0 0 var(--green-sel-bdr);
+}
+.cb-slot.drag-over-bottom {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 -2px 0 0 var(--green-sel-bdr);
+}
 .cb-slot.dragging { opacity: 0.4; }
 .cb-slot-name-edit {
   flex: 1;
