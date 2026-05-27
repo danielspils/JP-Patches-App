@@ -81,6 +81,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Make an edit → click a different sequence | nav-away guard modal: Save / Discard / Cancel | |
 | Click Discard | original sequence stays intact | |
 | **(Optional, requires JX-3P)** Round-trip an edited sequence: SAVE → Send-to-JX → play on JX → Record-back-to-JP → visual compare | both versions match column-for-column | |
+| **Nav-away guard direction symmetry** (watch for known v0.6.0 intermittent): with a dirty sequence, click Bank C/D tab → modal should fire. Click back to Library tab → modal fires again. If EITHER direction skips the modal, capture state and report | both directions fire the modal | |
 
 ## 5. Tape Memory — file-based (no JX needed)
 

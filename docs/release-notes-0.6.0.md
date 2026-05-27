@@ -101,6 +101,10 @@ count is faster to read.
 - `app.js` shrank by 77 lines on the seq-insert-rules extraction.
 - **Test count: 127 → 199**, all passing.
 
+## Known issues
+
+- **Nav-away guard direction asymmetry (intermittent).** Observed once during QA: navigating from the sequence editor (Library tab) to the active banks (C/D) with an unsaved sequence did NOT pop the "Sequence has been edited" modal, but navigating back from the banks to the Library did. Both directions are wired through the same `guardSeqNav` helper, so the asymmetry should be impossible — but we couldn't reproduce it after the first occurrence. Not a data-loss bug (dirty tracking and SAVE/REVERT still work as labeled). If you hit it, capture the state and we'll instrument with logging in a follow-up.
+
 ## Install
 
 Download the DMG below. macOS will flag it as "damaged" — that's a
