@@ -1015,17 +1015,10 @@ function setupSeqKeyListenerOnce() {
  * @returns {number[]}        Array of MIDI pitches from prev column
  *                            (empty if no prev attacks)
  */
-function previousColumnAttackPitches(absStep, pages) {
-  if (absStep <= 0) return [];
-  const STEPS_PER_PAGE = 16;
-  const prevStep = absStep - 1;
-  const page = pages[Math.floor(prevStep / STEPS_PER_PAGE)];
-  const step = page && page[prevStep % STEPS_PER_PAGE];
-  if (!step || !Array.isArray(step.voices)) return [];
-  return step.voices
-    .filter((v) => v && typeof v.note === 'number' && v.tied === false)
-    .map((v) => v.note);
-}
+// (Implementation lives in renderer/seq-insert-rules.js; UMD shim
+// attaches it to window. We reassign here so the in-file references
+// don't have to be window-qualified.)
+const previousColumnAttackPitches = window.previousColumnAttackPitches;
 
 /**
  * Does this page contain any actual note data? A page exists in the
@@ -1091,31 +1084,11 @@ function _prepStepForInsert(absStep) {
 function insertNoteAtStep(pitch, absStep) {
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
-  // Match-JX rule (Daniel 2026-05-26): the JX itself can't record a
-  // step that mixes a note attack with a rest/tie continuation —
-  // REST and TIE are whole-step events on the front panel. So reject
-  // a NOTE insert when the column already has any tied voice
-  // (REST = voice[0..N-1] tied; canonical TIE = voice[0] tied + match
-  // new-attack). Caller should have gated the tooltip but double-check.
-  if (step.voices.some((v) => v && v.tied === true)) return false;
-  // Polyphony cap (2026-05-26): JX-3P is 6-voice polyphonic so we
-  // limit inserts to 6 populated voice slots per step, even though
-  // the wire format has 7. The 7th slot in the data is either
-  // reserved or used for something other than a 7th voice (unclear
-  // without checking Bruce's codec source), so honoring 6 matches
-  // what the synth can actually play.
-  // Count is what matters, not slot position — a step with voice[0..4]
-  // and voice[6] populated still has 6 voices and should reject more.
-  const MAX_VOICES = 6;
-  const populatedCount = step.voices.filter((v) => v != null).length;
-  if (populatedCount >= MAX_VOICES) return false;
-  const emptyIdx = step.voices.findIndex((v) => v === null || v === undefined);
-  if (emptyIdx === -1) return false;
-  step.voices[emptyIdx] = { note: pitch, tied: false };
-  // Flip the "never written" sentinel so the codec round-trips the
-  // new attack (pitfall #16: byte7=127 = never written, byte7=1 =
-  // populated). No-op if already 1.
-  step.byte7 = 1;
+  // Delegates to the pure mutator (renderer/seq-insert-rules.js) for
+  // the actual voice-array write + JX-match rules (no-tied-voice,
+  // 6-voice polyphony cap, byte7 sentinel flip). All gating rules are
+  // tested in test/seq-insert-rules.test.js.
+  if (!window.insertNoteIntoStep(step, pitch)) return false;
   dirtySequences.add(selSequence);
   // Check if the cumulative edits cancelled out (e.g. user inserted
   // then deleted, ending back at the snapshot state). Clears dirty
@@ -1137,23 +1110,12 @@ function insertNoteAtStep(pitch, absStep) {
 function insertRestAtStep(absStep) {
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
-  // REST is only valid in a completely empty step (matches JX
-  // recording where REST is a whole-step event). Caller should
-  // have gated the tooltip but double-check.
-  if (step.voices.some((v) => v != null)) return false;
-  const seq   = library.sequences[selSequence];
-  const pages = seq.tape.pages;
-  // Polyphonic REST (per Daniel 2026-05-26 JX empirical test):
-  // JX REST after a chord ties ALL chord voices into the next step,
-  // not just voice[0]. So we write one tied voice per prev-column
-  // new attack. Cap at 6 (JX polyphony) — should be impossible to
-  // exceed since the prev column is also capped at 6.
-  const prevPitches = previousColumnAttackPitches(absStep, pages).slice(0, 6);
-  if (prevPitches.length === 0) return false;
-  prevPitches.forEach((pitch, i) => {
-    step.voices[i] = { note: pitch, tied: true };
-  });
-  step.byte7 = 1;
+  // Delegates to the pure mutator (renderer/seq-insert-rules.js):
+  // ties EVERY prev-column attack into this step (polyphonic REST per
+  // pitfall #16), gated on step-must-be-empty + prev-must-have-attacks.
+  const pages = library.sequences[selSequence].tape.pages;
+  const prevPitches = previousColumnAttackPitches(absStep, pages);
+  if (!window.insertRestIntoStep(step, prevPitches)) return false;
   dirtySequences.add(selSequence);
   maybeClearDirty(selSequence);
   return true;
@@ -1170,39 +1132,13 @@ function insertRestAtStep(absStep) {
 function insertTieAtStep(absStep) {
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
-  // TIE is only valid in a completely empty step.
-  if (step.voices.some((v) => v != null)) return false;
-  const seq   = library.sequences[selSequence];
-  const pages = seq.tape.pages;
-  const prevPitches = previousColumnAttackPitches(absStep, pages).slice(0, 6);
-  if (prevPitches.length === 0) return false;
-
-  // TIE encoding rule (per Daniel 2026-05-26 empirical + reasoning):
-  // - Canonical TIE = {tied: true} + {tied: false} pair per pitch
-  //   (matches single-voice TIE in pitfall #16; renders BLUE).
-  //   Uses 2N voice slots for N pitches.
-  // - JX 6-voice polyphony cap means canonical fits when N ≤ 3.
-  // - For N ≥ 4, fall back to fresh-attacks-only (matches the JX
-  //   firmware's polyphonic-TIE fallback observed in Daniel's
-  //   5-voice chord+TIE test). Renders RED but tooltip catches it
-  //   as "tie" via the same-attacks-as-prev-column heuristic.
-  const canFitCanonical = prevPitches.length * 2 <= 6;
-  if (canFitCanonical) {
-    let slotIdx = 0;
-    prevPitches.forEach((pitch) => {
-      step.voices[slotIdx++] = { note: pitch, tied: true };
-      step.voices[slotIdx++] = { note: pitch, tied: false };
-    });
-  } else {
-    // Polyphonic fallback: one fresh attack per pitch, no tied
-    // voices. Data-shape-identical to chord re-attack (the JX
-    // firmware doesn't distinguish either).
-    prevPitches.forEach((pitch, i) => {
-      step.voices[i] = { note: pitch, tied: false };
-    });
-  }
-
-  step.byte7 = 1;
+  // Delegates to the pure mutator (renderer/seq-insert-rules.js):
+  // canonical {tied, attack} pairs when N≤3 fits the 6-voice budget,
+  // fresh-attacks-only fallback for N≥4 (matches JX firmware per
+  // pitfall #16). Same step-empty + prev-attacks gates as REST.
+  const pages = library.sequences[selSequence].tape.pages;
+  const prevPitches = previousColumnAttackPitches(absStep, pages);
+  if (!window.insertTieIntoStep(step, prevPitches)) return false;
   dirtySequences.add(selSequence);
   maybeClearDirty(selSequence);
   return true;
@@ -1234,35 +1170,23 @@ function showInsertCellTooltip(clientX, clientY, pitch, absStep) {
   }
   document.querySelectorAll('.seq-viz-edit-tip').forEach((el) => el.remove());
 
-  // Polyphonic REST/TIE (Daniel 2026-05-26 JX empirical finding):
-  // both inserts tie/re-attack ALL new attacks in the previous
-  // column, not just the closest one. So we just need to know
-  // WHETHER the prev column has any attacks — the inserter pulls
-  // the actual pitches.
-  const seq    = library.sequences && library.sequences[selSequence];
-  const pages  = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
-  const canContinue = previousColumnAttackPitches(absStep, pages).length > 0;
-
-  // Step state for REST + TIE eligibility (per Daniel 2026-05-26):
-  // BOTH require a completely empty step — matches JX-3P recording
-  // flow where REST and TIE are whole-step events that can't be
-  // combined with chord notes in the same step. (Earlier the editor
-  // allowed TIE in non-empty steps as a convenience; reverted to
-  // strict JX-match because the editor was producing data shapes
-  // the JX itself would never record.)
+  // All eligibility rules (NOTE / REST / TIE availability) live in
+  // the pure module renderer/seq-insert-rules.js so the tooltip and
+  // the underlying mutators share one source of truth. The rules
+  // encode the JX-match constraints from CLAUDE.md pitfall #16:
+  // REST/TIE need an empty step + prev attacks; NOTE is blocked when
+  // the column has any tied voice (can't mix attack with rest/tie
+  // continuation, since the JX itself can't record that shape).
   const STEPS_PER_PAGE = 16;
+  const seq     = library.sequences && library.sequences[selSequence];
+  const pages   = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
   const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
   const stepIdx = absStep % STEPS_PER_PAGE;
   const stepObj = pages[pageIdx] && pages[pageIdx][stepIdx];
-  const voices = (stepObj && Array.isArray(stepObj.voices)) ? stepObj.voices : [];
-  const stepIsEmpty = voices.every((v) => v == null);
-  // NOTE eligibility (Daniel 2026-05-26): match-JX rule — block NOTE
-  // when the column has any tied voice (REST or canonical TIE).
-  // The JX itself can't record a note attack in the same step as a
-  // rest/tie continuation, so we don't either. A column with only
-  // notes (a chord) is fine — NOTE adds another voice up to 6.
-  const stepHasTied = voices.some((v) => v && v.tied === true);
-  const noteAvailable = !stepHasTied;
+  const voices  = (stepObj && Array.isArray(stepObj.voices)) ? stepObj.voices : [];
+  const prevAttackCount = previousColumnAttackPitches(absStep, pages).length;
+  const { noteAvailable, restAvailable, tieAvailable } =
+    window.computeInsertEligibility(voices, prevAttackCount);
 
   const tip = document.createElement('div');
   tip.className = 'seq-viz-edit-tip';
@@ -1325,11 +1249,9 @@ function showInsertCellTooltip(clientX, clientY, pitch, absStep) {
     /* isHtml */ true);
   tip.appendChild(noteBtn);
 
-  // REST + TIE availability — both require the column to be
-  // COMPLETELY EMPTY (matches JX-3P recording flow). Plus the
-  // previous column must have a new attack to reference.
-  const restAvailable = canContinue && stepIsEmpty;
-  const tieAvailable  = canContinue && stepIsEmpty;
+  // REST + TIE: both gated on step-empty + prev-attacks (see
+  // computeInsertEligibility above; rules tested in
+  // test/seq-insert-rules.test.js).
   if (restAvailable) {
     tip.appendChild(makeBtn(REST_GLYPH, 'rest', false,
       () => insertRestAtStep(absStep),
