@@ -46,7 +46,40 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Click ⓘ | modal shows paired patch + note + save date | |
 | Click 🗑 trash icon on a sequence | confirm modal → delete | |
 
-## 4. Tape Memory — file-based (no JX needed)
+## 4. Sequencer editor (new in v0.6.0)
+
+**Critical:** this is the major new feature surface. Every encoding path was empirically validated end-to-end on real JX hardware May 26, but UI flows haven't burned in across releases yet. Run all rows; skip the JX round-trip if no JX is connected.
+
+| Check | Expected | Result |
+|---|---|---|
+| Library → Sequences → click a sequence with content | visualizer renders piano-roll view | |
+| Click a page button (1–8) | zooms into single-page view | |
+| Hover an attack cell | tooltip shows ♪ + pitch name (e.g. `♪ C4`) | |
+| Hover a REST cell (green) | tooltip shows the rest SVG glyph | |
+| Hover a TIE cell (blue, or red that matches prev-column attacks) | tooltip shows ⌣ (tie arc) | |
+| Click an empty area of the roll | insert tooltip appears at cursor (~3px offset) with NOTE button (and REST/TIE if available) | |
+| Click another empty area | the tip moves to the new location (auto-dismisses old) — or click same spot → tip dismisses (toggle) | |
+| Press Escape with tip open | tip dismisses | |
+| Click NOTE button on an empty column | red attack appears at clicked pitch | |
+| Add a second NOTE at a different pitch in the same column (chord) | second voice added; works up to 6 voices | |
+| Click REST button on empty column following a 4-voice chord | 4 green ties appear (polyphonic REST per pitfall #16) | |
+| Click TIE button on empty column following a 1-pitch column (canonical) | small BLUE note appears (single-voice TIE: tied + new-attack pair) | |
+| Click TIE button on empty column following a 4-voice chord (fallback) | 4 RED attacks appear; hover any → tooltip says ⌣ (tie heuristic) | |
+| Try to click NOTE on a column containing a REST or TIE | NOTE button is disabled; tooltip explains "Can't add a note to a step that has a rest or tie" | |
+| Drag a note vertically | rect follows cursor; on drop, voice moves + preview tone plays at new pitch | |
+| Click a single note | cream-tint outline appears | |
+| Press Delete with one note selected | note removed | |
+| Drag in empty area across 3+ note pitches in one column | all 3 notes highlight live as the drag covers their pitch range (no dashed rect) | |
+| Press Delete with marquee selection | all selected notes removed | |
+| Marquee-select 3 notes, then drag any one vertically | all 3 move by the same Δpitch (group drag) | |
+| Click the playhead during playback | grabs (cursor: ew-resize); drag scrubs the playhead | |
+| Make an edit → header shows SAVE affordance | dirty indicator visible | |
+| Click SAVE → name prompt → confirm | new "edited" sequence appears in Library; original unchanged | |
+| Make an edit → click a different sequence | nav-away guard modal: Save / Discard / Cancel | |
+| Click Discard | original sequence stays intact | |
+| **(Optional, requires JX-3P)** Round-trip an edited sequence: SAVE → Send-to-JX → play on JX → Record-back-to-JP → visual compare | both versions match column-for-column | |
+
+## 5. Tape Memory — file-based (no JX needed)
 
 | Check | Expected | Result |
 |---|---|---|
@@ -56,7 +89,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Tape Memory → Sequencer → Save (file branch) | sequence dialog, decodes, save-sequence modal appears | |
 | Tape Memory → Sequencer → Load | file dialog → save sequence WAV file | |
 
-## 5. Record-from-JX-3P (requires JX-3P + audio interface)
+## 6. Record-from-JX-3P (requires JX-3P + audio interface)
 
 **Critical:** this is the area we hammered on in v0.5.13. Run all 5 sub-checks.
 
@@ -73,7 +106,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Sequence capture: Tape Memory → Sequencer → Save from JX-3P | same flow as tones; save-sequence modal appears | |
 | Recalibrate path: trigger a "didn't decode cleanly" failure, click Recalibrate | calibration modal opens with PRIOR gain (not 1×) | |
 
-## 6. Send-to-JX-3P (requires JX-3P + cable)
+## 7. Send-to-JX-3P (requires JX-3P + cable)
 
 | Check | Expected | Result |
 |---|---|---|
@@ -86,7 +119,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Cancel during playback | audio stops, modal closes | |
 | Sequence variant: Library → Sequences → LOAD a sequence | send modal opens with paired-patch context | |
 
-## 7. Drag-and-drop
+## 8. Drag-and-drop
 
 | Check | Expected | Result |
 |---|---|---|
@@ -94,7 +127,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Drag a `.wav` onto Library Tones | new package added with file's name | |
 | Drag a sequencer-dump `.wav` onto Library Sequences | save-sequence modal | |
 
-## 8. Custom Bank Builder
+## 9. Custom Bank Builder
 
 | Check | Expected | Result |
 |---|---|---|
@@ -105,8 +138,10 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Click SAVE | name prompt → saves as Library Tones package → auto-loads as active C/D | |
 | Click CLEAR (after building, before saving) | one-shot undo offered → restores prior state | |
 | Builder state persists across app restart | re-launch app → builder shows last buckets | |
+| **Reorder regression (v0.6.0 fix):** drag C-bucket slot 15 onto the BOTTOM half of slot 16 | green bar appears below slot 16; on drop, item moves into the last slot (previous slot-16 content shifts up to slot 15) | |
+| Drag any C-bucket slot onto the TOP half of another slot | green bar appears above the target; on drop, item lands above the target | |
 
-## 9. App menu
+## 10. App menu
 
 | Check | Expected | Result |
 |---|---|---|
@@ -117,7 +152,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Help → GitHub link | browser opens repo | |
 | Cmd+W | window closes (app stays in dock) | |
 
-## 10. Persistence check
+## 11. Persistence check
 
 | Check | Expected | Result |
 |---|---|---|
@@ -126,7 +161,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | `library.json` is well-formed JSON | `python3 -c "import json;json.load(open(PATH))"` | |
 | `library.json` has a `captureLog` field after a capture | telemetry working | |
 
-## 11. Build (optional — only on release-prep runs)
+## 12. Build (optional — only on release-prep runs)
 
 | Check | Expected | Result |
 |---|---|---|
