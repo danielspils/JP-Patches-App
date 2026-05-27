@@ -906,6 +906,20 @@ function pushSeqEditUndo(beforeSeq, afterSeq) {
 function applySeqUndoOrRedo(seqIdx, targetState) {
   if (!library || !Array.isArray(library.sequences)) return;
   if (!library.sequences[seqIdx]) return;   // sequence was deleted
+  // Ensure the first-edit snapshot exists BEFORE we mutate. The insert
+  // paths set it via _prepStepForInsert / inline; the undo/redo path
+  // bypasses those, so when a redo transitions the sequence from clean
+  // (snapshot cleared by an earlier undo-to-baseline) back to dirty,
+  // we need to re-capture. Without this, the subsequent SAVE flow
+  // would have no original to restore from — discovered May 27 QA.
+  // Current state IS the right snapshot to capture: it's the "as last
+  // resolved" state (either the on-disk original, or the post-save
+  // baseline). The next mutate-to-targetState makes us dirty; if
+  // targetState matches the just-captured snapshot, maybeClearDirty
+  // immediately reverses the dirty add — no harm done.
+  if (!originalSequenceSnapshots.has(seqIdx)) {
+    originalSequenceSnapshots.set(seqIdx, cloneSeq(library.sequences[seqIdx]));
+  }
   library.sequences[seqIdx] = cloneSeq(targetState);
   dirtySequences.add(seqIdx);
   maybeClearDirty(seqIdx);   // clears dirty if back to first-edit baseline
