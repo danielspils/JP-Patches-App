@@ -72,6 +72,9 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Drag in empty area across 3+ note pitches in one column | all 3 notes highlight live as the drag covers their pitch range (no dashed rect) | |
 | Press Delete with marquee selection | all selected notes removed | |
 | Marquee-select 3 notes, then drag any one vertically | all 3 move by the same Δpitch (group drag) | |
+| Make any edit → **Cmd+Z** | edit undoes; SAVE button clears if undo reached the original state | |
+| **Cmd+Shift+Z** after the Cmd+Z | edit re-applies (redo) | |
+| Marquee-select 3+ notes → Delete → Cmd+Z | all deleted notes restored in a single undo (not three) | |
 | Click the playhead during playback | grabs (cursor: ew-resize); drag scrubs the playhead | |
 | Make an edit → header shows SAVE affordance | dirty indicator visible | |
 | Click SAVE → name prompt → confirm | new "edited" sequence appears in Library; original unchanged | |

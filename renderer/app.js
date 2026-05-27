@@ -574,7 +574,10 @@ function discardDirtyEdits() {
  * @param {number} absStep  Absolute step index (0..127)
  * @returns {boolean}       True if anything was actually removed.
  */
-function deleteNoteAtStep(pitch, absStep) {
+// `skipUndo` lets callers batch multiple deletes into a single undo
+// entry (the keyboard handler uses this for multi-note Delete on a
+// marquee selection). Default false → push one undo entry per call.
+function deleteNoteAtStep(pitch, absStep, { skipUndo = false } = {}) {
   const STEPS_PER_PAGE = 16;
   const seq = library.sequences && library.sequences[selSequence];
   if (!seq) return false;
@@ -591,6 +594,7 @@ function deleteNoteAtStep(pitch, absStep) {
     originalSequenceSnapshots.set(selSequence, cloneSeq(library.sequences[selSequence]));
   }
 
+  const beforeSeq = skipUndo ? null : cloneSeq(library.sequences[selSequence]);
   let removed = false;
   step.voices.forEach((voice, i) => {
     if (voice && voice.note === pitch) {
@@ -605,6 +609,9 @@ function deleteNoteAtStep(pitch, absStep) {
     // (rare for delete alone, but possible after a prior insert/delete
     // pair cancelled out), clear the dirty flag.
     maybeClearDirty(selSequence);
+    if (!skipUndo) {
+      pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
+    }
   }
   return removed;
 }
@@ -867,6 +874,49 @@ function maybeClearDirty(idx) {
   }
 }
 
+// ── Sequencer editor undo (Cmd+Z / Cmd+Shift+Z) ────────────────────
+//
+// Editor mutations (insertNote/Rest/Tie, deleteNoteAtStep, pitch-drag,
+// group pitch-drag) push one entry per logical edit onto the global
+// undoStack. We snapshot the ENTIRE affected sequence per edit (4KB
+// each, capped at MAX_UNDO_DEPTH = 50 = ~200KB max) and on undo/redo
+// deep-clone-restore + re-render. Sequence-level snapshots handle every
+// editor mutation shape without per-path inverse logic (page-init on
+// never-touched pages, polyphonic REST/TIE multi-voice writes, group
+// pitch-drag across pages).
+//
+// seqIdx is captured at push time so an undo while viewing a different
+// sequence still mutates the correct underlying data — the visualizer
+// just won't re-render until the user navigates back.
+//
+// Known limitation: if the user Saves the sequence (creating a new
+// library entry + restoring the original via originalSequenceSnapshots)
+// or Discards via the nav-away guard, undo entries from before are
+// "stale" — Cmd+Z would re-mark the sequence dirty without restoring
+// meaningful prior state. Edge case in practice; future work could
+// clear editor-undo entries on save/discard.
+function pushSeqEditUndo(beforeSeq, afterSeq) {
+  const seqIdx = selSequence;
+  pushUndo({
+    undo: () => applySeqUndoOrRedo(seqIdx, beforeSeq),
+    redo: () => applySeqUndoOrRedo(seqIdx, afterSeq),
+  });
+}
+
+function applySeqUndoOrRedo(seqIdx, targetState) {
+  if (!library || !Array.isArray(library.sequences)) return;
+  if (!library.sequences[seqIdx]) return;   // sequence was deleted
+  library.sequences[seqIdx] = cloneSeq(targetState);
+  dirtySequences.add(seqIdx);
+  maybeClearDirty(seqIdx);   // clears dirty if back to first-edit baseline
+  saveLibraryDebounced();
+  // Re-render only when the user is viewing the affected sequence.
+  if (selSequence === seqIdx) {
+    clearSequenceSelection();
+    renderSequenceVisualizer();
+  }
+}
+
 /**
  * Clear the keyboard-delete note selection + remove any .selected
  * visual on the rendered cell. Safe to call when nothing is selected.
@@ -977,16 +1027,22 @@ function setupSeqKeyListenerOnce() {
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (selectedSeqNotes.length === 0) return;
-      // Delete every selected note. Loop calls deleteNoteAtStep
-      // per entry; re-render once at the end. The mutation helper
-      // tracks dirty + snapshot per-sequence so multiple deletes
-      // accumulate into the same edit session.
+      // Delete every selected note. Loop calls deleteNoteAtStep with
+      // skipUndo=true; we push one batched undo entry covering the
+      // whole multi-delete (otherwise the user would need N Cmd+Z's
+      // to undo a single multi-note Delete keypress).
+      const beforeSeq = library.sequences && library.sequences[selSequence]
+        ? cloneSeq(library.sequences[selSequence])
+        : null;
       let anyRemoved = false;
       selectedSeqNotes.forEach(({ pitch, absStep }) => {
-        if (deleteNoteAtStep(pitch, absStep)) anyRemoved = true;
+        if (deleteNoteAtStep(pitch, absStep, { skipUndo: true })) anyRemoved = true;
       });
       clearSequenceSelection();
       if (anyRemoved) {
+        if (beforeSeq) {
+          pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
+        }
         e.preventDefault();
         renderSequenceVisualizer();
       }
@@ -1082,6 +1138,10 @@ function _prepStepForInsert(absStep) {
  * @returns {boolean}  True if the note was inserted.
  */
 function insertNoteAtStep(pitch, absStep) {
+  if (!library.sequences || !library.sequences[selSequence]) return false;
+  // Snapshot BEFORE _prepStepForInsert (which can init a previously-
+  // null page — that's a mutation we want to capture for undo).
+  const beforeSeq = cloneSeq(library.sequences[selSequence]);
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
   // Delegates to the pure mutator (renderer/seq-insert-rules.js) for
@@ -1094,6 +1154,7 @@ function insertNoteAtStep(pitch, absStep) {
   // then deleted, ending back at the snapshot state). Clears dirty
   // if so.
   maybeClearDirty(selSequence);
+  pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
   return true;
 }
 
@@ -1108,6 +1169,8 @@ function insertNoteAtStep(pitch, absStep) {
  * @returns {boolean}  True if inserted (false when no previous attack).
  */
 function insertRestAtStep(absStep) {
+  if (!library.sequences || !library.sequences[selSequence]) return false;
+  const beforeSeq = cloneSeq(library.sequences[selSequence]);
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
   // Delegates to the pure mutator (renderer/seq-insert-rules.js):
@@ -1118,6 +1181,7 @@ function insertRestAtStep(absStep) {
   if (!window.insertRestIntoStep(step, prevPitches)) return false;
   dirtySequences.add(selSequence);
   maybeClearDirty(selSequence);
+  pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
   return true;
 }
 
@@ -1130,6 +1194,8 @@ function insertRestAtStep(absStep) {
  * @returns {boolean}  True if inserted (false when no previous attack).
  */
 function insertTieAtStep(absStep) {
+  if (!library.sequences || !library.sequences[selSequence]) return false;
+  const beforeSeq = cloneSeq(library.sequences[selSequence]);
   const step = _prepStepForInsert(absStep);
   if (!step) return false;
   // Delegates to the pure mutator (renderer/seq-insert-rules.js):
@@ -1141,6 +1207,7 @@ function insertTieAtStep(absStep) {
   if (!window.insertTieIntoStep(step, prevPitches)) return false;
   dirtySequences.add(selSequence);
   maybeClearDirty(selSequence);
+  pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
   return true;
 }
 
@@ -7198,6 +7265,10 @@ function setupSeqDragListenersOnce() {
     if (!originalSequenceSnapshots.has(selSequence)) {
       originalSequenceSnapshots.set(selSequence, cloneSeq(library.sequences[selSequence]));
     }
+    // Snapshot for editor undo — captures pre-mutation state of the
+    // whole sequence so undo restores correctly even for group drags
+    // that touch multiple steps across pages.
+    const beforeSeq = seq ? cloneSeq(seq) : null;
 
     const deltaPitch = currentPitch - startPitch;
     if (groupMembers) {
@@ -7231,6 +7302,9 @@ function setupSeqDragListenersOnce() {
     // show the SAVE button.
     dirtySequences.add(selSequence);
     maybeClearDirty(selSequence);
+    if (beforeSeq) {
+      pushSeqEditUndo(beforeSeq, cloneSeq(library.sequences[selSequence]));
+    }
     clearSequenceSelection();
 
     // Preview the landed pitch — for group drag, preview the dragged

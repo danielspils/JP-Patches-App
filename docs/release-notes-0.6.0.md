@@ -32,6 +32,12 @@ Single-page-view editing across the whole roll:
   on first edit. SAVE writes the edits as a new "edited" library entry
   (numbered) and restores the original from the snapshot. Nav-away
   with unsaved edits prompts Save / Discard / Cancel.
+- **Undo / redo** → standard **Cmd+Z** / **Cmd+Shift+Z** undoes any
+  editor mutation (insert, delete, pitch-drag, group drag). Multi-note
+  Delete via marquee selection is batched into a single undo entry.
+  Reuses the app-wide undo stack (50 entries deep) already used by
+  patch-list and bucket reorders. If undo brings the sequence back to
+  its pre-edit state, the SAVE button automatically goes away.
 
 ### JX-faithful insert rules (pitfall #16 closure)
 
