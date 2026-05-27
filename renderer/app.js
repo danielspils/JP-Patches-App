@@ -3747,7 +3747,7 @@ function restoreActiveState(snap) {
 // "Recalibrate" (clear gain). Tertiary defaults to no styling (cream
 // alt-button); pass tertiaryStyle: 'confirm' to make it the green primary
 // and tertiaryStyle: 'alt' for the blue alt-style.
-function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm, onCancel, tertiaryLabel, onTertiary, tertiaryStyle }) {
+function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm, onCancel, tertiaryLabel, onTertiary, tertiaryStyle, hideCancel }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
@@ -3816,7 +3816,10 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
     tertiaryBtn.textContent = tertiaryLabel;
   }
 
-  actions.appendChild(cancelBtn);
+  // hideCancel: single-button informational modals (e.g. "MIDI coming
+  // soon") only need an acknowledge button — showing a Cancel that
+  // does the same thing as the OK button is just visual noise.
+  if (!hideCancel) actions.appendChild(cancelBtn);
   if (tertiaryBtn) actions.appendChild(tertiaryBtn);
   actions.appendChild(confirmBtn);
   modal.appendChild(h);
@@ -9299,8 +9302,26 @@ function setupMemoryDropdown() {
   sel.value = getTapeMode();
   sel.addEventListener('change', () => {
     if (!library) return;
-    library.tapeMode = sel.value === 'midi' ? 'midi' : 'tape';
+    const newMode = sel.value === 'midi' ? 'midi' : 'tape';
+    library.tapeMode = newMode;
     saveLibraryDebounced();
+    // Phase 3 placeholder: surface a friendly "coming soon" modal the
+    // moment the user flips to MIDI Memory so they know nothing's
+    // broken — the buttons would silently no-op otherwise (via the
+    // existing midiBlocked console-warn). Tape Memory is still the
+    // only working mode until the JX-3P MIDI Upgrade Kit is installed
+    // and Phase 3 lands.
+    if (newMode === 'midi') {
+      showConfirmModal({
+        title: 'MIDI Memory mode',
+        body:
+          'MIDI functionality is coming soon — gated on the Series Circuits ' +
+          'JX-3P MIDI Upgrade Kit (Phase 3). For now, use **Tape Memory** mode ' +
+          'for all transfers to and from the JX-3P.',
+        confirmLabel: 'OK',
+        hideCancel: true,
+      });
+    }
   });
 }
 
