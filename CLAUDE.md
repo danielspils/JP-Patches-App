@@ -64,15 +64,19 @@ Current version: **0.5.13** (May 25, 2026). 25+ public releases since v0.1.0 on 
 ├── dist/                         gitignored; electron-builder output (.dmg, .app)
 └── renderer/
     ├── index.html                shell — left panel + #panel-host
-    ├── style.css                 vintage cream hardware aesthetic (~2,000 lines)
-    ├── app.js                    all UI logic — ~7,500 lines (heavily commented)
+    ├── style.css                 vintage cream hardware aesthetic (~2,500 lines)
+    ├── app.js                    all UI logic — ~9,300 lines (heavily commented)
     ├── calibration-math.js       pure math: gain↔angle, decode-all-default heuristic
     ├── library-math.js           pure math: reorder index, params fingerprint
+    ├── library-schema.js         library.json versioning + migration scaffolding
     ├── record-trim.js            FSK trim algorithm + Float32→Int16 PCM converter
     ├── capture-warnings.js       4-state live warning ladder (clipping/no-signal/quiet)
     ├── capture-state.js          capture state-machine + auto-stop ladder
     ├── audio-capture.js          getUserMedia constraint fallback + node-graph factory
     ├── send-timeline.js          send-modal timeline math (pilot/data segment durations)
+    ├── modal-builders.js         shared modal-row builders (extracted from app.js)
+    ├── synth-preview.js          triangle-wave note preview (sequencer editor audio)
+    ├── seq-insert-rules.js       JX-faithful NOTE/REST/TIE insert rules (pure)
     ├── panel.svg                 locked PG-200 panel artwork (1050×620 viewBox)
     ├── panel_locked_v2..v6.svg   historical snapshots (v6 is current canonical reference)
     ├── seed/
@@ -80,13 +84,17 @@ Current version: **0.5.13** (May 25, 2026). 25+ public releases since v0.1.0 on 
     │   └── patches.json          first-run active C/D banks
     └── assets/jp-logo.png        chrome JP logo embedded in panel
 
-test/                             127 unit tests against the pure-math modules
+test/                             199 unit tests across 10 pure-logic modules
 ├── calibration-math.test.js
 ├── library-math.test.js
+├── library-schema.test.js
 ├── record-trim.test.js
 ├── capture-warnings.test.js
 ├── capture-state.test.js
-└── send-timeline.test.js
+├── send-timeline.test.js
+├── modal-builders.test.js
+├── synth-preview.test.js
+└── seq-insert-rules.test.js
 ```
 
 ## External runtime dependencies
@@ -142,6 +150,26 @@ JX-3P-faithful nomenclature: **Save = import from synth**, **Load = export to sy
 - Drag-reorder within a sub-tab.
 - Shift-click range select (within a single bank) — drag the range as a multi-patch payload into the Custom Banks builder.
 - Drag-and-drop WAV/JSON onto sub-tabs: dropped file's name becomes the new package name.
+
+### Sequencer editor (Phase 2.5, May 26)
+The Sequences sub-tab visualizer (piano-roll style) is now a full editor — not just a viewer. All editing happens in **single-page view** (zoomed into one of the 8 pages). The 8-page overview stays read-only by design.
+
+**Insert flow:**
+- **Click an empty area** of the roll → toggle a small insert tooltip with NOTE / REST / TIE buttons (note-glyph ♪, JX-tie-arc ⌣, eighth-rest SVG — same icons as the hover labels). Click again on any empty area → tip dismisses (toggle behavior). Tip anchors near the cursor (3 px offset). REPLACES the prior Ctrl+click / right-click trigger — plain click is more discoverable.
+- **NOTE** writes one new attack at the clicked pitch (chord stacking up to 6 voices). Button is disabled when the column has any tied voice (REST or canonical TIE) — symmetric with the REST/TIE empty-step gate. The JX itself can't record a step that mixes a note attack with a rest/tie continuation, so the editor doesn't either.
+- **REST** ties EVERY new attack from the previous column into this step (polyphonic — pitfall #16). 5-voice chord + REST = 5 tied voices in the next column.
+- **TIE** writes canonical `{tied} + {attack}` voice pairs per prev-column pitch when N≤3 fits the 6-voice budget; for N≥4, falls back to fresh-attacks-only (data-shape-identical to a chord re-strike — matches JX firmware behavior).
+
+**Editing flow:**
+- **Drag a note vertically** → pitch-shift with live preview (the rect follows the cursor; on drop the underlying voice mutates and a preview tone plays at the new pitch). The drag captures *all* voices in the step at that pitch — so a single-voice TIE pair moves together.
+- **Marquee drag** on an empty area → column-constrained multi-select. No dashed rectangle — the notes themselves highlight live as the drag covers their pitch range. Single-page view only.
+- **Group pitch-drag** → if the mousedown lands on a `.selected` note in a group of >1, the drag moves *every* group member by the same Δpitch (clamped to JX range).
+- **Keyboard Delete** → removes the selected note(s).
+- **Playhead** is grabbable directly (cursor: ew-resize) for scrub during playback.
+
+**Save-as-new-copy:** the original library sequence is snapshotted on the first edit. SAVE writes the edits as a NEW "edited" library entry (numbered) and restores the original from the snapshot. Discarding edits (nav-away guard) restores from the same snapshot.
+
+**Pure-logic backing:** insert rules + eligibility math live in `renderer/seq-insert-rules.js` with 33 unit tests pinning the JX-derived properties (canonical-vs-fallback TIE branch, polyphonic REST cap, NOTE-vs-tied gate, polyphony cap, page-boundary lookups). Note preview is a triangle-wave synth (`renderer/synth-preview.js`, 5 tests).
 
 ### Custom Bank Builder (Phase 2)
 - Below the panel, opens via the **Create Custom Banks** key. 4×8 grid (C left in Roland green, D right in Roland blue) under a JX-3P-style red header.
@@ -298,8 +326,9 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
 ## Recent themes
 
-`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–25 burst:
+`git log --oneline` and the GitHub Releases page are authoritative — releases especially, since each has a thorough user-facing changelog. Themes from the May 19–26 burst:
 
+- **Sequencer visualizer becomes an editor** (May 26) — single-page-view editing across the whole roll. Click empty area to toggle a NOTE/REST/TIE insert tooltip (replaces Ctrl+click, more discoverable, anchors near cursor). Drag a note vertically to pitch-shift with live preview. Marquee drag on empty area for column-constrained multi-select with live note highlights (no dashed rect — the notes themselves indicate selection). Group pitch-drag preserves Δpitch across selected members. Keyboard Delete removes selection. Playhead is grabbable directly. JX-faithful insert rules per pitfall #16: polyphonic REST ties EVERY prev-column attack; polyphonic TIE uses canonical `{tied,attack}` pairs when N≤3 fits the 6-voice budget, falls back to fresh-attacks-only for N≥4 (matches JX firmware fallback); NOTE blocked when column has any tied voice (symmetric gate). Hover tooltip + insert buttons use JX-panel music symbols (♪/⌣/SVG rest). Refactor: insert rules extracted to `renderer/seq-insert-rules.js` with 33 unit tests pinning JX-derived properties; `app.js` shrank by 77 lines on the extraction. New module `renderer/synth-preview.js` (triangle-wave note preview, 5 tests). Bug: Custom Bank C15→C16 reorder was a no-op (bucket drop handler was missing the top-half/bottom-half cursor convention the 3 other reorder paths use) — fixed by mirroring the convention + `.drag-over-bottom` CSS. Test count: 127 → 199.
 - **Capture-pipeline reliability sweep + internal refactor** (v0.5.13, May 25 night) — fixed ~12 silent-failure bugs across the Record-from-JX flow (scope errors, leaked devicechange listeners, unhandled rejections, IPC contract mismatches); added a renderer-wide error banner so future silent failures become visible; added per-capture telemetry to `library.captureLog`; recalibrate now seeds the slider with prior gain instead of resetting to 1×; CoreAudio-based sample-rate advisory; downgraded sample-rate warning from "will fail" to "advisory" after real-world testing proved 48→44.1 resample survivable. Refactor: 6 new pure-logic modules (`record-trim.js`, `capture-warnings.js`, `capture-state.js`, `audio-capture.js`, `send-timeline.js` + the pre-existing math modules) with 77 new unit tests (50 → 127). The two biggest modals (`showRecordFromJxModal`, `showSendToJxFlow`) shrunk by ~550 lines total. Visualizer now distinguishes REST from TIE via the voice[1]-new-attack signature (pitfall #16 was rewritten — earlier conclusion was wrong).
 - Modified-patch indicator + revert + save-and-load rescue (v0.5.12, May 25 morning) — per-slot red dot for unsaved edits with click-to-revert; 3-button confirm modal when loading a library over unsaved active C/D; Logic-style hover/double-click knob value editing; patch-switch knob spin animation.
 - Record-from-JX-3P + two-pass auto-calibration + JX key-sequence diagrams (v0.5.11, May 23–24)
