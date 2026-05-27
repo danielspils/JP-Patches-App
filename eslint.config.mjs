@@ -84,6 +84,10 @@ export default [
         buildSendActions:           'readonly',
         buildSendStatusSection:     'readonly',
 
+        // Globals exposed by renderer/synth-preview.js
+        previewNote:                'readonly',
+        midiToHz:                   'readonly',
+
         // Electron-injected globals via preload.js contextBridge
         api:                    'readonly',     // window.api.* — IPC surface
 

@@ -199,6 +199,1267 @@ let rangeAnchor = { bank: 'C', slot: 0 };
 let selPackage = null;     // selected index in library.packages   (Tones sub-tab)
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selSeqVizPage = null;  // null = show all 8 pages overview; 0–7 = zoom into one page
+
+// Drag-to-change-pitch state for the sequencer visualizer. seqDragState
+// is non-null only while a drag is in progress (set by mousedown on a
+// playable note in single-page view, cleared by mouseup). The document-
+// level mousemove/mouseup listeners (wired ONCE inside setupSeqDragOnce
+// below the visualizer fn) read this to advance / commit the gesture.
+// seqDragSuppressClick is set true on mouseup if the drag actually moved
+// the note, so the click handler — which fires after every mouseup —
+// doesn't trigger a phantom preview at the dropped pitch.
+let seqDragState         = null;
+let seqDragSuppressClick = false;
+// Ensures the document-level drag listeners are wired exactly once,
+// regardless of how many times renderSequenceVisualizer runs.
+let seqDragListenersWired = false;
+
+// Note-selection state for keyboard-driven delete (replaces the
+// Ctrl+click → delete tooltip flow, 2026-05-26). When a user plain-
+// clicks a note, the cell is marked selected (visual outline) and
+// pressing Delete / Backspace removes it. Cleared on: Escape, click
+// outside any note, sequence navigation, or after any data mutation
+// (the {pitch, step} key would be stale after a drag that moved the
+// note). Module-scope so the document keydown handler can read it
+// without per-render rewiring.
+let selectedSeqNotes = [];      // {pitch, absStep}[] — empty when nothing selected
+                                // (was scalar selectedSeqNote, expanded 2026-05-26
+                                // to support column-constrained marquee multi-select)
+let seqKeyListenerWired = false;
+
+// Sequencer preview-playback state. Three logical states:
+//
+//   - IDLE     seqPlayState === null
+//                (no playhead in DOM, button shows ▶)
+//   - PLAYING  seqPlayState.timerId !== null
+//                (timer ticking, playhead sweeping, button shows ⏸)
+//   - PAUSED   seqPlayState !== null && seqPlayState.timerId === null
+//                (timer cleared but state preserved — playhead stays
+//                visible at the paused step, currentStep saved for
+//                resume, button reverts to ▶)
+//
+// Single click cycles idle → playing → paused → playing → paused ...
+// Double click in any state returns to idle (full stop + reset to
+// beginning) via stopSeqPlayback. Module-scope so navigation
+// handlers can call stopSeqPlayback() without per-render rewiring.
+//
+// Step interval is fixed at 250 ms — roughly half of the JX-3P's
+// natural tempo at default RATE. The sequence data has no rate
+// field today, so we don't try to match playback to the synth's
+// actual speed; this is a "what does it sound like" preview.
+let seqPlayState = null;
+
+// Playhead-drag state. Non-null while the user is mid-drag scrubbing
+// the playhead. Captures svgRect at mousedown (so mousemove doesn't
+// re-measure) + tracks the last-played step so we don't re-fire
+// previewNote for the same step on every pixel of cursor motion
+// within a single step's column.
+//
+// dragSuppressClick: set true at mouseup if any drag actually
+// happened, so the post-mouseup click event doesn't fire a phantom
+// jump-to-click-position on top of the drop position.
+let seqPlayheadDragState = null;
+let seqPlayheadDragSuppressClick = false;
+
+// Marquee-selection state (column-constrained, Daniel 2026-05-26).
+// Non-null while the user is dragging within an empty area to
+// select multiple notes within a single column. svgRect captured at
+// mousedown; absStep is the column we're selecting in (fixed for
+// the gesture); pitch range is updated by mousemove. There is NO
+// visible marquee rect — the user sees the selection by watching
+// the notes themselves highlight live as they drag.
+// suppressClick prevents the post-mouseup click from clearing the
+// just-formed selection.
+let seqMarqueeState = null;
+let seqMarqueeSuppressClick = false;
+
+// Currently-shown insert-cell tooltip's dismiss function, or null.
+// Tracked globally so a fresh showInsertCellTooltip can cleanly tear
+// down the previous tip (element + outsideClick/escape listeners)
+// before opening a new one. Also lets the rollSvg outsideClick path
+// SKIP dismissing for empty-area clicks on the SVG in single-page
+// view — those go through the click handler, which calls
+// showInsertCellTooltip, which uses this to dispose the prior tip.
+let activeInsertTipDismiss = null;
+
+// Dirty-sequence tracking for the in-progress sequencer editor.
+// A sequence index lands in this Set when the user mutates it
+// (currently: drag-to-change-pitch). The visualizer header renders a
+// SAVE button when the currently-selected sequence is in the set.
+//
+// Companion Map originalSequenceSnapshots holds a deep-clone of each
+// dirty sequence's pre-edit state, captured before the first mutation.
+// SAVE uses these snapshots to RESTORE each original in place + push
+// a new "edited" copy to library.sequences — so the original is never
+// destroyed, the edit is preserved as a new sequence, and the user
+// can always return to the pre-edit master.
+//
+// This pair is the safety net the bare drag-pitch mechanic shipped
+// without — Feature #6 in the sequencer-editor design list.
+const dirtySequences = new Set();
+const originalSequenceSnapshots = new Map();   // index → deep clone of the original
+
+// JSON deep-clone for sequence objects. Sequence shape is plain JSON
+// (no Date instances, no functions, no circular refs) so JSON round-
+// trip is the cheapest correct deep-clone.
+function cloneSeq(seq) { return JSON.parse(JSON.stringify(seq)); }
+
+/**
+ * Pick the next "(edited)" / "(edited N)" name for a sequence about
+ * to be saved as a new copy. Avoids `(edited) (edited)` stacking by
+ * stripping any existing trailing edited-marker from the source
+ * name, then looking across `allSequences` for the highest in-use
+ * number with the same base.
+ *
+ * Naming convention (per Daniel 2026-05-26):
+ *   Koehler Sequence                 (original)
+ *   Koehler Sequence (edited)        (first edit)
+ *   Koehler Sequence (edited 2)      (second edit)
+ *   Koehler Sequence (edited 3)      (third edit)
+ *   ...
+ *
+ * @param {string}  baseName        The current visible name (customName ?? defaultName)
+ * @param {object[]} allSequences   library.sequences (read for collision detection)
+ * @returns {string}                The new customName to assign to the edited copy
+ */
+function nextEditedSequenceName(baseName, allSequences) {
+  // Strip any trailing "(edited)" or "(edited N)" from the source so
+  // editing-an-edit picks up from the same base counter.
+  const stripped = baseName.replace(/\s*\(edited(?:\s+\d+)?\)\s*$/i, '');
+  // Match either "{stripped} (edited)" → counts as N=1
+  //        or    "{stripped} (edited N)" → counts as N
+  const escaped = stripped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escaped}\\s*\\(edited(?:\\s+(\\d+))?\\)$`, 'i');
+  let maxN = 0;
+  allSequences.forEach((s) => {
+    const name = (s && (s.customName || s.defaultName)) || '';
+    const m = name.match(re);
+    if (m) {
+      const n = m[1] ? parseInt(m[1], 10) : 1;
+      if (n > maxN) maxN = n;
+    }
+  });
+  const nextN = maxN + 1;
+  return nextN === 1 ? `${stripped} (edited)` : `${stripped} (edited ${nextN})`;
+}
+
+/**
+ * Is this displayed name a save-as-new edit copy? Pure pattern check
+ * against the "(edited)" / "(edited N)" suffix produced by
+ * nextEditedSequenceName. Used by renderSequencesList to mark these
+ * entries visually (italic + dimmed) so the user can distinguish
+ * originals from edits at a glance.
+ *
+ * Self-cleaning by design: if the user renames an edited copy to
+ * something else via the pencil icon, this returns false and the
+ * entry stops being marked. That's intentional — a renamed copy is
+ * now a "real" sequence in the user's mental model, no longer an
+ * edit artifact.
+ *
+ * @param {string} name  customName || defaultName
+ * @returns {boolean}
+ */
+function isEditedSequenceName(name) {
+  if (!name) return false;
+  return /\s*\(edited(?:\s+\d+)?\)\s*$/i.test(name);
+}
+
+/**
+ * Create a brand-new blank sequence and select it for editing. The
+ * sequence is added to the library list but NOT immediately saved to
+ * disk — it's marked dirty + isNew so:
+ *   - SAVE button shows immediately (sequence has unsaved state)
+ *   - SAVE writes in-place (no "(edited)" copy, since there's no
+ *     prior version to protect)
+ *   - The nav-away modal's DELETE removes the sequence entirely
+ *     (rather than reverting to a non-existent snapshot)
+ * After first SAVE, isNew is dropped and the sequence transitions
+ * to the normal save-as-new-copy flow for subsequent edits.
+ */
+function handleCreateNewSequence() {
+  const now = new Date();
+  // Match the existing default-name pattern from seed sequences:
+  // "Sequence May 18, 2026 at 12:23 PM"
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const defaultName = `Sequence ${dateStr} at ${timeStr}`;
+
+  const blankSeq = {
+    id: `seq-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    defaultName,
+    customName: null,
+    savedAt: now.toISOString(),
+    createdAt: now.toISOString(),
+    // tape.pages = 8 nulls → renderer treats each as 16 rests.
+    // _prepStepForInsert will fill them in on first edit.
+    tape: { pages: [null, null, null, null, null, null, null, null] },
+    app: { pairedPatch: null, patchNote: null },
+    isNew: true,
+  };
+
+  // Insert at the top of the library list (matches the save-as-new
+  // unshift behavior — newest sequences land at index 0).
+  if (!Array.isArray(library.sequences)) library.sequences = [];
+  library.sequences.unshift(blankSeq);
+  // Mark dirty so the SAVE button shows immediately. (NOT calling
+  // saveLibraryDebounced — the sequence stays in-memory until SAVE
+  // so DISCARD via nav modal can remove it cleanly.)
+  dirtySequences.add(0);
+  // No snapshot needed: isNew sequences don't restore-from-snapshot
+  // (SAVE writes in place, DISCARD removes entirely).
+
+  // Switch view to the new sequence in single-page mode (page 1)
+  // so the user can start composing immediately.
+  selBank = 'L';
+  selLibTab = 'sequences';
+  selSequence = 0;
+  selSeqVizPage = 0;
+  clearSequenceSelection();
+
+  renderPatchList();
+  renderCustomBuilder();   // triggers renderSequenceVisualizer
+}
+
+// ── Sequencer edit commit / discard / nav-guard helpers ───────────────────
+//
+// These three pure-ish helpers are the engine behind both the in-header
+// SAVE button (manual commit) AND the nav-away SAVE/DELETE/CANCEL modal
+// (interrupt-driven commit). Pulling them out of the SAVE handler means
+// both code paths produce identical library state, and the nav guard
+// doesn't have to duplicate the unshift / restore / re-render orchestration.
+
+/**
+ * Commit every dirty-tracked sequence to disk as a new "(edited N)"
+ * copy. Originals are restored in-place from their snapshots so the
+ * library's pre-edit master copies are preserved. The currently-
+ * viewed sequence's new copy lands at index 0 (top of the list);
+ * any other dirty sequences' copies unshift behind it.
+ *
+ * Post-conditions: dirtySequences + originalSequenceSnapshots both
+ * empty, library written to disk, renderPatchList + visualizer
+ * refreshed, selSequence pointing at the new copy of what was
+ * being viewed (if applicable).
+ *
+ * Throws if the library save IPC call fails — callers should
+ * catch and surface to the user (the SAVE button does this with
+ * a 'SAVE FAILED — RETRY' label; the nav modal will let the
+ * error propagate to the global error banner via showConfirmModal's
+ * built-in async-callback wrapper).
+ *
+ * @returns {Promise<void>}
+ */
+async function commitDirtyEditsAsNewCopies() {
+  if (dirtySequences.size === 0) return;
+  const nowIso = new Date().toISOString();
+  const newCopies = [];
+  // Capture the currently-viewed sequence's IDENTITY (object ref)
+  // before any mutations. For isNew sequences we follow the same
+  // object (which gets edited in-place); for non-new we'll jump to
+  // the unshifted copy.
+  const currentSeqRef = (selSequence !== null) ? library.sequences[selSequence] : null;
+  const currentWasNew = !!(currentSeqRef && currentSeqRef.isNew);
+
+  dirtySequences.forEach((idx) => {
+    const seq = library.sequences[idx];
+    if (!seq) return;
+    // isNew sequences: first-time save. No "(edited)" copy — the
+    // user is composing from scratch, there's no prior version to
+    // protect. Save in-place, drop the isNew flag so subsequent
+    // edits use the standard save-as-new-copy flow.
+    if (seq.isNew) {
+      seq.savedAt = nowIso;
+      delete seq.isNew;
+      return;     // skip the newCopies/snapshot machinery below
+    }
+    const editedCopy = cloneSeq(seq);
+    const baseName   = editedCopy.customName || editedCopy.defaultName || '(unnamed sequence)';
+    editedCopy.customName = nextEditedSequenceName(baseName, library.sequences);
+    editedCopy.savedAt    = nowIso;
+    editedCopy.createdAt  = nowIso;
+    newCopies.push({ origIdx: idx, copy: editedCopy });
+  });
+
+  // Restore originals from snapshots ONLY for sequences we pushed
+  // copies for. isNew sequences skip BOTH the copy push (above)
+  // AND this snapshot-restore (their snapshot is the blank starting
+  // state — restoring would erase the user's work).
+  const indicesWithCopies = new Set(newCopies.map((c) => c.origIdx));
+  originalSequenceSnapshots.forEach((snapshot, idx) => {
+    if (indicesWithCopies.has(idx)) {
+      library.sequences[idx] = cloneSeq(snapshot);
+    }
+  });
+
+  const otherCopies = newCopies.filter((c) => c.origIdx !== selSequence);
+  const currentCopy = newCopies.find((c) => c.origIdx === selSequence);
+  otherCopies.forEach(({ copy }) => library.sequences.unshift(copy));
+  if (currentCopy) library.sequences.unshift(currentCopy.copy);
+
+  // Resolve final selSequence:
+  //   - isNew-and-current: follow the same object (which may have
+  //     shifted index due to other unshifts).
+  //   - currentCopy exists: jump to the unshifted copy at idx 0
+  //     (user wants to see their just-edited version).
+  //   - Otherwise: shift the current index forward by the number
+  //     of new copies that landed before it.
+  if (currentWasNew && currentSeqRef) {
+    const newIdx = library.sequences.indexOf(currentSeqRef);
+    if (newIdx !== -1) selSequence = newIdx;
+  } else if (currentCopy) {
+    selSequence = 0;
+  } else if (selSequence !== null) {
+    selSequence += newCopies.length;
+  }
+
+  await window.api.saveLibrary(library);
+  dirtySequences.clear();
+  originalSequenceSnapshots.clear();
+  renderPatchList();
+  renderSequenceVisualizer();
+}
+
+/**
+ * Discard every dirty-tracked edit by restoring each sequence in
+ * library.sequences from its snapshot, clearing the tracking maps,
+ * and re-rendering the affected UIs. Synchronous — no disk write
+ * needed (we're reverting the in-memory copy to what's already
+ * on disk).
+ *
+ * @returns {void}
+ */
+function discardDirtyEdits() {
+  if (dirtySequences.size === 0) return;
+  // First: restore non-new dirty sequences from their snapshots.
+  // This is the standard "revert in-memory to disk-state" path.
+  originalSequenceSnapshots.forEach((snapshot, idx) => {
+    const seq = library.sequences[idx];
+    if (seq && seq.isNew) return;   // isNew handled below
+    library.sequences[idx] = cloneSeq(snapshot);
+  });
+  // Second: for isNew sequences, remove from library entirely (no
+  // disk version to revert to — DISCARD means "throw this away").
+  // Iterate in descending index order so splices don't shift the
+  // remaining indices we still need to remove.
+  const newIndices = Array.from(dirtySequences).filter((idx) => {
+    const seq = library.sequences[idx];
+    return seq && seq.isNew;
+  }).sort((a, b) => b - a);
+  newIndices.forEach((idx) => {
+    library.sequences.splice(idx, 1);
+    if (selSequence === idx) selSequence = null;
+    else if (selSequence !== null && selSequence > idx) selSequence -= 1;
+  });
+  dirtySequences.clear();
+  originalSequenceSnapshots.clear();
+  renderPatchList();
+  renderSequenceVisualizer();
+}
+
+/**
+ * Mutate-in-place: remove every voice at `pitch` in step `absStep`
+ * of the currently-selected sequence. Captures a snapshot of the
+ * sequence's pre-edit state on first mutation (matches the drag-
+ * pitch handler's snapshot behavior — first mutation snapshots the
+ * "true original" once), then marks the sequence dirty.
+ *
+ * For 'attack' cells this removes one voice (the new attack at that
+ * pitch). For 'tie' cells this removes both — voice[0] tied + the
+ * other voice's new attack at the same pitch — preserving the TIE
+ * encoding's all-or-nothing semantic. For 'hold-rest' cells this
+ * removes voice[0]'s tied continuation. Caller decides whether to
+ * re-render (we don't, so we don't fight a parent that's already
+ * scheduling one).
+ *
+ * @param {number} pitch    MIDI note number to remove
+ * @param {number} absStep  Absolute step index (0..127)
+ * @returns {boolean}       True if anything was actually removed.
+ */
+function deleteNoteAtStep(pitch, absStep) {
+  const STEPS_PER_PAGE = 16;
+  const seq = library.sequences && library.sequences[selSequence];
+  if (!seq) return false;
+  const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+  const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+  const stepIdx = absStep % STEPS_PER_PAGE;
+  const page = pages[pageIdx];
+  const step = page && page[stepIdx];
+  if (!step || !Array.isArray(step.voices)) return false;
+
+  // Snapshot before first mutation (idempotent — only the first call
+  // per-sequence stores; subsequent edits reuse the same snapshot).
+  if (!originalSequenceSnapshots.has(selSequence)) {
+    originalSequenceSnapshots.set(selSequence, cloneSeq(library.sequences[selSequence]));
+  }
+
+  let removed = false;
+  step.voices.forEach((voice, i) => {
+    if (voice && voice.note === pitch) {
+      step.voices[i] = null;
+      removed = true;
+    }
+  });
+
+  if (removed) {
+    dirtySequences.add(selSequence);
+    // If this delete restored the sequence to its pre-edit state
+    // (rare for delete alone, but possible after a prior insert/delete
+    // pair cancelled out), clear the dirty flag.
+    maybeClearDirty(selSequence);
+  }
+  return removed;
+}
+
+// ── Sequencer preview-playback helpers ─────────────────────────────
+//
+// Plays the selected sequence step-by-step through synth-preview.js,
+// driven by setInterval. Steps with new attacks (voice.tied === false)
+// fire previewNote per voice; rests + tied continuations are silent
+// (matches JX playback semantics — only new attacks produce sound).
+// A faint cream playhead overlay sweeps across the visualizer in
+// lockstep with the active step.
+//
+// Visible-range scope:
+//   - Single-page view → plays just that page's 16 steps
+//   - All-pages view   → plays all 128 steps
+// Mirrors "play what I'm looking at" mental model.
+//
+// Termination: auto-stop at end of range (button reverts to ▶);
+// click ⏸ button to stop manually; any navigation (seq change,
+// page switch, tab switch) calls stopSeqPlayback().
+
+// Rate slider's expanded/collapsed UI state. Default collapsed —
+// the slider is the secondary "fast adjust" affordance; the number
+// field is always visible. Click the chevron to slide-out / slide-in.
+// Module-scope so it persists across visualizer re-renders within
+// a session.
+let seqRateSliderExpanded = false;
+
+// (Sequential entry mode — NOTE/REST/TIE buttons + recording cursor +
+// selected-pitch tracking — was removed 2026-05-26. The buttons added
+// editor surface area without proving useful at the visualizer's
+// scale; positional Ctrl+click insert remained the canonical add path.)
+
+// Step interval is computed from seqPlayRatePct each tick.
+//   100% rate → 125 ms/step (fastest, ≈ default JX sequencer tempo)
+//    50% rate → 250 ms/step (the original hardcoded default)
+//     1% rate → 12500 ms/step (slowest sane preview)
+// Math: ms = 12500 / pct, so 12500/50 = 250 (matches the previous
+// SEQ_STEP_MS constant). Module-scope so the rate input in the
+// visualizer footer can mutate it from anywhere; persists for the
+// session but not across reloads (could add to library later).
+let seqPlayRatePct = 50;
+function seqStepMs() {
+  return Math.round(12500 / Math.max(1, seqPlayRatePct));
+}
+
+/**
+ * Start (or resume) sequence playback. Idempotent for the playing
+ * state — already-playing calls no-op. If state is currently PAUSED,
+ * resumes from the saved currentStep without rebuilding the playhead.
+ * If IDLE, builds a fresh playhead at the start of the visible range.
+ */
+function startSeqPlayback() {
+  if (seqPlayState && seqPlayState.timerId !== null) return;   // already playing
+  const seq = library.sequences && library.sequences[selSequence];
+  if (!seq || !seq.tape || !Array.isArray(seq.tape.pages)) return;
+  const pages = seq.tape.pages;
+
+  if (!seqPlayState) {
+    // IDLE → PLAYING: fresh start. Build playhead at start of range.
+    const startStep = (selSeqVizPage !== null && selSeqVizPage >= 0) ? selSeqVizPage * 16 : 0;
+    const visibleSteps = (selSeqVizPage !== null) ? 16 : 128;
+    const endStep = startStep + visibleSteps;
+
+    const rollSvg = document.querySelector('.seq-viz-svg');
+    if (!rollSvg) return;
+    const playheadEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    playheadEl.setAttribute('class', 'seq-viz-playhead');
+    playheadEl.setAttribute('x', String(startStep));
+    playheadEl.setAttribute('y', '0');
+    playheadEl.setAttribute('width', '1');
+    playheadEl.setAttribute('height', '49');     // PITCH_RANGE
+    rollSvg.appendChild(playheadEl);
+
+    seqPlayState = { timerId: null, currentStep: startStep, endStep, playheadEl };
+  }
+  // (Else: PAUSED → PLAYING. seqPlayState already has currentStep
+  // + endStep + playheadEl from the previous play session; we just
+  // need to restart the timer below.)
+
+  // Play the current step immediately so resume feels instantaneous.
+  playSeqStep(pages, seqPlayState.currentStep);
+
+  seqPlayState.timerId = setInterval(() => {
+    if (!seqPlayState) return;
+    seqPlayState.currentStep += 1;
+    if (seqPlayState.currentStep >= seqPlayState.endStep) {
+      stopSeqPlayback();
+      return;
+    }
+    playSeqStep(pages, seqPlayState.currentStep);
+    seqPlayState.playheadEl.setAttribute('x', String(seqPlayState.currentStep));
+  }, seqStepMs());
+
+  setSeqPlayButtonState(true);
+}
+
+/**
+ * Apply a new rate percentage to seqPlayRatePct. If playback is
+ * currently in flight, clear and restart the interval with the new
+ * timing so the change is audible immediately rather than next
+ * play. Clamps to [1, 100] — 0 would mean infinite step time, and
+ * >100 is meaningless against our "100% = JX default" mapping.
+ */
+function setSeqPlayRatePct(pct) {
+  const clamped = Math.max(1, Math.min(100, Math.round(pct)));
+  if (clamped === seqPlayRatePct) return;
+  seqPlayRatePct = clamped;
+  // Hot-restart the interval so an in-flight playback picks up the
+  // new timing without waiting for the next stop/play cycle.
+  if (seqPlayState && seqPlayState.timerId !== null) {
+    clearInterval(seqPlayState.timerId);
+    const seq   = library.sequences && library.sequences[selSequence];
+    const pages = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+    seqPlayState.timerId = setInterval(() => {
+      if (!seqPlayState) return;
+      seqPlayState.currentStep += 1;
+      if (seqPlayState.currentStep >= seqPlayState.endStep) {
+        stopSeqPlayback();
+        return;
+      }
+      playSeqStep(pages, seqPlayState.currentStep);
+      seqPlayState.playheadEl.setAttribute('x', String(seqPlayState.currentStep));
+    }, seqStepMs());
+  }
+}
+
+/**
+ * PLAYING → PAUSED: stop the timer but keep state + playhead visible
+ * at the current step. Subsequent startSeqPlayback() resumes from
+ * where we left off. Idempotent — no-op if not currently playing.
+ */
+function pauseSeqPlayback() {
+  if (!seqPlayState || seqPlayState.timerId === null) return;
+  clearInterval(seqPlayState.timerId);
+  seqPlayState.timerId = null;
+  setSeqPlayButtonState(false);   // button reverts to ▶ (means "resume")
+}
+
+/**
+ * Any state → IDLE: full stop. Clears timer, removes playhead,
+ * drops state entirely. Called by double-click on Play/Pause AND
+ * by navigation handlers (sequence switch, page switch, tab switch).
+ */
+function stopSeqPlayback() {
+  if (!seqPlayState) return;
+  if (seqPlayState.timerId !== null) clearInterval(seqPlayState.timerId);
+  if (seqPlayState.playheadEl && seqPlayState.playheadEl.parentNode) {
+    seqPlayState.playheadEl.parentNode.removeChild(seqPlayState.playheadEl);
+  }
+  seqPlayState = null;
+  setSeqPlayButtonState(false);
+}
+
+/**
+ * Move the playhead to whatever step the given cursor X lands in,
+ * clamped to the visible range. Optionally play the landed step's
+ * notes (at reduced volume during drag scrub). Used by both the
+ * click-to-jump handler AND the drag-scrub mousemove. Both rely
+ * on seqPlayState + the saved svgRect being set by the caller —
+ * for drag, captured at mousedown in seqPlayheadDragState; for
+ * click, measured inline.
+ *
+ * @param {DOMRect} svgRect  Bounding box of the roll SVG
+ * @param {number}  clientX  Cursor X (event.clientX)
+ * @param {object}  [opts]
+ * @param {boolean} [opts.playOnChange=false]  Fire playSeqStep when
+ *   the cursor crosses into a new step. Used by drag; click skips
+ *   this and handles its own play-on-click.
+ * @param {number}  [opts.gainScale=1]  Volume scale for the
+ *   play-on-change preview. Default 1 (full); drag passes 0.2.
+ */
+function scrubPlayheadTo(svgRect, clientX, opts = {}) {
+  if (!seqPlayState) return;
+  const xRatio = (clientX - svgRect.left) / svgRect.width;
+  const STEPS_PER_PAGE = 16;
+  const TOTAL_STEPS    = 128;
+  let absStep;
+  if (selSeqVizPage !== null) {
+    absStep = Math.floor(xRatio * STEPS_PER_PAGE) + selSeqVizPage * STEPS_PER_PAGE;
+    const min = selSeqVizPage * STEPS_PER_PAGE;
+    const max = min + STEPS_PER_PAGE - 1;
+    if (absStep < min) absStep = min;
+    if (absStep > max) absStep = max;
+  } else {
+    absStep = Math.floor(xRatio * TOTAL_STEPS);
+    if (absStep < 0) absStep = 0;
+    if (absStep > TOTAL_STEPS - 1) absStep = TOTAL_STEPS - 1;
+  }
+  if (absStep === seqPlayState.currentStep) return;
+  seqPlayState.currentStep = absStep;
+  seqPlayState.playheadEl.setAttribute('x', String(absStep));
+  if (opts.playOnChange) {
+    const seq = library.sequences[selSequence];
+    const pages = seq && seq.tape && seq.tape.pages;
+    if (pages) playSeqStep(pages, absStep, opts.gainScale != null ? opts.gainScale : 1);
+  }
+}
+
+function playSeqStep(pages, absStep, gainScale = 1) {
+  const STEPS_PER_PAGE = 16;
+  const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+  const stepIdx = absStep % STEPS_PER_PAGE;
+  const page = pages[pageIdx];
+  const step = page && page[stepIdx];
+  if (!step || !Array.isArray(step.voices)) return;
+  step.voices.forEach((v) => {
+    // Only NEW ATTACKS produce sound — rests + tied continuations
+    // are silent in JX playback semantics (and `previewNote` is a
+    // one-shot envelope, no sustain across steps). gainScale lets
+    // drag-scrub call us at reduced volume (0.2) so the rapid
+    // notes during scrubbing don't drown out the user.
+    if (v && typeof v.note === 'number' && v.tied === false) {
+      previewNote(v.note, undefined, gainScale);
+    }
+  });
+}
+
+function setSeqPlayButtonState(isPlaying) {
+  const btn = document.querySelector('.seq-viz-play-btn');
+  if (!btn) return;
+  btn.textContent = isPlaying ? '⏸' : '▶';
+  btn.setAttribute('title', isPlaying ? 'Pause playback' : 'Play sequence at ~50% rate');
+  btn.classList.toggle('playing', isPlaying);
+}
+
+/**
+ * If the current state of a dirty-tracked sequence is byte-identical
+ * to its pre-edit snapshot, clear the dirty flag + drop the snapshot
+ * — the user has effectively undone all their edits (e.g. dragged a
+ * note back to its original pitch). Without this, the SAVE button
+ * would linger even when there's nothing actually to save.
+ *
+ * Equality check is JSON-roundtrip (both `current` and `snapshot`
+ * were created via cloneSeq's JSON.parse(JSON.stringify(...))) so
+ * their key insertion order matches in V8. Sequence data is pure
+ * JSON shape — no Date, no functions, no circular refs — so this is
+ * a correct deep-equal under the V8 string-key insertion-order rule.
+ *
+ * Safe to call when the sequence isn't dirty (no-op).
+ *
+ * @param {number} idx  index into library.sequences
+ */
+function maybeClearDirty(idx) {
+  if (!dirtySequences.has(idx)) return;
+  const current = library.sequences[idx];
+  if (!current) return;
+  // isNew sequences stay dirty until first SAVE — they have no disk
+  // version, so "matches the snapshot" doesn't mean "clean." (The
+  // snapshot would be the blank starting state; if the user deletes
+  // everything to get back to blank, we still need them to SAVE to
+  // persist the new sequence at all.)
+  if (current.isNew) return;
+  const snapshot = originalSequenceSnapshots.get(idx);
+  if (!snapshot) return;
+  if (JSON.stringify(current) === JSON.stringify(snapshot)) {
+    dirtySequences.delete(idx);
+    originalSequenceSnapshots.delete(idx);
+  }
+}
+
+/**
+ * Clear the keyboard-delete note selection + remove any .selected
+ * visual on the rendered cell. Safe to call when nothing is selected.
+ * Doesn't re-render — caller decides whether the surrounding context
+ * (mutation, navigation) already triggers a render.
+ */
+function clearSequenceSelection() {
+  selectedSeqNotes = [];
+  document.querySelectorAll('.seq-viz-note.selected').forEach((el) => el.classList.remove('selected'));
+}
+
+/**
+ * Add the .selected class to every rect matching an entry in
+ * selectedSeqNotes. Called after every render so selection state
+ * survives re-renders that don't change the underlying notes.
+ * No-op when nothing is selected.
+ */
+function applySequenceSelectionVisual() {
+  if (selectedSeqNotes.length === 0) return;
+  selectedSeqNotes.forEach(({ pitch, absStep }) => {
+    const sel = document.querySelector(
+      `.seq-viz-note[data-pitch="${pitch}"][data-step="${absStep}"]`
+    );
+    if (sel) sel.classList.add('selected');
+  });
+}
+
+/**
+ * Wire the document-level keyboard handler exactly once. Listens
+ * for Delete / Backspace (delete the selected note) and Escape
+ * (clear the selection without deleting). Skipped when focus is
+ * inside an editable element (input / textarea / contenteditable)
+ * so typing in the rename pencil doesn't accidentally nuke the
+ * selected sequence cell.
+ */
+function setupSeqKeyListenerOnce() {
+  if (seqKeyListenerWired) return;
+  seqKeyListenerWired = true;
+  // Double-tap-spacebar detection (parallels the play-button's
+  // dblclick → full reset). First Space press fires single action
+  // (play/pause/resume) immediately; if a second Space arrives
+  // within 300 ms, that single action stays applied but we ALSO
+  // run stopSeqPlayback for the full reset. Net end state is the
+  // same as a direct double-click on the ▶ button.
+  let recentSpaceTap = false;
+  let recentSpaceTapTimer = null;
+  const SPACE_DBLTAP_MS = 300;
+  document.addEventListener('keydown', (e) => {
+    // Don't intercept typing in inputs / textareas / contenteditable
+    // so rate-input, name-pencil etc. keep their native behavior.
+    // (This guards the rate slider too — range inputs respond to
+    // arrow keys natively for ±1 increments, and we don't want to
+    // hijack that with our left-arrow-resets-playhead shortcut.)
+    const t = e.target;
+    if (t && (
+      t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+      t.isContentEditable
+    )) return;
+
+    // All sequencer-scoped shortcuts (Space, ArrowLeft, Delete/
+    // Backspace, Escape) only fire when the visualizer is actually
+    // on-screen — otherwise pressing Space anywhere in the app
+    // would unexpectedly toggle playback. Gate via the container's
+    // hidden attribute, which renderCustomBuilder toggles based on
+    // selBank/selLibTab/selSequence.
+    const viz = document.getElementById('sequence-visualizer');
+    if (!viz || viz.hidden) return;
+
+    // Space: same logic as clicking the ▶ button.
+    //   - First tap → play / pause / resume (fires immediately)
+    //   - Second tap within 300 ms → full reset (matches dblclick
+    //     on the ▶ button). The first tap's action already ran,
+    //     stopSeqPlayback is idempotent under whatever state that
+    //     left us in.
+    // preventDefault so a focused button doesn't also trigger its
+    // own click on the same space press.
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (recentSpaceTap) {
+        recentSpaceTap = false;
+        if (recentSpaceTapTimer) { clearTimeout(recentSpaceTapTimer); recentSpaceTapTimer = null; }
+        stopSeqPlayback();
+        return;
+      }
+      recentSpaceTap = true;
+      recentSpaceTapTimer = setTimeout(() => {
+        recentSpaceTap = false;
+        recentSpaceTapTimer = null;
+      }, SPACE_DBLTAP_MS);
+      if (!seqPlayState)                       startSeqPlayback();   // idle  → play
+      else if (seqPlayState.timerId !== null)  pauseSeqPlayback();   // play  → pause
+      else                                     startSeqPlayback();   // pause → resume
+      return;
+    }
+    // ArrowLeft: full reset → idle (same as double-click on ▶).
+    // Returns playhead to start of visible range.
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      stopSeqPlayback();
+      return;
+    }
+
+    // Escape: clear positional selection (no-op when empty).
+    if (e.key === 'Escape') {
+      if (selectedSeqNotes.length > 0) clearSequenceSelection();
+      return;
+    }
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedSeqNotes.length === 0) return;
+      // Delete every selected note. Loop calls deleteNoteAtStep
+      // per entry; re-render once at the end. The mutation helper
+      // tracks dirty + snapshot per-sequence so multiple deletes
+      // accumulate into the same edit session.
+      let anyRemoved = false;
+      selectedSeqNotes.forEach(({ pitch, absStep }) => {
+        if (deleteNoteAtStep(pitch, absStep)) anyRemoved = true;
+      });
+      clearSequenceSelection();
+      if (anyRemoved) {
+        e.preventDefault();
+        renderSequenceVisualizer();
+      }
+    }
+  });
+}
+
+/**
+ * Return ALL new-attack pitches in the IMMEDIATELY preceding column
+ * (absStep - 1). Used by polyphonic REST + TIE inserts to know what
+ * set of pitches to continue/re-attack.
+ *
+ * Returns empty array if absStep is 0 OR the immediate previous
+ * column has no new attacks. Only voices with `tied: false` count
+ * (chord new attacks); tied continuations from earlier are excluded
+ * — per Daniel 2026-05-26, Option B (matches JX recording flow
+ * where REST/TIE land right after fresh key presses).
+ *
+ * Empirical basis (2026-05-26): Daniel's chord+REST recording on
+ * the JX showed that REST after a 5-voice chord ties ALL 5 voices
+ * into the next step (not just voice[0] as pitfall #16's single-
+ * voice case suggested). Our editor's REST must match.
+ *
+ * @param {number}   absStep  Step we're inserting AT
+ * @param {object[]} pages    library.sequences[selSequence].tape.pages
+ * @returns {number[]}        Array of MIDI pitches from prev column
+ *                            (empty if no prev attacks)
+ */
+function previousColumnAttackPitches(absStep, pages) {
+  if (absStep <= 0) return [];
+  const STEPS_PER_PAGE = 16;
+  const prevStep = absStep - 1;
+  const page = pages[Math.floor(prevStep / STEPS_PER_PAGE)];
+  const step = page && page[prevStep % STEPS_PER_PAGE];
+  if (!step || !Array.isArray(step.voices)) return [];
+  return step.voices
+    .filter((v) => v && typeof v.note === 'number' && v.tied === false)
+    .map((v) => v.note);
+}
+
+/**
+ * Does this page contain any actual note data? A page exists in the
+ * data as an array of 16 steps even when empty (after on-demand
+ * init by _prepStepForInsert), so "is it an array" isn't a strong
+ * enough signal — we need to know if any voice slot anywhere on
+ * the page is populated. Used by the page-button dimming logic to
+ * fade buttons whose pages have no real content.
+ *
+ * @param {object[] | null | undefined} page
+ * @returns {boolean}
+ */
+function pageHasContent(page) {
+  if (!page || !Array.isArray(page)) return false;
+  return page.some((step) =>
+    step && Array.isArray(step.voices) && step.voices.some((v) => v != null)
+  );
+}
+
+// Internal: get the step's voices array, snapshot the sequence if
+// this is the first edit, and return the step for direct mutation.
+// Returns null only if there's no selected sequence (no possible
+// place to insert). If the page is null/missing, initializes it as
+// 16 empty steps with byte7=127 (the "never written" sentinel) so
+// the user can insert into pages the JX never sent.
+function _prepStepForInsert(absStep) {
+  const STEPS_PER_PAGE = 16;
+  const seq = library.sequences && library.sequences[selSequence];
+  if (!seq) return null;
+  if (!seq.tape) return null;
+  if (!Array.isArray(seq.tape.pages)) seq.tape.pages = [];
+
+  // Snapshot BEFORE any structural change to the sequence (page
+  // init counts) so revert correctly restores the pre-edit shape.
+  if (!originalSequenceSnapshots.has(selSequence)) {
+    originalSequenceSnapshots.set(selSequence, cloneSeq(library.sequences[selSequence]));
+  }
+
+  const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+  const stepIdx = absStep % STEPS_PER_PAGE;
+
+  // On-demand page init. byte7=127 marks every step as "never
+  // written" (per pitfall #16); the calling insert helper will
+  // flip its target step's byte7 to 1 after writing the voice.
+  if (!seq.tape.pages[pageIdx]) {
+    const fresh = [];
+    for (let i = 0; i < STEPS_PER_PAGE; i++) {
+      fresh.push({ voices: [null, null, null, null, null, null, null], byte7: 127 });
+    }
+    seq.tape.pages[pageIdx] = fresh;
+  }
+  return seq.tape.pages[pageIdx][stepIdx];
+}
+
+/**
+ * NOTE insert at `(pitch, absStep)`: write `{note: pitch, tied: false}`
+ * into the first empty voice slot. No-op (returns false) if all 7
+ * voice slots are taken — JX-3P's polyphony cap is 7 simultaneous
+ * voices per step. Marks the sequence dirty on success.
+ *
+ * @returns {boolean}  True if the note was inserted.
+ */
+function insertNoteAtStep(pitch, absStep) {
+  const step = _prepStepForInsert(absStep);
+  if (!step) return false;
+  // Match-JX rule (Daniel 2026-05-26): the JX itself can't record a
+  // step that mixes a note attack with a rest/tie continuation —
+  // REST and TIE are whole-step events on the front panel. So reject
+  // a NOTE insert when the column already has any tied voice
+  // (REST = voice[0..N-1] tied; canonical TIE = voice[0] tied + match
+  // new-attack). Caller should have gated the tooltip but double-check.
+  if (step.voices.some((v) => v && v.tied === true)) return false;
+  // Polyphony cap (2026-05-26): JX-3P is 6-voice polyphonic so we
+  // limit inserts to 6 populated voice slots per step, even though
+  // the wire format has 7. The 7th slot in the data is either
+  // reserved or used for something other than a 7th voice (unclear
+  // without checking Bruce's codec source), so honoring 6 matches
+  // what the synth can actually play.
+  // Count is what matters, not slot position — a step with voice[0..4]
+  // and voice[6] populated still has 6 voices and should reject more.
+  const MAX_VOICES = 6;
+  const populatedCount = step.voices.filter((v) => v != null).length;
+  if (populatedCount >= MAX_VOICES) return false;
+  const emptyIdx = step.voices.findIndex((v) => v === null || v === undefined);
+  if (emptyIdx === -1) return false;
+  step.voices[emptyIdx] = { note: pitch, tied: false };
+  // Flip the "never written" sentinel so the codec round-trips the
+  // new attack (pitfall #16: byte7=127 = never written, byte7=1 =
+  // populated). No-op if already 1.
+  step.byte7 = 1;
+  dirtySequences.add(selSequence);
+  // Check if the cumulative edits cancelled out (e.g. user inserted
+  // then deleted, ending back at the snapshot state). Clears dirty
+  // if so.
+  maybeClearDirty(selSequence);
+  return true;
+}
+
+/**
+ * REST insert at `absStep`: write voice[0] = {tied to previousPitch}.
+ * Per pitfall #16, REST in JX semantics is "continue the previous
+ * note's pitch as a tied voice[0]" — silent in the user's mental
+ * model but encoded as a tied continuation in the wire data. The
+ * clicked pitch row is intentionally ignored; REST always uses the
+ * previous attack's pitch.
+ *
+ * @returns {boolean}  True if inserted (false when no previous attack).
+ */
+function insertRestAtStep(absStep) {
+  const step = _prepStepForInsert(absStep);
+  if (!step) return false;
+  // REST is only valid in a completely empty step (matches JX
+  // recording where REST is a whole-step event). Caller should
+  // have gated the tooltip but double-check.
+  if (step.voices.some((v) => v != null)) return false;
+  const seq   = library.sequences[selSequence];
+  const pages = seq.tape.pages;
+  // Polyphonic REST (per Daniel 2026-05-26 JX empirical test):
+  // JX REST after a chord ties ALL chord voices into the next step,
+  // not just voice[0]. So we write one tied voice per prev-column
+  // new attack. Cap at 6 (JX polyphony) — should be impossible to
+  // exceed since the prev column is also capped at 6.
+  const prevPitches = previousColumnAttackPitches(absStep, pages).slice(0, 6);
+  if (prevPitches.length === 0) return false;
+  prevPitches.forEach((pitch, i) => {
+    step.voices[i] = { note: pitch, tied: true };
+  });
+  step.byte7 = 1;
+  dirtySequences.add(selSequence);
+  maybeClearDirty(selSequence);
+  return true;
+}
+
+/**
+ * TIE insert at `absStep`: write voice[0] = {tied to prevPitch} AND
+ * voice[1] = {new attack at prevPitch} — the JX-3P TIE-button
+ * signature per pitfall #16. Same "uses previous pitch, ignores
+ * clicked row" rule as REST.
+ *
+ * @returns {boolean}  True if inserted (false when no previous attack).
+ */
+function insertTieAtStep(absStep) {
+  const step = _prepStepForInsert(absStep);
+  if (!step) return false;
+  // TIE is only valid in a completely empty step.
+  if (step.voices.some((v) => v != null)) return false;
+  const seq   = library.sequences[selSequence];
+  const pages = seq.tape.pages;
+  const prevPitches = previousColumnAttackPitches(absStep, pages).slice(0, 6);
+  if (prevPitches.length === 0) return false;
+
+  // TIE encoding rule (per Daniel 2026-05-26 empirical + reasoning):
+  // - Canonical TIE = {tied: true} + {tied: false} pair per pitch
+  //   (matches single-voice TIE in pitfall #16; renders BLUE).
+  //   Uses 2N voice slots for N pitches.
+  // - JX 6-voice polyphony cap means canonical fits when N ≤ 3.
+  // - For N ≥ 4, fall back to fresh-attacks-only (matches the JX
+  //   firmware's polyphonic-TIE fallback observed in Daniel's
+  //   5-voice chord+TIE test). Renders RED but tooltip catches it
+  //   as "tie" via the same-attacks-as-prev-column heuristic.
+  const canFitCanonical = prevPitches.length * 2 <= 6;
+  if (canFitCanonical) {
+    let slotIdx = 0;
+    prevPitches.forEach((pitch) => {
+      step.voices[slotIdx++] = { note: pitch, tied: true };
+      step.voices[slotIdx++] = { note: pitch, tied: false };
+    });
+  } else {
+    // Polyphonic fallback: one fresh attack per pitch, no tied
+    // voices. Data-shape-identical to chord re-attack (the JX
+    // firmware doesn't distinguish either).
+    prevPitches.forEach((pitch, i) => {
+      step.voices[i] = { note: pitch, tied: false };
+    });
+  }
+
+  step.byte7 = 1;
+  dirtySequences.add(selSequence);
+  maybeClearDirty(selSequence);
+  return true;
+}
+
+/**
+ * Show a 3-button NOTE / REST / TIE insert tooltip near the cursor.
+ * Buttons use the visualizer's cell colors (red NOTE / green REST /
+ * blue TIE) for visual continuity. REST and TIE disable themselves
+ * when no previous attack exists in the sequence (nothing to continue).
+ *
+ * Click → mutate via the corresponding insertXxxAtStep helper +
+ * dismiss + re-render. Outside-click / Escape → dismiss without
+ * action.
+ *
+ * @param {number} clientX   Cursor X at click time
+ * @param {number} clientY   Cursor Y at click time
+ * @param {number} pitch     MIDI pitch derived from cursor Y (used by NOTE only)
+ * @param {number} absStep   Absolute step index derived from cursor X
+ */
+function showInsertCellTooltip(clientX, clientY, pitch, absStep) {
+  // Dispose any prior tip cleanly (element + listeners). This handles
+  // the "click empty area again to reposition tip" case: outsideClick
+  // skips dismissing for empty-area clicks (see below), so the click
+  // handler ends up here and we tear down the old tip ourselves.
+  if (activeInsertTipDismiss) {
+    activeInsertTipDismiss();
+    activeInsertTipDismiss = null;
+  }
+  document.querySelectorAll('.seq-viz-edit-tip').forEach((el) => el.remove());
+
+  // Polyphonic REST/TIE (Daniel 2026-05-26 JX empirical finding):
+  // both inserts tie/re-attack ALL new attacks in the previous
+  // column, not just the closest one. So we just need to know
+  // WHETHER the prev column has any attacks — the inserter pulls
+  // the actual pitches.
+  const seq    = library.sequences && library.sequences[selSequence];
+  const pages  = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+  const canContinue = previousColumnAttackPitches(absStep, pages).length > 0;
+
+  // Step state for REST + TIE eligibility (per Daniel 2026-05-26):
+  // BOTH require a completely empty step — matches JX-3P recording
+  // flow where REST and TIE are whole-step events that can't be
+  // combined with chord notes in the same step. (Earlier the editor
+  // allowed TIE in non-empty steps as a convenience; reverted to
+  // strict JX-match because the editor was producing data shapes
+  // the JX itself would never record.)
+  const STEPS_PER_PAGE = 16;
+  const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+  const stepIdx = absStep % STEPS_PER_PAGE;
+  const stepObj = pages[pageIdx] && pages[pageIdx][stepIdx];
+  const voices = (stepObj && Array.isArray(stepObj.voices)) ? stepObj.voices : [];
+  const stepIsEmpty = voices.every((v) => v == null);
+  // NOTE eligibility (Daniel 2026-05-26): match-JX rule — block NOTE
+  // when the column has any tied voice (REST or canonical TIE).
+  // The JX itself can't record a note attack in the same step as a
+  // rest/tie continuation, so we don't either. A column with only
+  // notes (a chord) is fine — NOTE adds another voice up to 6.
+  const stepHasTied = voices.some((v) => v && v.tied === true);
+  const noteAvailable = !stepHasTied;
+
+  const tip = document.createElement('div');
+  tip.className = 'seq-viz-edit-tip';
+  tip.style.position = 'fixed';
+  // Anchor close to the cursor tip so the user doesn't have to travel
+  // far to hit a button (Daniel 2026-05-26). 3px offset keeps the
+  // tooltip from overlapping the cursor's hit-target while still
+  // landing near the click point.
+  tip.style.left = `${clientX + 3}px`;
+  tip.style.top  = `${clientY + 3}px`;
+
+  // Button glyphs mirror the JX-3P front-panel notation (Daniel 2026-05-26).
+  //   ♪  = note (eighth-note glyph; size bumped via inline style so
+  //        it visually pairs with the SVG rest below — the default
+  //        text-character size renders smaller than the SVG)
+  //   ⌣  = tie (upward-opening arc — rotated 180° from earlier ⌒ to
+  //        match the JX panel orientation)
+  //   <svg eighth-rest> = rest (diagonal stem + flag dot)
+  // The Unicode music-rest characters (𝄾 𝄽) are SMP and don't
+  // render reliably; SVG is universal.
+  // Button glyphs mirror the hover-tooltip styling exactly (Daniel
+  // 2026-05-26): same padding + REST SVG dimensions. Note + tie
+  // wrapped in 22 px spans so their visible-glyph height matches
+  // the SVG rest's ~14 px (text glyphs visible-area ~60-65 % of
+  // font-size). At plain 16 px (button base font), ♪ and ⌣
+  // rendered smaller than the rest icon.
+  const NOTE_GLYPH = '<span style="font-size:22px;line-height:1;display:inline-block;vertical-align:middle;">♪</span>';
+  const TIE_GLYPH  = '<span style="font-size:22px;line-height:1;display:inline-block;vertical-align:middle;">⌣</span>';
+  const REST_GLYPH =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10.03 17.67" ` +
+    `width="10" height="14" style="display:inline-block;vertical-align:middle;fill:currentColor;">` +
+    `<g transform="translate(-482.02112,-143.61753)">` +
+    `<g transform="matrix(1.8,0,0,1.8,-471.40868,9.4615275)">` +
+    `<path d="M 531.098,74.847 C 530.578,74.945 530.18,75.304 530,75.8 C 529.961,75.96 529.961,75.999 529.961,76.218 C 529.961,76.519 529.98,76.679 530.121,76.917 C 530.32,77.316 530.738,77.636 531.215,77.753 C 531.715,77.894 532.551,77.773 533.508,77.456 L 533.746,77.374 L 532.57,80.624 L 531.414,83.87 C 531.414,83.87 531.453,83.89 531.516,83.933 C 531.633,84.011 531.832,84.07 531.973,84.07 C 532.211,84.07 532.512,83.933 532.551,83.812 C 532.551,83.773 533.109,81.878 533.785,79.628 L 534.98,75.503 L 534.941,75.445 C 534.844,75.324 534.645,75.285 534.523,75.382 C 534.484,75.421 534.422,75.503 534.383,75.562 C 534.203,75.863 533.746,76.398 533.508,76.597 C 533.289,76.777 533.168,76.796 532.969,76.718 C 532.789,76.62 532.73,76.519 532.609,75.98 C 532.492,75.445 532.352,75.202 532.051,75.003 C 531.773,74.824 531.414,74.765 531.098,74.847 z"/>` +
+    `</g></g></svg>`;
+
+  const makeBtn = (label, variant, disabled, onClick, title, isHtml) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `seq-viz-edit-tip-btn seq-viz-edit-tip-btn-${variant}`;
+    if (isHtml) b.innerHTML = label;        // SVG / mixed-markup labels
+    else        b.textContent = label;       // plain glyphs / pitch names
+    if (disabled) b.disabled = true;
+    if (title)    b.title    = title;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (disabled) return;
+      const ok = onClick();
+      dismiss();
+      if (ok) renderSequenceVisualizer();
+    });
+    return b;
+  };
+
+  const noteBtn = makeBtn(NOTE_GLYPH, 'attack', !noteAvailable,
+    () => insertNoteAtStep(pitch, absStep),
+    noteAvailable
+      ? 'Insert a new attack at the clicked pitch'
+      : 'Can’t add a note to a step that has a rest or tie — the JX-3P doesn’t mix those',
+    /* isHtml */ true);
+  tip.appendChild(noteBtn);
+
+  // REST + TIE availability — both require the column to be
+  // COMPLETELY EMPTY (matches JX-3P recording flow). Plus the
+  // previous column must have a new attack to reference.
+  const restAvailable = canContinue && stepIsEmpty;
+  const tieAvailable  = canContinue && stepIsEmpty;
+  if (restAvailable) {
+    tip.appendChild(makeBtn(REST_GLYPH, 'rest', false,
+      () => insertRestAtStep(absStep),
+      'Insert a polyphonic rest — silently continues every new attack from the previous column',
+      /* isHtml */ true));
+  }
+  if (tieAvailable) {
+    tip.appendChild(makeBtn(TIE_GLYPH, 'tie', false,
+      () => insertTieAtStep(absStep),
+      'Tie — re-attacks every new attack from the previous column',
+      /* isHtml */ true));   // TIE_GLYPH wraps ⌣ in a sized <span>
+  }
+  document.body.appendChild(tip);
+
+  // Viewport-edge clamp. With 3 buttons the tooltip is ~210px wide; a
+  // click near the right edge would push the TIE button off-screen.
+  // After the tooltip is in the DOM we can measure it and flip the
+  // horizontal anchor to the LEFT of the cursor if right-anchor
+  // overflows. Same logic for bottom-edge → flip above the cursor.
+  const tipBox = tip.getBoundingClientRect();
+  const overflowRight  = tipBox.right  > window.innerWidth  - 8;
+  const overflowBottom = tipBox.bottom > window.innerHeight - 8;
+  if (overflowRight) {
+    tip.style.left = `${clientX - tipBox.width - 3}px`;
+  }
+  if (overflowBottom) {
+    tip.style.top  = `${clientY - tipBox.height - 3}px`;
+  }
+
+  const dismiss = () => {
+    tip.remove();
+    document.removeEventListener('mousedown', outsideClick, true);
+    document.removeEventListener('keydown', escKey);
+    if (activeInsertTipDismiss === dismiss) activeInsertTipDismiss = null;
+  };
+  // outsideClick rules:
+  //   - target inside the tip itself → keep open
+  //   - target on empty area of the seq SVG in single-page view →
+  //       SKIP (the rollSvg click handler will call
+  //       showInsertCellTooltip, which disposes this tip via
+  //       activeInsertTipDismiss and opens the new one)
+  //   - anything else (notes, header, other UI) → dismiss
+  const outsideClick = (e) => {
+    if (tip.contains(e.target)) return;
+    const t = e.target;
+    const inRoll = t && typeof t.closest === 'function' && t.closest('.seq-viz-svg');
+    const isNote = t && t.classList && t.classList.contains('seq-viz-note');
+    if (inRoll && !isNote && selSeqVizPage !== null) return;
+    dismiss();
+  };
+  const escKey = (e) => { if (e.key === 'Escape') dismiss(); };
+  setTimeout(() => {
+    document.addEventListener('mousedown', outsideClick, true);
+    document.addEventListener('keydown', escKey);
+    activeInsertTipDismiss = dismiss;
+  }, 0);
+}
+
+// (showDeleteNoteTooltip removed 2026-05-26 — replaced by select+
+// keyboard-Delete flow. deleteNoteAtStep still lives above as the
+// shared mutation helper; the keyboard handler in setupSeqKeyListenerOnce
+// calls it directly.)
+
+/**
+ * Nav-away guard. Wraps any navigation action that would move the
+ * user away from a sequence with uncommitted edits. If no edits are
+ * pending, the action runs immediately. If edits are pending, a
+ * SAVE / DELETE / CANCEL modal pops:
+ *   - SAVE   → commitDirtyEditsAsNewCopies(), then run action
+ *   - DELETE → discardDirtyEdits(), then run action
+ *   - CANCEL → modal closes, action does NOT run (user stays put)
+ *
+ * "DELETE" matches Daniel's spec wording. The actual semantic is
+ * "discard the in-memory edits" (the on-disk original is never
+ * touched), but DELETE reads more naturally as the "throw away
+ * what I did" affordance.
+ *
+ * Wire this around every navigation that exits the current sequence
+ * view: clicking a different sequence in the Library Sequences list,
+ * switching the sub-tab (Sequences ↔ Tones), switching the main bank
+ * tab (L ↔ C ↔ D). Drag-reorder + delete-via-trash on sequences are
+ * not yet guarded — both will silently commit pending edits via the
+ * unrelated-library-write path. Document as a known limitation.
+ *
+ * @param {() => void} action  The nav action to execute (sync). If
+ *                             the user cancels, action is not called.
+ * @returns {void}
+ */
+function guardSeqNav(action) {
+  // Navigation always stops playback — the playhead would be stranded
+  // in a sequence the user is no longer viewing, and continued audio
+  // would feel disconnected. Called even when the early-return-clean
+  // path fires (no dirty sequences) so the play-stop fires regardless.
+  stopSeqPlayback();
+  if (dirtySequences.size === 0) {
+    action();
+    return;
+  }
+
+  // Compose a friendly subject string for the modal body. Singular
+  // case names the actual sequence; multi-dirty case (rare — usually
+  // just the current sequence is dirty) shows a count instead.
+  const dirtyIndices = Array.from(dirtySequences);
+  let subjectName;
+  if (dirtyIndices.length === 1) {
+    const seq = library.sequences[dirtyIndices[0]];
+    subjectName = (seq && (seq.customName || seq.defaultName)) || 'this sequence';
+  } else {
+    subjectName = `${dirtyIndices.length} sequences`;
+  }
+
+  showConfirmModal({
+    title: 'Sequence has been edited',
+    body:
+      `*${subjectName}* has unsaved edits.\n\n` +
+      'SAVE creates a new copy in the library; the original stays untouched.\n' +
+      'DELETE discards your changes and reverts to the original.',
+    confirmLabel: 'SAVE',
+    onConfirm: async () => {
+      await commitDirtyEditsAsNewCopies();
+      action();
+    },
+    tertiaryLabel: 'DELETE',
+    tertiaryStyle: 'danger',
+    onTertiary: () => {
+      discardDirtyEdits();
+      action();
+    },
+  });
+}
 let selLibTab  = 'tones';  // 'tones' | 'sequences'
 // pkg.id of a freshly-saved library package that should animate into the list
 // on the next render. Cleared once the row is created. NOTE: live above any
@@ -2804,7 +4065,14 @@ function renderSequencesList(list) {
 
   seqs.forEach((seq, idx) => {
     const item = document.createElement('div');
-    item.className = 'package-item' + (idx === selSequence ? ' selected' : '');
+    // Mark edited copies (name matches "(edited)" / "(edited N)")
+    // with the .edited-copy modifier so CSS can render them italic +
+    // dim. Self-cleans when user renames via the pencil affordance.
+    const displayName = seq.customName || seq.defaultName;
+    const isEdited    = isEditedSequenceName(displayName);
+    item.className = 'package-item' +
+                     (idx === selSequence ? ' selected'     : '') +
+                     (isEdited            ? ' edited-copy'  : '');
     if (seq.id && seq.id === pendingSaveAnimationId) {
       item.classList.add('just-saved');
       pendingSaveAnimationId = null;
@@ -2815,7 +4083,7 @@ function renderSequencesList(list) {
 
     const nm = document.createElement('span');
     nm.className = 'package-name-span' + (seq.customName ? '' : ' unnamed');
-    nm.textContent = seq.customName || seq.defaultName;
+    nm.textContent = displayName;
     appendRenamePencil(nm);  // always shown — see renderPatchList for rationale
 
     const def = document.createElement('span');
@@ -2848,10 +4116,17 @@ function renderSequencesList(list) {
         startSequenceNameEdit(idx, nm, def, inp);
         return;
       }
-      selSequence = idx;
-      selSeqVizPage = null;     // reset zoom when switching sequences
-      renderPatchList();
-      renderCustomBuilder();    // refresh the visualizer for the newly-selected sequence
+      // Clicking the same sequence is a no-op — skip the guard so
+      // it doesn't pop a stale "SAVE or DELETE" modal when the user
+      // is already viewing this one.
+      if (idx === selSequence) return;
+      guardSeqNav(() => {
+        selSequence = idx;
+        selSeqVizPage = null;     // reset zoom when switching sequences
+        clearSequenceSelection(); // selection is per-sequence
+        renderPatchList();
+        renderCustomBuilder();    // refresh the visualizer for the newly-selected sequence
+      });
     });
     inp.addEventListener('keydown', (e) => {
       if (e.key === 'Enter')  commitSequenceNameEdit(idx, nm, def, inp);
@@ -3022,10 +4297,30 @@ function commitSequenceNameEdit(idx, nm, def, inp) {
   nm.style.display  = '';
   saveLibraryDebounced();
   renderPatchList();
+  // Visualizer header reads from library.sequences[idx].customName too.
+  // Without this, the bottom header stays stale ("Old Name") until the
+  // user clicks something else that triggers a render. Only fire when
+  // the renamed sequence is the one currently being visualized — no
+  // point repainting if we're not showing it.
+  if (idx === selSequence) renderSequenceVisualizer();
   if (oldName !== newName) {
     pushUndo({
-      undo: () => { if (library.sequences[idx]) { library.sequences[idx].customName = oldName; saveLibraryDebounced(); renderPatchList(); } },
-      redo: () => { if (library.sequences[idx]) { library.sequences[idx].customName = newName; saveLibraryDebounced(); renderPatchList(); } },
+      undo: () => {
+        if (library.sequences[idx]) {
+          library.sequences[idx].customName = oldName;
+          saveLibraryDebounced();
+          renderPatchList();
+          if (idx === selSequence) renderSequenceVisualizer();
+        }
+      },
+      redo: () => {
+        if (library.sequences[idx]) {
+          library.sequences[idx].customName = newName;
+          saveLibraryDebounced();
+          renderPatchList();
+          if (idx === selSequence) renderSequenceVisualizer();
+        }
+      },
     });
   }
 }
@@ -3035,12 +4330,19 @@ function cancelSequenceNameEdit(nm, inp) {
   nm.style.display  = '';
 }
 
-function renderSequencesActions(_actions) {
-  // No bottom-of-list actions on the Sequences sub-tab:
-  // - "load paired patch to app" moved to an inline hover icon on each row
-  // - "send to JX-3P" was duplicative of the panel's Sequencer → Load button
-  //   (which calls handleSequencerLoad → handleSendSequenceToJX when a
-  //   sequence is selected).
+function renderSequencesActions(actions) {
+  // "Create new sequence" — mirrors the active-banks "save C/D banks
+  // to library" button visually + structurally. Click → blank sequence
+  // appears in the library list at the top, dirty + isNew so the SAVE
+  // button shows immediately AND the nav-away modal's DISCARD removes
+  // it cleanly if the user changes their mind. After first SAVE, the
+  // isNew flag is dropped and subsequent edits use the standard
+  // save-as-new-copy flow.
+  const btn = document.createElement('button');
+  btn.className = 'save-banks-btn';   // reuse the existing visual class
+  btn.textContent = 'create new sequence';
+  btn.addEventListener('click', handleCreateNewSequence);
+  actions.appendChild(btn);
 }
 
 // Sequence info icon (replaces the removed in-app LOAD button). Hover-
@@ -3082,13 +4384,12 @@ function showSequenceInfo(idx) {
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
 
-  // Body lines — paired patch (always present), optional user notes,
+  // Body lines — paired patch + notes (always shown, even when empty,
+  // so the user sees where their JX-time notes would appear) +
   // optional saved date if savedAt is a valid timestamp.
   const lines = [`**Paired patch:** ${where} / ${pName}`];
-  if (note) {
-    lines.push('');
-    lines.push(`**Notes:** ${note}`);
-  }
+  lines.push('');
+  lines.push(`**Notes:** ${note || '(none)'}`);
   if (seq.savedAt) {
     const d = new Date(seq.savedAt);
     if (!Number.isNaN(d.getTime())) {
@@ -3152,11 +4453,16 @@ function setupLibSubTabs() {
     tab.addEventListener('click', () => {
       const next = tab.dataset.libtab;
       if (!next || next === selLibTab) return;
-      selLibTab = next;
-      if (next === 'tones')     selSequence = null;
-      else if (next === 'sequences') selPackage  = null;
-      renderPatchList();
-      renderCustomBuilder();   // refresh visualizer / builder visibility
+      // Sub-tab switch IS a nav-away if there's a dirty sequence
+      // (going from Sequences to Tones drops the visualizer entirely).
+      // Wrapping in guardSeqNav pops the SAVE / DELETE modal first.
+      guardSeqNav(() => {
+        selLibTab = next;
+        if (next === 'tones')     selSequence = null;
+        else if (next === 'sequences') selPackage  = null;
+        renderPatchList();
+        renderCustomBuilder();   // refresh visualizer / builder visibility
+      });
     });
   });
 }
@@ -3904,11 +5210,14 @@ function showSendToJxFlow(opts) {
     // Widen the modal for step 2 (timeline + sendRow need the room). Step 1
     // is a tighter shell — header + 3 buttons. See .send-jx-modal CSS.
     modal.classList.add('step-2');
-    h.textContent = 'Ready to send';
+    // Header is kind-aware so users sending a sequence vs patches
+    // get the right context. (Was a generic "Ready to send" before
+    // 2026-05-26; "Tape dump audio is ready" lead-line dropped at
+    // the same time — redundant given the rest of the body text.)
+    h.textContent = kind === 'sequence' ? 'Ready to send sequence' : 'Ready to send patches';
     const dur = durationSec ? `${Math.ceil(durationSec)} seconds` : 'about 25 seconds';
     body.innerHTML =
-      `<p>Tape dump audio is ready.</p>` +
-      `<p style="margin-top: 8px;">${jxStep2}</p>` +
+      `<p>${jxStep2}</p>` +
       `<p style="margin-top: 8px; color: var(--text-mid); font-size: 12px;">Transfer takes about ${dur}. Don't switch apps or generate audio during transfer.</p>` +
       // Output-device label — shows where the audio is going. Most common
       // "Send isn't working" cause is the system default output being
@@ -4347,6 +5656,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     ? 'Record Sequence from JX-3P'
     : 'Record Patches from JX-3P';
 
+  // Close X in the modal's upper-right corner. Replaces the Cancel
+  // button in the bottom actions row (removed 2026-05-26 to reclaim
+  // vertical space). aria-label for screen readers; the visible glyph
+  // is a thin × that reads as "close" without competing for attention.
+  // Click handler wired further down once `close()` is defined.
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-close-x';
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '×';   // multiplication sign — visually crisper than ASCII 'x'
+
   // The modal opens already capturing; instructions reflect that.
   const instr = document.createElement('div');
   instr.className = 'record-jx-instr';
@@ -4363,12 +5683,49 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
 
   const deviceSection = document.createElement('div');
   deviceSection.className = 'record-jx-section';
+
+  // Two-element sample-rate notice. Both elements hidden on the happy
+  // path (device IS at 44.1 — no nagging), both revealed when mismatched.
+  //
+  //   Row 1 (deviceHeaderRow):
+  //     INPUT DEVICE: [left]   ·   JP Patches prefers 44.1kHz [right, FLASHING]
+  //   Row 2 (devicePickerRow):
+  //     <select> [grows]                              ·   48kHz [right, italic amber]
+  //
+  // The FLASH on the preferred-text is the warning signal — italic amber
+  // is informational on its own, the pulse turns it into "fix me." The
+  // rate readout next to the picker tells the user what their device
+  // IS at so they don't have to switch to Audio MIDI Setup just to
+  // diagnose. Amber `#c39a3a` matches the design-system "approaching
+  // limit" token.
+  const deviceHeaderRow = document.createElement('div');
+  deviceHeaderRow.className = 'record-jx-device-header';
   const deviceLabel = document.createElement('label');
   deviceLabel.textContent = 'INPUT DEVICE:';
+  const devicePreferred = document.createElement('span');
+  devicePreferred.className = 'record-jx-device-preferred';
+  devicePreferred.textContent = 'JP Patches prefers 44.1kHz';
+  devicePreferred.hidden = true;
+  deviceHeaderRow.appendChild(deviceLabel);
+  deviceHeaderRow.appendChild(devicePreferred);
+  deviceSection.appendChild(deviceHeaderRow);
+
+  // Picker wrap: <select> with an absolutely-positioned actual-rate
+  // overlay sitting just inside the native chevron, right-justified.
+  // pointer-events: none on the overlay so clicks pass through to the
+  // picker. Background-color on the overlay matches the picker so a
+  // long device name visually clips behind the readout cleanly rather
+  // than reading through.
+  const devicePickerWrap = document.createElement('div');
+  devicePickerWrap.className = 'record-jx-device-picker-wrap';
   const devicePicker = document.createElement('select');
   devicePicker.className = 'record-jx-device';
-  deviceSection.appendChild(deviceLabel);
-  deviceSection.appendChild(devicePicker);
+  const deviceActual = document.createElement('span');
+  deviceActual.className = 'record-jx-device-actual';
+  deviceActual.hidden = true;
+  devicePickerWrap.appendChild(devicePicker);
+  devicePickerWrap.appendChild(deviceActual);
+  deviceSection.appendChild(devicePickerWrap);
 
   // (Removed 2026-05-24: meterSection / meterLabel / meterOuter /
   // meterTarget / meterBar / meterHint / fskPeakBadge. The new calRow
@@ -4426,7 +5783,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   //   5 empty pages) = 27.65 s. Budget 30 s covers worst-case content;
   //   safety = 36 s. Bug history: was 21000 ms, chopped Daniel's
   //   sequence dump at ~18 s → 0/8 pages decoded.
-  const EXPECTED_SIGNAL_MS = kind === 'sequence' ? 30000 : 60000;
+  // Tone budget tightened 2026-05-26 from 60 000 → 50 000. The 60 s
+  // value was set defensively with no empirical basis. Real-world
+  // tone dumps measured at 25 s (Daniel, 2026-05-26); toolkit worst-
+  // case math gives ~37 s for an all-ones bit pattern (extremely
+  // unrealistic). 50 s preserves 13 s of margin above that theoretical
+  // worst case while bounding the modal-open time in the "loud JX
+  // post-dump tone" case (where silence-after-signal can't fire
+  // because peak stays above signalThreshold). If a user reports
+  // their long heavy-content dump getting cut off mid-transmission,
+  // bump back up.
+  const EXPECTED_SIGNAL_MS = kind === 'sequence' ? 30000 : 50000;
 
   // Input gain — software multiplier applied between the mic source and
   // both the meter and the capture buffer. Lets the user crank up a quiet
@@ -4467,15 +5834,22 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // so the visual matches. Static reference during recording; all segments
   // light up green on successful capture (the "complete" treatment).
   // Construction lives in buildRecordTimelineSection above for navigability.
-  const { timelineSection, timeline, segs, indicator } = buildRecordTimelineSection(kind);
+  // timelineHeader is a flex row with the "WHAT THE JX-3P SENDS:" label
+  // on the left — we drop statusText into it (below) so the elapsed-time
+  // counter sits to the right of that label, visually tied to the
+  // segmented bar it describes.
+  const { timelineSection, timelineHeader, timeline, segs, indicator } = buildRecordTimelineSection(kind);
 
   const statusText = document.createElement('div');
   statusText.className = 'record-jx-status';
   statusText.textContent = '';
+  timelineHeader.appendChild(statusText);
 
-  // Cancel + Stop. Construction in buildRecordActions above. Stop is
-  // pre-disabled; enabled after getUserMedia resolves (see startRecording).
-  const { actions, cancelBtn, stopBtn } = buildRecordActions();
+  // Stop button (legacy; kept as invisible chrome for state-management
+  // toggles below). Cancel was replaced by the close-X up top.
+  // Construction in buildRecordActions; Stop is pre-disabled and enabled
+  // after getUserMedia resolves (see startRecording).
+  const { actions, stopBtn } = buildRecordActions();
 
   // Visual JX-3P key-sequence guide — sits right under the instruction
   // copy so the user reads "Press Save on the JX-3P" and immediately sees
@@ -4580,15 +5954,16 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   calRow.appendChild(jpLogoEl);
   calRow.appendChild(calCard);
 
+  // closeBtn first so it's the topmost positioned child — anchored to
+  // the upper-right corner via .modal-close-x in CSS (position: absolute).
+  modal.appendChild(closeBtn);
   modal.appendChild(h);
   modal.appendChild(instr);
   modal.appendChild(calRow);          // calibration layout — visibility toggled
-  // statusText sits directly under the calRow and is right-aligned so the
-  // "Recording — Xs elapsed" counter and any warning messages visually
-  // associate with the meter (which is the rightmost element in calRow).
-  // Previous position (bottom of modal, centered) read as floating /
-  // disconnected from the live capture state.
-  modal.appendChild(statusText);
+  // (statusText is mounted INSIDE timelineSection's header row — see the
+  // buildRecordTimelineSection call above. The elapsed-time counter +
+  // warning messages now sit to the right of "WHAT THE JX-3P SENDS:",
+  // visually tying the status to the segmented bar it describes.)
   modal.appendChild(deviceSection);
   // calProgressSection inserted between deviceSection and timelineSection
   // by configureForCurrentDevice (visible in calibration mode, hidden in
@@ -4627,6 +6002,8 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   let fskPeak      = 0;             // mirror from captureState.fskPeak each raf tick; read by calibration math
   let runningPeak  = 0;             // mirror from captureState.runningPeak; read by the onCaptured handoff. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
   let elapsedTimer = null;
+  let timerStartMs = null;          // set inside onTick when events.fskJustStarted fires; null while "Waiting…" for JX dump
+
   // Periodic re-probe of the selected device's sample rate. Catches
   // changes made externally in Audio MIDI Setup that don't reliably
   // emit a devicechange event on every macOS/Chromium combination.
@@ -4645,7 +6022,8 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   const onKey = (e) => { if (e.key === 'Escape' && state !== 'processing') close(); };
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('click', (e) => { if (e.target === overlay && state !== 'processing') close(); });
-  cancelBtn.addEventListener('click', close);
+  // Same processing-state guard as the Escape-key + overlay-click paths.
+  closeBtn.addEventListener('click', () => { if (state !== 'processing') close(); });
 
   // Inline notice anchored to the device picker. Hidden by default;
   // surfaced when the audio-device list changes mid-session (USB
@@ -4680,45 +6058,23 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // Setup fixed it instantly. This warning surfaces that condition
   // proactively. Red border (not amber) to signal "this WILL cause
   // failures" not "heads up".
-  const deviceRateWarning = document.createElement('div');
-  deviceRateWarning.className = 'record-jx-device-rate-warning';
-  deviceRateWarning.hidden = true;
-  deviceSection.appendChild(deviceRateWarning);
-  // Warning has two children: a text span for the message + a
-  // "Re-check" button on its own line. The button is needed because
-  // Chromium aggressively caches the per-deviceId stream — once we've
-  // probed and gotten 48 kHz, subsequent probes for the same deviceId
-  // return the cached 48 kHz indefinitely, even after the user fixes
-  // the device in Audio MIDI Setup. The 2 s background poll attempts
-  // to refresh, but on most macOS/Chromium combinations the cache
-  // wins. The manual button forces the user-perceived re-check moment
-  // to align with reality — they fix the device, click, expect fresh
-  // truth. Even when the click ALSO returns cached data, the user
-  // has a deliberate action they can repeat or interpret.
-  const rateWarningText = document.createElement('span');
-  const rateRecheckBtn  = document.createElement('button');
-  rateRecheckBtn.type   = 'button';
-  rateRecheckBtn.className = 'record-jx-device-rate-recheck';
-  rateRecheckBtn.textContent = 'Re-check sample rate';
-  deviceRateWarning.appendChild(rateWarningText);
-  deviceRateWarning.appendChild(rateRecheckBtn);
-  rateRecheckBtn.addEventListener('click', () => {
-    // Briefly disable + relabel during the probe so the click feels
-    // responsive even when the underlying probe hits Chromium's cache
-    // and "succeeds" with the same value.
-    rateRecheckBtn.disabled = true;
-    rateRecheckBtn.textContent = 'Re-checking…';
-    probeDeviceSampleRate(devicePicker.value).finally(() => {
-      rateRecheckBtn.disabled = false;
-      rateRecheckBtn.textContent = 'Re-check sample rate';
-    });
-  });
-  const setSampleRateWarning = (msg) => {
-    if (msg) {
-      rateWarningText.textContent = msg + ' ';
-      deviceRateWarning.hidden = false;
+  // Sample-rate warning toggle. Drives both notice elements together:
+  //   - devicePreferred  (header right): show + flashing amber
+  //   - deviceActual     (picker right): show text "<n>kHz" amber
+  // Both hidden when the device IS at 44.1 (happy path, no nagging).
+  // The 2 s background poll auto-refreshes when the user fixes the
+  // rate in Audio MIDI Setup, so no Re-check button is needed.
+  //
+  // Param: mismatchedRateHz — the device's current rate in Hz when
+  // it doesn't match 44.1k, or null/0/falsy to clear (matched state).
+  const setSampleRateWarning = (mismatchedRateHz) => {
+    if (mismatchedRateHz) {
+      devicePreferred.hidden = false;
+      deviceActual.textContent = `${mismatchedRateHz / 1000}kHz`;
+      deviceActual.hidden = false;
     } else {
-      deviceRateWarning.hidden = true;
+      devicePreferred.hidden = true;
+      deviceActual.hidden = true;
     }
   };
 
@@ -4764,22 +6120,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         return;
       }
       const nativeRate = match.sampleRate;
-      if (nativeRate !== 44100) {
-        // Use the short device name from system_profiler ("KT USB
-        // Audio") rather than Chromium's "Default - KT USB Audio
-        // (31b2:2024)" — the short name is what the user sees in
-        // Audio MIDI Setup, which is where the copy is directing
-        // them. Falls back to the picker label if system_profiler
-        // didn't return a name (shouldn't happen but be safe).
-        const deviceLabel = match.name || pickerLabel || 'this audio device';
-        setSampleRateWarning(
-          `ℹ︎ ${deviceLabel} is running at ${nativeRate / 1000}kHz. ` +
-          `JP Patches records at 44.1kHz. JP will resample your data dump, ` +
-          `but it's best to set your device to 44.1kHz in Audio MIDI Setup on your Mac.`
-        );
-      } else {
-        setSampleRateWarning(null);   // clear any prior warning
-      }
+      // Pass the rate so setSampleRateWarning can render the readout
+      // (e.g. "48kHz"); falsy clears the notice.
+      setSampleRateWarning(nativeRate !== 44100 ? nativeRate : null);
     } catch (err) {
       console.warn('Sample-rate probe failed:', err && err.message);
     }
@@ -4943,7 +6286,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // CoreAudio multiplexes device access, so a brief probe stream
   // alongside the capture doesn't interrupt it (verified 2026-05-25).
   // The original "skip while recording" gate left users staring at
-  // stale warnings throughout their entire ~30 s capture window.
+  // stale warnings throughout their entire ~25–30 s capture window.
   sampleRatePollTimer = setInterval(() => {
     if (!devicePicker.value) return;
     probeDeviceSampleRate(devicePicker.value);
@@ -4979,6 +6322,13 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
       }
       timelineSection.style.display = '';
+      // In capture mode statusText lives inside the timeline header so
+      // the elapsed counter sits to the right of "WHAT THE JX-3P SENDS:".
+      // (Moves back to the modal-level slot in calibration — see below.)
+      if (statusText.parentElement !== timelineHeader) {
+        timelineHeader.appendChild(statusText);
+      }
+      statusText.classList.remove('record-jx-status-calibration');
       // Hide the Stop button — capture is fully hands-free now (auto-stop
       // fires when the JX dump completes; Cancel covers the abort case
       // for failed captures). Matches calibration mode's pattern.
@@ -4994,9 +6344,19 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       gainValueLabel.textContent = formatGain(cal.gain);
       if (gainNode) gainNode.gain.value = cal.gain;
       gainKnob.setGain(cal.gain);
+      // Both kinds dump in roughly ~25–30 s of real time:
+      //   - Sequence: 1 pilot (4.64 s) + 1 sequence-data block (~22 s)
+      //   - Tone:     1 pilot + bank C (~8 s) + divider pilot + bank D (~8 s)
+      // EXPECTED_SIGNAL_MS (the auto-stop budget) sits well above
+      // this — 30 s for sequences, 60 s for tones — so worst-case
+      // heavy-content dumps still complete cleanly. "~30 s" is the
+      // typical/expected case, set on the slightly-long side so the
+      // user doesn't think we're stuck if their dump takes 30 s
+      // instead of 25.
+      const dumpDurationCopy = '~30 s';
       instr.innerHTML =
         `<p style="margin: 0;"><b>Now press ${jxSaveLabel}.</b></p>` +
-        `<p style="margin: 6px 0 0; color: var(--text-mid); font-size: 12px;">Capture finishes automatically when the JX dump completes (~30 s). Click <b>Cancel</b> to abort if no audio is being received. The level shown reflects your saved calibration (${formatGain(cal.gain)} gain) for this device.</p>`;
+        `<p style="margin: 6px 0 0; color: var(--text-mid); font-size: 12px;">Capture finishes automatically when the JX dump completes (${dumpDurationCopy}).</p>`;
     } else {
       isCalibrating = true;
       // Pick the starting gain for pass 1:
@@ -5033,17 +6393,33 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       stopBtn.style.display = 'none';
       // Show the dump-progress bar (now at modal level since meterSection
       // was removed — insert it before deviceSection on first call).
+      // MUST happen before the statusText reparent below — statusText
+      // anchors against calProgressSection.
       if (calProgressSection.parentElement !== modal) {
         modal.insertBefore(calProgressSection, deviceSection);
       }
+      // In calibration mode the timeline section is hidden, which would
+      // also hide statusText (its child in capture mode). Reparent it
+      // up to modal level — between calRow and calProgressSection — so
+      // clipping / no-signal warnings remain visible during gain
+      // adjustment. The .record-jx-status-calibration class gives it
+      // a block layout with a small bottom margin (the flex layout
+      // wouldn't make sense here without the sibling label).
+      if (statusText.nextElementSibling !== calProgressSection) {
+        modal.insertBefore(statusText, calProgressSection);
+      }
+      statusText.classList.add('record-jx-status-calibration');
       calProgressSection.style.display = '';
       calProgressBar.style.width = '0%';
       gainSection.style.display = 'none';   // gain knob in calRow replaces the slider
       instr.classList.add('record-jx-instr-box');
+      // ~30 s covers both kinds — see the capture-branch comment above
+      // for the per-segment breakdown.
+      const dumpDurationCopy = '~30 s';
       instr.innerHTML =
         `<p style="margin: 0;"><b>Press ${jxSaveLabel} on the JX-3P now.</b></p>` +
-        `<p style="margin: 6px 0 0;"><b>Adjust <span class="btn-hint">Input Gain</span> until the level reaches the target notch (the yellow segment).</b></p>` +
-        `<p style="margin: 8px 0 0; color: var(--text-mid); font-size: 12px;">Calibration auto-advances when the JX finishes its dump (~30 s); the recorder reopens for the real capture.</p>`;
+        `<p style="margin: 6px 0 0;"><b>Adjust <span class="btn-hint">Input Gain</span> to reach <span class="pill-yellow">yellow</span> target notch.</b></p>` +
+        `<p style="margin: 8px 0 0; color: var(--text-mid); font-size: 12px;">Calibration auto-advances when the JX finishes its dump (${dumpDurationCopy}); the recorder reopens for the real capture.</p>`;
     }
   };
   configureForCurrentDevice();
@@ -5068,6 +6444,28 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       mediaStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       mediaStream = null;
     }
+  };
+
+  // Light up the 'processing' segment in the timeline + snap the indicator
+  // to its midpoint. Idempotent — safe to call repeatedly. Called from two
+  // places:
+  //   1. onTick (during recording) — optimistic UI when activeMs reaches
+  //      the expected tx total. The JX has just finished dumping but the
+  //      auto-stop trigger may need another few seconds of silence to
+  //      confirm. Showing PROCESSING immediately gives the user instant
+  //      "yep, done, working on it" feedback instead of staring at "BANK D
+  //      with idle indicator" for 10+ s.
+  //   2. stopRecording (post-auto-stop) — defensive backstop for the case
+  //      where activeMs never reached txTotalEstSec (very short dump or
+  //      content that the estimate overshot).
+  const activateProcessingSeg = () => {
+    const processingSeg = segs.find((s) => s.kind === 'processing');
+    if (!processingSeg) return;
+    segs.forEach((s) => s.el.classList.toggle('active', s === processingSeg));
+    const totalEst = segs.reduce((sum, s) => sum + s.estSec, 0);
+    const startPct = (totalEst - processingSeg.estSec) / totalEst * 100;
+    const midPct   = startPct + (processingSeg.estSec / 2) / totalEst * 100;
+    indicator.style.left = `${midPct}%`;
   };
 
   // Kicks off a capture using the currently-selected device. Called once
@@ -5163,6 +6561,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
           // Calibration: knob + meter + arrow fade in after Save press.
           // Capture: JP logo + arrow fade in, diagram dims.
           calRow.classList.add('playing');
+          // Start the "Recording — Ns elapsed" counter NOW (not from
+          // modal-open) so the displayed elapsed time reflects actual
+          // dump duration, not user reaction time before pressing
+          // Tape Memory → Save on the JX. The setInterval below is
+          // already running; it skips ticks until timerStartMs is set.
+          if (timerStartMs === null) timerStartMs = Date.now();
         }
         if (isCalibrating && events.progressPct !== null) {
           // Wall-clock-driven progress bar (not cumulative-signal) so
@@ -5171,16 +6575,43 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         }
 
         // Timeline-segment indicator (the "WHAT THE JX-3P SENDS" bar).
-        if (cs.activeMs > 0) {
+        // Driven by cumulative FSK signal time. Skip while in 'processing'
+        // state — onTick is gated on state==='recording' so a late raf
+        // tick after stopRecording fires can't reset our seg state.
+        if (cs.activeMs > 0 && state === 'recording') {
           const elapsedSec = cs.activeMs / 1000;
-          let acc = 0, activeIdx = segs.length - 1;
-          for (let i = 0; i < segs.length; i++) {
-            acc += segs[i].estSec;
-            if (elapsedSec < acc) { activeIdx = i; break; }
+          // Exclude the trailing 'processing' segment from both the
+          // accumulator AND the totalEstSec denominator so the tx-side
+          // indicator reaches the end of Bank D / Sequence at the right
+          // visual position (start of the Processing segment), rather
+          // than capping at ~86% with Processing included in the math.
+          const txSegs = segs.filter((s) => s.kind !== 'processing');
+          const txTotalEstSec = txSegs.reduce((sum, s) => sum + s.estSec, 0);
+
+          if (elapsedSec >= txTotalEstSec) {
+            // Optimistic Processing: activeMs has hit (or passed) the
+            // expected tx total, so the JX is presumably done dumping.
+            // Light up Processing now rather than waiting for auto-stop
+            // to fire — on hardware where post-dump audio stays above
+            // signalThreshold, auto-stop can lag 10+ s behind the actual
+            // JX-done moment. Idempotent; safe to call every tick once
+            // we're past the threshold.
+            activateProcessingSeg();
+          } else {
+            // Normal advance through the tx-side segments.
+            let acc = 0, activeIdx = txSegs.length - 1;
+            for (let i = 0; i < txSegs.length; i++) {
+              acc += txSegs[i].estSec;
+              if (elapsedSec < acc) { activeIdx = i; break; }
+            }
+            segs.forEach((s) => {
+              const isActive = s === txSegs[activeIdx];
+              s.el.classList.toggle('active', isActive);
+            });
+            const txPortionPct = (txTotalEstSec / totalEstSec) * 100;
+            const pct = Math.min(txPortionPct, (elapsedSec / txTotalEstSec) * txPortionPct);
+            indicator.style.left = `${pct}%`;
           }
-          segs.forEach((s, i) => s.el.classList.toggle('active', i === activeIdx));
-          const pct = Math.min(100, (elapsedSec / totalEstSec) * 100);
-          indicator.style.left = `${pct}%`;
         }
 
         // Live warning classification: see renderer/capture-warnings.js.
@@ -5213,12 +6644,23 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
 
     stopBtn.disabled = false;
     statusText.style.color = '';
-    const startMs = Date.now();
+    // timerStartMs stays null until the JX actually begins transmitting
+    // FSK (set by the events.fskJustStarted branch in onTick above). Until
+    // then we show "Waiting…" — the modal is open and listening, but no
+    // dump has arrived yet, so the elapsed counter would lie by counting
+    // user reaction time. Once timerStartMs is set, the tick switches to
+    // the "Recording — Ns elapsed" form.
+    timerStartMs = null;
+    statusText.textContent = 'Waiting…';
     elapsedTimer = setInterval(() => {
       // Don't clobber a live warning message (any of the 4 ladder states)
       // by overwriting it with the elapsed-time tick.
       if (warnLevel) return;
-      const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
+      if (timerStartMs === null) {
+        // FSK hasn't started yet; keep showing "Waiting…".
+        return;
+      }
+      const elapsedSec = Math.floor((Date.now() - timerStartMs) / 1000);
       statusText.textContent = `Recording — ${elapsedSec}s elapsed`;
     }, 250);
   };
@@ -5246,8 +6688,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     if (state !== 'recording') return;
     state = 'processing';
     stopBtn.disabled = true;
-    cancelBtn.disabled = true;
+    // (cancelBtn removed 2026-05-26 — close-X has its own state-guard
+    // in its click handler that checks state === 'processing'.)
     statusText.textContent = 'Processing audio…';
+
+    // Defensive backstop: if onTick's optimistic-Processing branch
+    // never tripped (e.g. activeMs never reached txTotalEstSec because
+    // the dump was very short or the bank estimate overshot), make
+    // sure Processing is lit by the time we enter the decode phase.
+    // Idempotent — no-op if onTick already activated it. Skipped in
+    // calibration mode (timeline is hidden anyway).
+    if (isCalibrating === false) activateProcessingSeg();
     console.log(`record-jx STOP: isCalibrating=${isCalibrating}, fskPeak=${fskPeak.toFixed(4)}, capturedChunks=${captured.length}, calDeviceId=${calibrationDeviceId}`);
 
     const totalSamples = captured.reduce((sum, c) => sum + c.length, 0);
@@ -5255,7 +6706,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       statusText.textContent = 'Nothing recorded. Try again.';
       stopCapture();
       state = 'recording';
-      cancelBtn.disabled = false;
       // Re-arm capture so the user can try again without re-opening the modal.
       guardAsync(startRecording(), 'Re-arm recording');
       return;
@@ -5299,7 +6749,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         statusText.style.color = '#c39a3a';
         stopCapture();
         state = 'recording';
-        cancelBtn.disabled = false;
         stopBtn.disabled = false;
         captured = [];
         guardAsync(startRecording(), 'Restart recording (no signal)');
@@ -5397,7 +6846,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     if (!result || !result.ok) {
       statusText.textContent = `Couldn't write WAV: ${result && result.error || 'unknown error'}`;
       state = 'recording';
-      cancelBtn.disabled = false;
       guardAsync(startRecording(), 'Restart recording (WAV write failed)');
       return;
     }
@@ -5454,12 +6902,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       return;
     }
 
-    // Quiet or clipping — sticky warning with three explicit choices:
-    //   Cancel       (keeps existing Cancel behavior — closes modal)
+    // Quiet or clipping — sticky warning with two explicit choices:
     //   Try again    (reset to a fresh recording attempt, same device)
     //   Use anyway   (proceed with decode on this capture)
+    // (Bail-out path: close-X in the modal's upper-right corner.)
     stopBtn.style.display = 'none';
-    cancelBtn.disabled = false;
     const tryAgainBtn = document.createElement('button');
     tryAgainBtn.className = 'modal-btn modal-btn-confirm';  // green — recommended action (re-record cleanly)
     tryAgainBtn.textContent = 'Try again';
@@ -5510,12 +6957,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     promise.catch((err) => {
       console.error(`${ctx} failed:`, err);
       // Recover from a stuck 'processing' state — the worst lock-out
-      // condition. 'recording' state can be cancelled by the user via
-      // Cancel button, so it's self-healing.
+      // condition. 'recording' state can be aborted by the user via
+      // the close-X (which is gated on state !== 'processing'), so
+      // it's self-healing once we drop back to 'recording'.
       if (state === 'processing') {
         state = 'recording';
-        cancelBtn.disabled = false;
-        stopBtn.disabled   = false;
+        stopBtn.disabled = false;
         statusText.textContent = `${ctx} failed — ${err && err.message || 'unknown error'}`;
         statusText.style.color = '#b94a2e';
       }
@@ -5632,7 +7079,234 @@ function sequenceDefaultName(date) {
 // (much larger note cells, easier to read) or back out to ALL.
 // `preserveAspectRatio="none"` so the SVG stretches to fill its host
 // — container CSS decides the rendered aspect ratio.
+
+// Document-level mousemove/mouseup for the sequencer drag-pitch
+// gesture. Wired exactly once (guarded by seqDragListenersWired)
+// since renderSequenceVisualizer runs many times per session and we
+// don't want to leak listeners on every re-render. Both handlers no-
+// op when seqDragState is null (i.e. no drag in progress).
+//
+// The gesture geometry uses seqDragState.svgRect (captured at
+// mousedown) instead of re-measuring on every move — avoids forcing
+// reflow on every cursor pixel.
+function setupSeqDragListenersOnce() {
+  if (seqDragListenersWired) return;
+  seqDragListenersWired = true;
+
+  // Pitch range constants mirror renderSequenceVisualizer's locals.
+  // Kept in sync manually — both are constants for the JX-3P (MIDI
+  // 36–84, 49 semitones) and unlikely to change.
+  const LOW_PITCH   = 36;
+  const HIGH_PITCH  = 84;
+  const PITCH_RANGE = HIGH_PITCH - LOW_PITCH + 1;
+
+  // Playhead-drag mousemove: scrub the playhead to the cursor X +
+  // play notes at reduced volume as the cursor crosses into new
+  // steps. Runs independently of the pitch-drag + marquee handlers
+  // — only one is active at a time (mousedown filters by target).
+  document.addEventListener('mousemove', (e) => {
+    if (!seqPlayheadDragState) return;
+    scrubPlayheadTo(seqPlayheadDragState.svgRect, e.clientX,
+                    { playOnChange: true, gainScale: 0.2 });
+  });
+  document.addEventListener('mouseup', () => {
+    if (!seqPlayheadDragState) return;
+    seqPlayheadDragState = null;
+    seqPlayheadDragSuppressClick = true;
+  });
+
+  // Marquee-drag mousemove: recompute the selection live so the user
+  // sees notes highlight as they drag. Column-constrained — horizontal
+  // cursor motion is ignored (the column is fixed at mousedown).
+  // Clamp pitch to the JX range so the selection range stays bounded.
+  document.addEventListener('mousemove', (e) => {
+    if (!seqMarqueeState) return;
+    const { svgRect, absStep, startPitch } = seqMarqueeState;
+    const PITCH_RANGE = 49;
+    const HIGH_PITCH  = 84;
+    const LOW_PITCH   = 36;
+    const yRatio = (e.clientY - svgRect.top) / svgRect.height;
+    let currentPitch = HIGH_PITCH - Math.floor(yRatio * PITCH_RANGE);
+    if (currentPitch < LOW_PITCH)  currentPitch = LOW_PITCH;
+    if (currentPitch > HIGH_PITCH) currentPitch = HIGH_PITCH;
+    seqMarqueeState.currentPitch = currentPitch;
+    // Recompute the selection set: every populated voice in the column
+    // whose pitch falls within [lo, hi]. Re-apply the .selected visual
+    // so the user sees the highlights expand/contract as they drag.
+    const hi = Math.max(startPitch, currentPitch);
+    const lo = Math.min(startPitch, currentPitch);
+    const STEPS_PER_PAGE = 16;
+    const seq = library.sequences && library.sequences[selSequence];
+    const pages = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+    const page = pages[Math.floor(absStep / STEPS_PER_PAGE)];
+    const step = page && page[absStep % STEPS_PER_PAGE];
+    const selectedPitches = new Set();
+    if (step && Array.isArray(step.voices)) {
+      step.voices.forEach((v) => {
+        if (v && typeof v.note === 'number' && v.note >= lo && v.note <= hi) {
+          selectedPitches.add(v.note);
+        }
+      });
+    }
+    // Clear previous .selected classes (without nuking selectedSeqNotes
+    // mid-drag, since we're about to repopulate it).
+    document.querySelectorAll('.seq-viz-note.selected').forEach((el) => el.classList.remove('selected'));
+    selectedSeqNotes = Array.from(selectedPitches).map((pitch) => ({ pitch, absStep }));
+    applySequenceSelectionVisual();
+  });
+  document.addEventListener('mouseup', () => {
+    if (!seqMarqueeState) return;
+    seqMarqueeState = null;
+    // Selection was already set live by mousemove. Just suppress the
+    // post-mouseup click so it doesn't immediately clear the
+    // just-formed selection (the click handler treats empty-svg
+    // clicks as "deselect").
+    seqMarqueeSuppressClick = selectedSeqNotes.length > 0;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!seqDragState) return;
+    const { svgRect, tipEl } = seqDragState;
+
+    // Cursor Y → MIDI pitch, snapped + clamped to the JX range.
+    const yRatio   = (e.clientY - svgRect.top) / svgRect.height;
+    let newPitch   = HIGH_PITCH - Math.floor(yRatio * PITCH_RANGE);
+    if (newPitch < LOW_PITCH)  newPitch = LOW_PITCH;
+    if (newPitch > HIGH_PITCH) newPitch = HIGH_PITCH;
+
+    if (newPitch !== seqDragState.currentPitch) {
+      seqDragState.currentPitch = newPitch;
+      // "Moved" = pitch changed away from start, even by 1 semitone.
+      // Simpler + more semantically accurate than pixel-distance: a
+      // user who carefully moves 2 px without crossing a semitone
+      // boundary isn't dragging, they're clicking.
+      if (newPitch !== seqDragState.startPitch) seqDragState.moved = true;
+      // Live-update the rect's y attribute. SVG y coord = (HIGH_PITCH
+      // - pitch), matching the construction in renderSequenceVisualizer.
+      // Group-drag: shift every member by the SAME Δpitch as the
+      // dragged note, clamped to JX pitch range. Member's startPitch
+      // (captured at mousedown) + delta = new y.
+      const deltaPitch = newPitch - seqDragState.startPitch;
+      if (seqDragState.groupMembers) {
+        seqDragState.groupMembers.forEach((m) => {
+          let memberNewPitch = m.startPitch + deltaPitch;
+          if (memberNewPitch < LOW_PITCH)  memberNewPitch = LOW_PITCH;
+          if (memberNewPitch > HIGH_PITCH) memberNewPitch = HIGH_PITCH;
+          m.rectEl.setAttribute('y', String(HIGH_PITCH - memberNewPitch));
+        });
+      } else {
+        seqDragState.rect.setAttribute('y', String(HIGH_PITCH - newPitch));
+      }
+      // Update the tooltip text to the new pitch name so the user
+      // sees the current target pitch in real time as they drag.
+      if (tipEl) tipEl.textContent = midiPitchName(newPitch);
+      // Quiet audible preview at the new pitch (20% gain — each
+      // semitone crossing fires one note). Drop-preview in the
+      // mouseup handler plays full volume so the final note is
+      // distinct from the mid-drag scrubbing. Iterated 50% → 20%
+      // → 10% → 20% on 2026-05-26 with the triangle wave; 20%
+      // is the sweet spot for the softer waveform.
+      // Duration omitted → uses the synth-preview default (180 ms).
+      previewNote(newPitch, undefined, 0.2);
+    }
+    // Keep the tooltip glued to the cursor for the whole gesture —
+    // outside of the pitch-change branch above so it tracks smoothly
+    // even when the cursor moves within a single semitone band.
+    // Force hidden=false in case something else flipped it (the
+    // hover-tip handler is gated on !seqDragState so it shouldn't,
+    // but defensive).
+    if (tipEl) {
+      tipEl.hidden     = false;
+      tipEl.style.left = `${e.clientX + 14}px`;
+      tipEl.style.top  = `${e.clientY - 18}px`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!seqDragState) return;
+    const { startPitch, currentPitch, absStep, moved, groupMembers } = seqDragState;
+    seqDragState = null;
+    document.body.classList.remove('seq-dragging-pitch');
+
+    if (!moved || currentPitch === startPitch) {
+      // No real drag — let the click handler do its normal thing.
+      // (Don't set seqDragSuppressClick.)
+      return;
+    }
+
+    // Suppress the upcoming click event (fires after mouseup) so we
+    // don't get a phantom preview at the dropped pitch.
+    seqDragSuppressClick = true;
+
+    // Mutate the underlying sequence data. The mutation rule mirrors
+    // the visual: a single cell at pitch P represents ALL voices at
+    // that pitch in that step. So we update every voice in the step
+    // whose note matches startPitch — that catches:
+    //   - 'attack' case: one voice {note: P, tied: false}
+    //   - 'tie' case:    voice[0] {note: P, tied: true} AND another
+    //                    voice {note: P, tied: false}
+    // Both get moved to currentPitch together, preserving the TIE
+    // signature (same pitch in both voice slots).
+    const STEPS_PER_PAGE = 16;
+    const seq   = library.sequences && library.sequences[selSequence];
+    const pages = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
+    const pageIdx = Math.floor(absStep / STEPS_PER_PAGE);
+    const stepIdx = absStep % STEPS_PER_PAGE;
+    const page    = pages[pageIdx];
+    const step    = page && page[stepIdx];
+    // Snapshot the original BEFORE the first mutation per-sequence.
+    // SAVE will restore from this snapshot so the original is preserved
+    // when the edits land in the library as a new "edited" copy.
+    if (!originalSequenceSnapshots.has(selSequence)) {
+      originalSequenceSnapshots.set(selSequence, cloneSeq(library.sequences[selSequence]));
+    }
+
+    const deltaPitch = currentPitch - startPitch;
+    if (groupMembers) {
+      // Group drag: shift every member by the SAME Δpitch (clamped).
+      // For each member, update every voice in its step whose note
+      // matches the member's startPitch.
+      groupMembers.forEach((m) => {
+        let memberNewPitch = m.startPitch + deltaPitch;
+        if (memberNewPitch < LOW_PITCH)  memberNewPitch = LOW_PITCH;
+        if (memberNewPitch > HIGH_PITCH) memberNewPitch = HIGH_PITCH;
+        const mPageIdx = Math.floor(m.absStep / STEPS_PER_PAGE);
+        const mStepIdx = m.absStep % STEPS_PER_PAGE;
+        const mPage    = pages[mPageIdx];
+        const mStep    = mPage && mPage[mStepIdx];
+        if (mStep && Array.isArray(mStep.voices)) {
+          mStep.voices.forEach((voice) => {
+            if (voice && voice.note === m.startPitch) voice.note = memberNewPitch;
+          });
+        }
+      });
+    } else if (step && Array.isArray(step.voices)) {
+      // Single-note drag: update every voice in the step whose note
+      // matches startPitch (catches the TIE-pair case correctly).
+      step.voices.forEach((voice) => {
+        if (voice && voice.note === startPitch) voice.note = currentPitch;
+      });
+    }
+
+    // Mark this sequence as having uncommitted edits. The visualizer
+    // header reads dirtySequences in its render to decide whether to
+    // show the SAVE button.
+    dirtySequences.add(selSequence);
+    maybeClearDirty(selSequence);
+    clearSequenceSelection();
+
+    // Preview the landed pitch — for group drag, preview the dragged
+    // note's pitch (the rest of the group is the same Δ so a single
+    // tone conveys "drop happened" without spamming).
+    previewNote(currentPitch);
+
+    renderSequenceVisualizer();
+  });
+}
+
 function renderSequenceVisualizer() {
+  setupSeqDragListenersOnce();   // idempotent — wires document-level mousemove/mouseup once
+  setupSeqKeyListenerOnce();     // idempotent — wires Delete / Backspace / Escape
   const container = document.getElementById('sequence-visualizer');
   if (!container) return;
   if (selBank !== 'L' || selLibTab !== 'sequences' || selSequence === null) {
@@ -5668,13 +7342,15 @@ function renderSequenceVisualizer() {
   const REST_COLOR      = '#33508f';
 
   const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
-  const populatedCount = pages.filter((p) => p !== null && p !== undefined).length;
+  // (populatedCount text removed from header 2026-05-26 — the page-
+  // button row at the bottom now communicates the same info visually
+  // via faded-vs-not-faded buttons.)
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
-  const pp = (seq.app && seq.app.pairedPatch) || {};
-  const pairedRef = pp.bank
-    ? `${pp.bank}${(pp.slot || 0) + 1}: ${pp.patchName || '(unnamed)'}`
-    : 'no paired patch';
+  // (Paired-patch reference removed from the header 2026-05-26 — was
+  // visual noise that pushed the SAVE button off on narrow widths.
+  // The paired-patch info is still in seq.app.pairedPatch on disk
+  // and surfaced via the per-row info icon in the sequences list.)
 
   // Determine viewBox: zoomed into one page (offset = pageIdx * 16)
   // or showing all pages (offset = 0, width = 128).
@@ -5771,8 +7447,17 @@ function renderSequenceVisualizer() {
         const color = type === 'attack' ? NEW_NOTE_COLOR
                     : type === 'tie'    ? TIE_COLOR
                     :                     HOLD_NOTE_COLOR;
+        // data-pitch + data-type drive the delegated click + drag
+        // handlers below (wired on rollSvg). data-step lets the drag
+        // handler locate the source voice(s) without parsing the x
+        // attribute. The .seq-viz-note class scopes the cursor:pointer
+        // affordance to playable cells only — CSS rules filter by
+        // [data-type="attack"|"tie"] so hold-rest cells don't claim
+        // interactivity they can't deliver.
         svgParts.push(
-          `<rect x="${absStep}" y="${y}" width="1" height="1" ` +
+          `<rect class="seq-viz-note" data-pitch="${pitch}" ` +
+          `data-type="${type}" data-step="${absStep}" ` +
+          `x="${absStep}" y="${y}" width="1" height="1" ` +
           `fill="${color}" rx="0.15"/>`
         );
       });
@@ -5782,12 +7467,24 @@ function renderSequenceVisualizer() {
   // Page selector buttons. "ALL" + 1–8. Active button = currently
   // viewed (or all-view). Click an inactive page to zoom; click the
   // active page (or ALL) to reset.
-  const pageBtns = ['<button class="seq-viz-page-btn' +
-                    (zoomedPage === null ? ' active' : '') +
-                    '" data-page="all">ALL</button>'];
+  // Page buttons. Each per-page button gets a .unpopulated modifier
+  // when the page has no content (no voices anywhere); the CSS dims
+  // these so the user can see at a glance which pages are populated.
+  // Clicks still work on faded buttons (zoom into an empty page →
+  // user can Ctrl-click to insert; the page initializes on demand
+  // via _prepStepForInsert + the button un-fades on the next render).
+  // The ALL button is faded when the whole sequence has no content.
+  const anyPopulated = pages.some(pageHasContent);
+  const allCls = 'seq-viz-page-btn' +
+                 (zoomedPage === null ? ' active' : '') +
+                 (anyPopulated ? '' : ' unpopulated');
+  const pageBtns = [`<button class="${allCls}" data-page="all">ALL</button>`];
   for (let i = 0; i < PAGES; i++) {
-    const isActive = zoomedPage === i;
-    const cls = 'seq-viz-page-btn' + (isActive ? ' active' : '');
+    const isActive    = zoomedPage === i;
+    const isPopulated = pageHasContent(pages[i]);
+    const cls = 'seq-viz-page-btn' +
+                (isActive    ? ' active'      : '') +
+                (isPopulated ? ''             : ' unpopulated');
     pageBtns.push(`<button class="${cls}" data-page="${i}">${i + 1}</button>`);
   }
 
@@ -5855,12 +7552,24 @@ function renderSequenceVisualizer() {
     );
   }
 
+  // SAVE button: shown only when the current sequence has uncommitted
+  // edits (a drag-pitch landed in the current session). Right-justified
+  // in the header per Daniel's spec ("SAVE button appears in upper right
+  // of the header (to the right of the sequence name, justified right)").
+  // The button uses the Roland-green confirm class for parity with the
+  // "go / commit" affordances elsewhere in the app.
+  const isDirty = dirtySequences.has(selSequence);
+  const saveBtnHtml = isDirty
+    ? `<button class="seq-viz-save-btn" type="button" title="Save edits to library">SAVE</button>`
+    : '';
+
   container.hidden = false;
   container.innerHTML =
     `<div class="seq-viz-header">` +
-      `<span class="seq-viz-name">${escapeHtml(seqName)}</span>` +
-      ` · paired with <span class="seq-viz-paired">${escapeHtml(pairedRef)}</span>` +
-      ` · ${populatedCount} of ${PAGES} pages populated` +
+      `<div class="seq-viz-header-text">` +
+        `<span class="seq-viz-name">${escapeHtml(seqName)}</span>` +
+      `</div>` +
+      saveBtnHtml +
     `</div>` +
     `<div class="seq-viz-row">` +
       `<svg class="seq-viz-keyboard" viewBox="0 0 ${KBD_WIDTH} ${KBD_VIEW_HEIGHT}" ` +
@@ -5872,12 +7581,160 @@ function renderSequenceVisualizer() {
         svgParts.join('') +
       `</svg>` +
     `</div>` +
-    `<div class="seq-viz-pages">` + pageBtns.join('') + `</div>` +
+    // (Sequential entry row removed 2026-05-26.)
+    // Bottom controls row: ▶/⏸ play button + rate input + page
+    // buttons, same horizontal level. Reads as a unified "playback +
+    // navigation" strip. Rate input is a native number field
+    // (browser handles increment/keyboard), clamped 1–100 — value is
+    // the percentage of the JX-3P's default sequencer tempo (100% =
+    // ~125 ms/step, 50% default = 250 ms/step).
+    `<div class="seq-viz-controls-row">` +
+      `<button class="seq-viz-play-btn" type="button" title="Play / Pause (double-click to reset)">▶</button>` +
+      // Rate control: collapsed default shows just [number][%][›]
+      // (carrot pointing right invites expansion). Expanded reveals
+      // the slider to the left of the number, carrot flips to ‹ for
+      // collapse. seqRateSliderExpanded persists in module scope so
+      // the chosen state survives re-renders.
+      `<div class="seq-viz-rate-wrap${seqRateSliderExpanded ? ' expanded' : ''}" title="Playback speed (1–100% of typical JX tempo)">` +
+        `<input class="seq-viz-rate-slider" type="range" min="1" max="100" step="1" value="${seqPlayRatePct}">` +
+        `<input class="seq-viz-rate" type="number" min="1" max="100" step="1" value="${seqPlayRatePct}">` +
+        `<span class="seq-viz-rate-suffix">%</span>` +
+        `<button class="seq-viz-rate-toggle" type="button" title="Show / hide rate slider">${seqRateSliderExpanded ? '‹' : '›'}</button>` +
+      `</div>` +
+      `<div class="seq-viz-pages">` + pageBtns.join('') + `</div>` +
+    `</div>` +
     `<div class="seq-viz-hover-tip" hidden></div>`;
 
-  // Wire page-button clicks
+  // Wire SAVE button (present only when current sequence is dirty).
+  //
+  // Save-as-new-copy semantic (chosen 2026-05-26 over save-over):
+  // every dirty sequence has its ORIGINAL restored from snapshot at
+  // its original index AND a new copy (with the user's edits) appended
+  // to library.sequences. The new copy gets " (edited)" appended to
+  // the visible name and a fresh createdAt timestamp so it sorts as
+  // a new item. The currently-viewed sequence's selSequence is then
+  // moved to its new edited copy so the user stays on what they were
+  // just editing.
+  //
+  // Why save EVERY dirty sequence (not just current): saveLibrary
+  // writes the whole library file. If we restored only the current
+  // sequence and saved, any in-memory mutations to OTHER dirty
+  // sequences would silently land on disk — the same fragility the
+  // dirty-tracking was designed to prevent. Saving them all as new
+  // copies preserves all originals and all edits, with zero data loss.
+  //
+  // After save: snapshots + dirty Set both clear (everything is now
+  // consistent with disk). Library list (renderPatchList) and the
+  // visualizer both re-render.
+  const saveBtn = container.querySelector('.seq-viz-save-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'SAVING…';
+      try {
+        await commitDirtyEditsAsNewCopies();
+        // (commitDirtyEditsAsNewCopies re-renders the visualizer, which
+        // re-creates the button DOM — no need to re-enable anything.)
+      } catch (err) {
+        // Re-enable so the user can retry; surface the error via the
+        // button label since there's no inline error pane here.
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'SAVE FAILED — RETRY';
+        console.error('Sequence SAVE failed:', err);
+      }
+    });
+  }
+
+  // Wire Play / Pause button.
+  //   - Single click: toggle through idle → playing → paused → playing → ...
+  //       Fires IMMEDIATELY on click (no debounce wait) so pause feels
+  //       responsive — the previous debounce-then-act model added a
+  //       250 ms latency that was audible (an extra step tick would
+  //       fire during the wait, playing a note after the user clicked).
+  //   - Double click: full reset → idle (removes playhead, drops state).
+  //       Detected by watching for a second click within 300 ms of the
+  //       first via the `recentClick` flag. The single-click action of
+  //       the FIRST click still runs (e.g. pause), then the second
+  //       click triggers reset on top. Net end-state is identical to
+  //       "reset directly" — pause is idempotent under reset.
+  const playBtn = container.querySelector('.seq-viz-play-btn');
+  if (playBtn) {
+    let recentClick = false;
+    let recentClickTimer = null;
+    const DBL_CLICK_WINDOW_MS = 300;
+
+    playBtn.addEventListener('click', () => {
+      if (recentClick) {
+        // Second click within the window → treat as double-click.
+        // Clear the flag immediately so a third click reverts to
+        // single-click behavior.
+        recentClick = false;
+        if (recentClickTimer) { clearTimeout(recentClickTimer); recentClickTimer = null; }
+        stopSeqPlayback();   // full reset to beginning
+        return;
+      }
+      // First click — fire single-click action right now.
+      recentClick = true;
+      recentClickTimer = setTimeout(() => {
+        recentClick = false;
+        recentClickTimer = null;
+      }, DBL_CLICK_WINDOW_MS);
+      if (!seqPlayState)                       startSeqPlayback();   // idle  → play
+      else if (seqPlayState.timerId !== null)  pauseSeqPlayback();   // play  → pause
+      else                                     startSeqPlayback();   // pause → resume
+    });
+  }
+
+  // Rate slider + number-input wiring. Both edit the same seqPlayRatePct
+  // state; setSeqPlayRatePct clamps to [1, 100] and hot-restarts an
+  // in-flight interval so the new tempo takes effect immediately
+  // rather than after the next play cycle. After every change, sync
+  // the OTHER control's visible value so the two stay in lockstep.
+  // 'input' fires on every drag/keystroke (live), 'blur' on number
+  // re-syncs visible value to the (potentially clamped) actual rate
+  // — so typing "150" + tab snaps the box to "100".
+  const rateSlider = container.querySelector('.seq-viz-rate-slider');
+  const rateInput  = container.querySelector('.seq-viz-rate');
+  const syncRateUI = () => {
+    if (rateSlider && rateSlider.value !== String(seqPlayRatePct)) rateSlider.value = String(seqPlayRatePct);
+    if (rateInput  && rateInput.value  !== String(seqPlayRatePct)) rateInput.value  = String(seqPlayRatePct);
+  };
+  if (rateSlider) {
+    rateSlider.addEventListener('input', () => {
+      const raw = parseInt(rateSlider.value, 10);
+      if (!Number.isFinite(raw)) return;
+      setSeqPlayRatePct(raw);
+      syncRateUI();
+    });
+  }
+  if (rateInput) {
+    rateInput.addEventListener('input', () => {
+      const raw = parseInt(rateInput.value, 10);
+      if (!Number.isFinite(raw)) return;   // mid-edit (empty / non-numeric) — skip
+      setSeqPlayRatePct(raw);
+      syncRateUI();
+    });
+    rateInput.addEventListener('blur', syncRateUI);
+  }
+  // Slide-out / slide-in toggle for the slider. Toggles a class on
+  // the wrap (CSS-driven visibility) + flips the chevron glyph.
+  // Module-scope seqRateSliderExpanded persists across re-renders.
+  const rateToggle = container.querySelector('.seq-viz-rate-toggle');
+  if (rateToggle) {
+    rateToggle.addEventListener('click', () => {
+      seqRateSliderExpanded = !seqRateSliderExpanded;
+      const wrap = container.querySelector('.seq-viz-rate-wrap');
+      if (wrap) wrap.classList.toggle('expanded', seqRateSliderExpanded);
+      rateToggle.textContent = seqRateSliderExpanded ? '‹' : '›';
+    });
+  }
+
+  // Wire page-button clicks. Switching pages mid-playback would
+  // leave the playhead stranded in the previous range and the user's
+  // ear out of sync — stop playback first.
   container.querySelectorAll('.seq-viz-page-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      stopSeqPlayback();
       const v = btn.dataset.page;
       const next = v === 'all' ? null : parseInt(v, 10);
       // Click on the currently-active page (or ALL when already all) =
@@ -5913,6 +7770,13 @@ function renderSequenceVisualizer() {
   const tip     = container.querySelector('.seq-viz-hover-tip');
   const visibleSteps = zoomedPage !== null ? STEPS_PER_PAGE : TOTAL_STEPS;
   const updateTip = (e) => {
+    // While a drag-pitch gesture is in progress, the document-level
+    // drag mousemove handler in setupSeqDragListenersOnce owns the
+    // tip — it updates the text to the current snapped pitch and
+    // pins the position to the cursor. If THIS hover handler also
+    // ran during the drag it would compete (e.g. hide the tip when
+    // the cursor crossed a non-note region), so bail out early.
+    if (seqDragState) return;
     const r      = rollSvg.getBoundingClientRect();
     const yRatio = (e.clientY - r.top)  / r.height;
     const xRatio = (e.clientX - r.left) / r.width;
@@ -5928,40 +7792,94 @@ function renderSequenceVisualizer() {
     const page    = pages[pageIdx];
     const step    = page && page[stepIdx];
 
-    // Rest step (null page OR step with no populated voices).
-    // NB: This only catches TRUE rests where every voice slot is empty
-    // (typically full null pages the synth never reached). User-input
-    // "rests" via the JX-3P's REST button are NOT detected here — the
-    // JX encodes those as tied continuations of the previous note, so
-    // they look identical to a held note in the data. See CLAUDE.md
-    // pitfall #16 for the full explanation. Tooltip wording below
-    // reflects this by saying "hold or rest" for tied cells.
+    // Silent step (null page OR step with every voice slot empty).
+    // Labeled "empty" — NOT "rest" — because:
+    //   - There's nothing in the data to interact with (Ctrl+click
+    //     here opens the INSERT tooltip, not the DELETE tooltip)
+    //   - JX REST-button presses are encoded as tied continuations
+    //     (see CLAUDE.md pitfall #16) and render as green hold-rest
+    //     cells with the `seq-viz-note` class — those DO say "rest"
+    //     in the hover (below) AND respond to Ctrl+click → delete
+    // Same word for both situations was confusing: users couldn't
+    // tell which "rest" was deletable.
     const isRestStep = !page || !step || !Array.isArray(step.voices)
                        || !step.voices.some((v) => v != null);
     if (isRestStep) {
-      tip.textContent = 'rest';
+      tip.textContent = 'empty';
       tip.hidden = false;
       tip.style.left = `${e.clientX + 14}px`;
       tip.style.top  = `${e.clientY - 18}px`;
       return;
     }
 
-    // Populated step — distinguish three cases at the hovered pitch:
-    //   1. New attack only (no tied voice at same pitch) → pitch name
-    //   2. Tied voice + new attack at SAME pitch in another voice slot
-    //      → "tie" (this is the JX-3P TIE-button signature; see
-    //      CLAUDE.md pitfall #16)
-    //   3. Tied voice only (no same-pitch new attack) → "rest" (the
-    //      JX REST button encodes as a tied continuation, indistinguish-
-    //      able in the data from a normal polyphonic note continuation;
-    //      "rest" is the dominant single-voice case)
-    //   4. No voice at this pitch → no tooltip
+    // Populated step — distinguish four cases at the hovered pitch:
+    //   1. Tied voice + new attack at SAME pitch in another voice slot
+    //      → "tie" (the JX-3P single-voice TIE signature — pitfall #16).
+    //      Cell renders BLUE.
+    //   2. New-attack-only AND this column's full attack-pitch set
+    //      matches the previous column's attack-pitch set exactly →
+    //      "tie" (polyphonic TIE = same chord re-attacked). Cell
+    //      renders RED — the data is indistinguishable from chord
+    //      re-attack, but in practice the user pressed TIE on the JX
+    //      (or our editor's TIE button) to produce this. Visually red
+    //      AND tooltip "tie" reflects: musically a re-articulation,
+    //      data-shape-wise a fresh chord.
+    //   3. New attack only, NOT matching prev column → pitch name
+    //      (regular chord/note attack).
+    //   4. Tied voice only → "rest".
+    //   5. No voice at this pitch → no tooltip.
+    // Symbols mirror the JX-3P front-panel notation (Daniel 2026-05-26):
+    //   ♪ = note (eighth-note glyph, with pitch name appended)
+    //   ⌣ = tie (upward-opening arc, matches the JX panel orientation)
+    //   <svg eighth-rest> = rest. SVG-inline (not Unicode 𝄾) because
+    //     the codepoint is in the Supplementary Multilingual Plane
+    //     and renders as a missing-glyph box on systems without music
+    //     notation font coverage.
+    //
+    // Text glyphs (♪ ⌣) wrapped in larger-font spans so their visible
+    // glyph height (~60-65 % of font-size box) lands near the rest
+    // SVG's ~14 px — matching visual weight in the tooltip.
+    const SYM_NOTE = '<span style="font-size:22px;line-height:1;display:inline-block;vertical-align:middle;">♪</span>';
+    const SYM_TIE  = '<span style="font-size:22px;line-height:1;display:inline-block;vertical-align:middle;">⌣</span>';
+    // Eighth-rest SVG sourced from Wikimedia Commons (public domain,
+    // Eighth_rest.svg). The path uses absolute coordinates centered
+    // off-canvas with the nested transforms bringing them into the
+    // 10.03 × 17.67 viewBox — preserved verbatim from the original
+    // so the glyph matches standard music-notation rendering exactly.
+    // fill:currentColor inherits the surrounding text color.
+    const SYM_REST_HTML =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10.03 17.67" ` +
+      `width="10" height="14" style="display:inline-block;vertical-align:middle;fill:currentColor;">` +
+      `<g transform="translate(-482.02112,-143.61753)">` +
+      `<g transform="matrix(1.8,0,0,1.8,-471.40868,9.4615275)">` +
+      `<path d="M 531.098,74.847 C 530.578,74.945 530.18,75.304 530,75.8 C 529.961,75.96 529.961,75.999 529.961,76.218 C 529.961,76.519 529.98,76.679 530.121,76.917 C 530.32,77.316 530.738,77.636 531.215,77.753 C 531.715,77.894 532.551,77.773 533.508,77.456 L 533.746,77.374 L 532.57,80.624 L 531.414,83.87 C 531.414,83.87 531.453,83.89 531.516,83.933 C 531.633,84.011 531.832,84.07 531.973,84.07 C 532.211,84.07 532.512,83.933 532.551,83.812 C 532.551,83.773 533.109,81.878 533.785,79.628 L 534.98,75.503 L 534.941,75.445 C 534.844,75.324 534.645,75.285 534.523,75.382 C 534.484,75.421 534.422,75.503 534.383,75.562 C 534.203,75.863 533.746,76.398 533.508,76.597 C 533.289,76.777 533.168,76.796 532.969,76.718 C 532.789,76.62 532.73,76.519 532.609,75.98 C 532.492,75.445 532.352,75.202 532.051,75.003 C 531.773,74.824 531.414,74.765 531.098,74.847 z"/>` +
+      `</g></g></svg>`;
+
     const tiedHere = step.voices.find((v) => v && v.note === pitch && v.tied);
     const newHere  = step.voices.find((v) => v && v.note === pitch && !v.tied);
     if (!tiedHere && !newHere) { tip.hidden = true; return; }
-    if (tiedHere && newHere)   tip.textContent = 'tie';
-    else if (newHere)          tip.textContent = midiPitchName(pitch);
-    else                       tip.textContent = 'rest';
+    // All three branches now set innerHTML (not textContent) so the
+    // music-symbol spans + SVG render rather than escape-printing.
+    // Safe: pitch names from midiPitchName are short alphanumerics,
+    // not user-controlled HTML; the symbol constants are static.
+    if (tiedHere && newHere) {
+      tip.innerHTML = SYM_TIE;
+    } else if (newHere) {
+      // Polyphonic-TIE detection: same set of attack pitches as
+      // immediate previous column → user pressed TIE in chord
+      // context (or our editor's TIE button). Symbol = tie even
+      // though the cell visual stays red.
+      const thisAttacks = step.voices
+        .filter((v) => v && v.tied === false && typeof v.note === 'number')
+        .map((v) => v.note).sort((a, b) => a - b);
+      const prevAttacks = previousColumnAttackPitches(absStep, pages).slice().sort((a, b) => a - b);
+      const sameAsPrev = thisAttacks.length > 0
+                         && thisAttacks.length === prevAttacks.length
+                         && thisAttacks.every((p, i) => p === prevAttacks[i]);
+      tip.innerHTML = sameAsPrev ? SYM_TIE : `${SYM_NOTE} ${midiPitchName(pitch)}`;
+    } else {
+      tip.innerHTML = SYM_REST_HTML;
+    }
     tip.hidden = false;
     tip.style.left = `${e.clientX + 14}px`;
     tip.style.top  = `${e.clientY - 18}px`;
@@ -5969,11 +7887,220 @@ function renderSequenceVisualizer() {
   rollSvg.addEventListener('mousemove', updateTip);
   rollSvg.addEventListener('mouseleave', () => { tip.hidden = true; });
 
-  // Wire keyboard key hover — show the pitch name in the shared
-  // tooltip (same chip the roll uses). Replaces the small per-octave
-  // C labels that used to render on the keys themselves — those were
-  // too small to read at this scale, so we surface the pitch on
-  // demand via hover instead.
+  // Roll-SVG click handler. Behaviors:
+  //
+  //   - Plain click on a note (any type) → selects it (visual outline
+  //       + keyboard Delete will remove it). Also previews the tone
+  //       on attack/tie cells; hold-rest cells still select but
+  //       don't preview (silent in JX playback).
+  //   - Plain click on empty cell → clears any current selection.
+  //   - Ctrl+click / right-click on a note → no-op.
+  //   - Ctrl+click / right-click on empty cell → NOTE/REST/TIE insert
+  //       tooltip (single-page view only — feature #4). Wired via the
+  //       SEPARATE 'contextmenu' listener below, NOT this 'click'
+  //       handler — see comment there for the macOS rationale.
+  //
+  // dragSuppressClick: set true by the drag-end handler when a real
+  // drag (pitch actually changed) just finished, so the post-mouseup
+  // click event doesn't fire a phantom preview / re-select at the
+  // dropped pitch.
+  rollSvg.addEventListener('click', (e) => {
+    if (seqDragSuppressClick) { seqDragSuppressClick = false; return; }
+    if (seqPlayheadDragSuppressClick) { seqPlayheadDragSuppressClick = false; return; }
+    if (seqMarqueeSuppressClick) { seqMarqueeSuppressClick = false; return; }
+    const t = e.target;
+    const isNote = t && t.classList && t.classList.contains('seq-viz-note');
+
+    // (Click-to-scrub-playhead was added then removed 2026-05-26 per
+    // Daniel — drag-from-empty-area is the canonical way to move the
+    // playhead now. Plain click on notes still selects + previews;
+    // plain click on empty still clears the selection.)
+
+    if (!isNote) {
+      // Click on empty SVG → clear any selection AND toggle the
+      // insert-cell tooltip (note/rest/tie) at the cursor. Single-
+      // page view only (matches the editing-only-in-single-page
+      // rule). Replaces the earlier macOS Ctrl-click / right-click
+      // path (Daniel 2026-05-26) — plain click is more discoverable.
+      //
+      // Toggle semantic: if a tip is already showing, this click
+      // dismisses it and stops (no new tip). Click again → reopen.
+      // outsideClick is intentionally SKIPPED for empty-area roll
+      // clicks (see showInsertCellTooltip) so the tip survives the
+      // capture-phase mousedown and we can read activeInsertTipDismiss
+      // here to drive the toggle.
+      clearSequenceSelection();
+      if (zoomedPage === null) return;
+      if (activeInsertTipDismiss) {
+        activeInsertTipDismiss();
+        activeInsertTipDismiss = null;
+        return;
+      }
+      const r       = rollSvg.getBoundingClientRect();
+      const yRatio  = (e.clientY - r.top)  / r.height;
+      const xRatio  = (e.clientX - r.left) / r.width;
+      const pitch   = HIGH_PITCH - Math.floor(yRatio * PITCH_RANGE);
+      const absStep = Math.floor(xRatio * STEPS_PER_PAGE) + zoomedPage * STEPS_PER_PAGE;
+      if (pitch < LOW_PITCH || pitch > HIGH_PITCH) return;
+      if (absStep < 0 || absStep >= TOTAL_STEPS) return;
+      showInsertCellTooltip(e.clientX, e.clientY, pitch, absStep);
+      return;
+    }
+    const type    = t.dataset.type;
+    const pitch   = parseInt(t.dataset.pitch, 10);
+    const absStep = parseInt(t.dataset.step, 10);
+    if (!Number.isFinite(pitch) || !Number.isFinite(absStep)) return;
+
+    // Select the clicked note (replaces any prior selection — single-
+    // click is always a single-note selection; marquee drag is the
+    // path for multi-select).
+    clearSequenceSelection();
+    selectedSeqNotes = [{ pitch, absStep }];
+    t.classList.add('selected');
+
+    // Preview tone for audible events; hold-rest stays silent.
+    if (type === 'attack' || type === 'tie') previewNote(pitch);
+  });
+
+  // Drag-to-change-pitch (single-page view only, per Daniel's spec
+  // "All editing would only happen in single page view"). The drag
+  // semantic:
+  //   - mousedown on a playable note (attack | tie) captures the
+  //     source rect + the current pitch
+  //   - mousemove (on document, so we catch drags that wander out of
+  //     the SVG) computes the new pitch from cursor Y, snapped to the
+  //     nearest semitone, and live-updates the rect's y attribute so
+  //     the user sees the note follow the cursor
+  //   - mouseup commits: mutate the source voice(s) in the sequence
+  //     data to the new pitch, fire a preview tone, re-render
+  //   - mouseup with no movement → no commit; click handler runs
+  //     normally (preview at original pitch)
+  //
+  // hold-rest cells aren't draggable — there's no audible event to
+  // move (the data we'd be moving is just a hold/continuation marker).
+  //
+  // Document-level mousemove/mouseup (rather than SVG-level) so the
+  // drag survives the cursor briefly leaving the SVG, which is common
+  // at the extreme top/bottom pitches.
+  if (zoomedPage !== null) {
+    rollSvg.addEventListener('mousedown', (e) => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains('seq-viz-note')) return;
+      const type = t.dataset.type;
+      if (type !== 'attack' && type !== 'tie') return;
+      const startPitch = parseInt(t.dataset.pitch, 10);
+      const absStep    = parseInt(t.dataset.step, 10);
+      if (!Number.isFinite(startPitch) || !Number.isFinite(absStep)) return;
+
+      // Group-drag detection: if the mousedown note is part of a
+      // multi-selection (and the selection has >1 entry), the drag
+      // moves the WHOLE group by Δpitch. Group is captured as
+      // {pitch, absStep, rectEl, startY} per entry. Single-selection
+      // (or no selection) falls through to the existing single-note
+      // drag path.
+      const isPartOfGroup = selectedSeqNotes.length > 1 &&
+        selectedSeqNotes.some((n) => n.pitch === startPitch && n.absStep === absStep);
+      let groupMembers = null;
+      if (isPartOfGroup) {
+        groupMembers = selectedSeqNotes.map(({ pitch, absStep: s }) => ({
+          startPitch: pitch,
+          absStep:    s,
+          rectEl:     document.querySelector(
+            `.seq-viz-note[data-pitch="${pitch}"][data-step="${s}"]`
+          ),
+        })).filter((m) => m.rectEl);
+      }
+
+      seqDragState = {
+        rect:        t,
+        type,
+        startPitch,
+        currentPitch: startPitch,
+        absStep,
+        svgRect:     rollSvg.getBoundingClientRect(),
+        moved:       false,
+        groupMembers,   // null for single-note drag, populated for group
+        // Carry the hover-tip element into the document-level
+        // mousemove handler (which is in setupSeqDragListenersOnce's
+        // scope and doesn't have access to renderSequenceVisualizer's
+        // local `tip`). The mousemove handler updates the tip's text
+        // + position each tick so the user sees the new pitch name
+        // throughout the drag, not just at the start.
+        tipEl:       tip,
+      };
+      // Seed the tip with the starting pitch immediately and anchor
+      // it to the cursor — feels more responsive than waiting for
+      // the first mousemove to populate.
+      tip.textContent = midiPitchName(startPitch);
+      tip.hidden      = false;
+      tip.style.left  = `${e.clientX + 14}px`;
+      tip.style.top   = `${e.clientY - 18}px`;
+      // Audible feedback for the starting pitch at full volume — pairs
+      // with the half-volume per-semitone previews during drag (added
+      // in the document mousemove handler) and the full-volume preview
+      // on drop. Without this, the user grabs a note and hears nothing
+      // until they actually move.
+      previewNote(startPitch);
+      document.body.classList.add('seq-dragging-pitch');
+      e.preventDefault();   // suppress text selection drag
+    });
+  }
+
+  // Empty-area mousedown: branches into PLAYHEAD-DRAG (when the
+  // mousedown target IS the playhead rect) or MARQUEE-SELECT (any
+  // other empty space). Note-rect mousedown is left alone so the
+  // pitch-drag handler above can claim it.
+  //
+  // Playhead drag: only available when playback exists. Reuses the
+  // existing seqPlayheadDragState + scrubPlayheadTo machinery.
+  //
+  // Marquee select: column-constrained (Daniel 2026-05-26) — drag
+  // up/down within a column to select multiple notes by pitch range.
+  // Single-page view only (where the columns are wide enough to
+  // make a marquee usable).
+  rollSvg.addEventListener('mousedown', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('seq-viz-note')) return;   // pitch-drag handles
+
+    // ── Playhead grab ──
+    if (t && t.classList && t.classList.contains('seq-viz-playhead')) {
+      if (!seqPlayState) return;
+      seqPlayheadDragState = { svgRect: rollSvg.getBoundingClientRect() };
+      scrubPlayheadTo(seqPlayheadDragState.svgRect, e.clientX,
+                      { playOnChange: true, gainScale: 0.2 });
+      e.preventDefault();
+      return;
+    }
+
+    // ── Marquee select (single-page only) ──
+    if (zoomedPage === null) return;
+    const svgRect = rollSvg.getBoundingClientRect();
+    const xRatio = (e.clientX - svgRect.left) / svgRect.width;
+    const yRatio = (e.clientY - svgRect.top)  / svgRect.height;
+    const absStep = Math.floor(xRatio * STEPS_PER_PAGE) + zoomedPage * STEPS_PER_PAGE;
+    const startPitch = HIGH_PITCH - Math.floor(yRatio * PITCH_RANGE);
+    if (absStep < 0 || absStep >= TOTAL_STEPS) return;
+    if (startPitch < LOW_PITCH || startPitch > HIGH_PITCH) return;
+
+    // No visual marquee rect — the user sees the selection by watching
+    // the notes themselves highlight as they drag. mousemove recomputes
+    // selectedSeqNotes live and re-applies the .selected class.
+    seqMarqueeState = {
+      svgRect,
+      absStep,
+      startPitch,
+      currentPitch: startPitch,
+    };
+    // Clear any prior selection — marquee starts a fresh group.
+    clearSequenceSelection();
+    e.preventDefault();
+  });
+
+  // Wire keyboard key hover + click. Hover shows the pitch name in
+  // the shared tooltip (same chip the roll uses); click plays a
+  // square-wave preview at that pitch (same synth-preview helper the
+  // roll's note click uses). The keys are a natural place to "audit"
+  // what each pitch sounds like even when no note is at that step.
   container.querySelectorAll('.seq-viz-key').forEach((keyRect) => {
     keyRect.addEventListener('mousemove', (e) => {
       const pitch = parseInt(keyRect.dataset.pitch, 10);
@@ -5983,7 +8110,18 @@ function renderSequenceVisualizer() {
       tip.style.top  = `${e.clientY - 18}px`;
     });
     keyRect.addEventListener('mouseleave', () => { tip.hidden = true; });
+    keyRect.addEventListener('click', () => {
+      const pitch = parseInt(keyRect.dataset.pitch, 10);
+      if (Number.isFinite(pitch)) previewNote(pitch);
+    });
   });
+
+  // Re-apply the keyboard-selection visual. The rects are freshly
+  // built in this render, so any previous .selected class is gone;
+  // restore it from selectedSeqNote if the selected (pitch, step)
+  // still matches a rendered cell. No-op when nothing selected or
+  // when the cell no longer exists (e.g. just deleted).
+  applySequenceSelectionVisual();
 }
 
 // MIDI pitch → JX-3P panel note name (Roland convention, where the
@@ -6666,22 +8804,30 @@ function handleBuilderSave() {
 function setupTabs() {
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      selBank = tab.dataset.bank;
-      selSlot = 0;
-      // Library tab always opens to the Tones sub-tab (2026-05-25) —
-      // most users browse Tones far more than Sequences, and the prior
-      // behavior of remembering the last sub-tab was a subtle UX
-      // gotcha where users would click Library expecting tone
-      // packages and land on whatever sub-tab they last touched.
-      if (selBank === 'L') selLibTab = 'tones';
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      renderPatchList();
-      renderCustomBuilder();   // updates toggle.disabled + force-closes on Library
-      if (selBank !== 'L') {
-        updateSvgPatchName();
-        updateAllControls(currentPatch());
-      }
+      const nextBank = tab.dataset.bank;
+      // Same-tab click: no-op (skip guard).
+      if (nextBank === selBank) return;
+      // Bank-tab switch is the broadest nav-away — leaves the Library
+      // tab entirely if going L → C/D. guardSeqNav pops the SAVE /
+      // DELETE modal first when sequence edits are pending.
+      guardSeqNav(() => {
+        selBank = nextBank;
+        selSlot = 0;
+        // Library tab always opens to the Tones sub-tab (2026-05-25) —
+        // most users browse Tones far more than Sequences, and the prior
+        // behavior of remembering the last sub-tab was a subtle UX
+        // gotcha where users would click Library expecting tone
+        // packages and land on whatever sub-tab they last touched.
+        if (selBank === 'L') selLibTab = 'tones';
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        renderPatchList();
+        renderCustomBuilder();   // updates toggle.disabled + force-closes on Library
+        if (selBank !== 'L') {
+          updateSvgPatchName();
+          updateAllControls(currentPatch());
+        }
+      });
     });
   });
 }

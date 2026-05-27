@@ -47,9 +47,39 @@ Single source of truth for features that aren't on the formal roadmap (`library-
   - Drag a note vertically → transpose
   - Save → write back into `library.sequences[i].tape.pages`
 
+  **Open question — orphaned rests/ties after a transpose** (raised 2026-05-26 during drag-pitch shipping): per pitfall #16, a REST press encodes as `voice[0] tied to previous pitch`, and a TIE press encodes as `voice[0] tied to previous pitch + voice[1] new attack at same pitch`. Both REST and TIE entries thus carry the PREVIOUS note's pitch as their tied-to reference. When the user drags a note to a new pitch, any subsequent REST / TIE entries that referenced the moved note are now "orphaned" — they're tied to a pitch that's no longer there in their step's voice[0] continuation chain.
+  - **Current behavior (2026-05-26):** nothing. The drag only mutates the dragged cell's voice(s). Downstream rest/tie entries keep their original tied-pitch value. Visually they still render in the same row as before the drag.
+  - **Possible future behaviors:**
+    1. **Do nothing** (current). User manually fixes any orphans they care about. Lowest implementation cost; user agency at the cost of musical-correctness defaults.
+    2. **Auto-cascade.** When dragging note at step N from pitch X to pitch Y, walk forward from N+1 until you hit either a new attack on any voice OR a fully-empty step, updating any voice with `note === X, tied === true` to `note === Y`. Catches the common "I just transposed a held phrase" intent.
+    3. **Detect + offer.** After drag, scan for orphans, show a small inline "Also move N tied notes?" prompt with Yes/No.
+  - **Recommendation:** start with (1) — match what we just shipped — and only build (2) or (3) if users actually request it. The pattern is unusual enough that most musical sequences won't have long held continuations to worry about.
+
   **Effort:** 1-2 weekend days for a read-only step grid; 2-3 days for a usable editor; +3-4 days each for piano roll layout and musical notation if added later.
 
   **Why parked:** v1 ships fine without it. The paired-patch data is already collected, so when this lands the historical data is ready to use. Build when sequencer manipulation feels like a real user request rather than a "nice to have."
+
+- **Cmd+Z undo for sequencer mutations.** The app-wide undo/redo infrastructure (`pushUndo` / `performUndo` / `performRedo`, with Cmd+Z / Cmd+Shift+Z wired at the top of `renderer/app.js`) already exists and covers bank reorders, renames, package deletes, etc. Sequencer mutations (drag-pitch, delete-note, insert NOTE/REST/TIE) are NOT yet pushed onto that stack — Cmd+Z works everywhere else but not in the sequencer editor.
+
+  **Why parked (2026-05-26):** small effort but stable v1 ships fine without it; the SAVE-as-new-copy flow already guarantees the on-disk original is never destroyed, so worst-case the user can switch sequences to discard an unwanted edit. Pick up when sequencer editing becomes a daily-driver workflow.
+
+  **Implementation sketch (~30–90 min):**
+  - Add `captureSeqState(idx)` helper → returns `{seq: clone, dirty: bool, snapshot: clone | null}`. Captures the whole state needed to reverse a mutation.
+  - Add `pushSeqUndo(idx, before, after)` wrapper → builds undo/redo closures around `applySeqState` (restore data + dirty flag + edit-snapshot all three).
+  - Call from each mutation site: drag-pitch mouseup, `deleteNoteAtStep`, `insertNoteAtStep`, `insertRestAtStep`, `insertTieAtStep`. Capture `before` at top of each, run mutation, capture `after` at bottom, call `pushSeqUndo`.
+  - Memory: ~few KB per undo entry × MAX_UNDO_DEPTH (50) = under 1 MB. Negligible.
+
+  **Edge case to address:** save/discard interactions. After a SAVE creates a new "(edited)" copy + restores original, an undo entry from before-save would try to revert the (already-saved-and-restored) state. Bulletproof handling: clear the undo stack on save/discard for the affected sequence. Quick & dirty: just push-undo only for in-session edits and accept that post-save undo may look weird.
+
+  **Edge case noted (not a regression):** the undo stack is shared app-wide — Cmd+Z on the sequencer view would undo the LAST mutation across the whole app, which could be a non-sequencer action (rename, bank reorder). This matches existing behavior elsewhere and is the standard model.
+
+- **▶ Play button: hear the sequence at 50% rate.** Today the only way to audition a sequence's contents is to send it to the JX and play it from the synth, or to click individual notes via the synth-preview helper that landed 2026-05-26 (single-note tones; no rhythm, no timing). A "▶ Play" button at the top of the visualizer would walk the sequence step-by-step, emitting a synth-preview tone for each step's new attacks, at half the sequence's intended RATE (slow enough to follow musically while editing). Indicator (the same one used for tx-progress today) sweeps across the timeline in lockstep with playback so the user sees AND hears the position.
+  - **Why 50%:** the JX sequencer's RATE control isn't directly transcribable to wall-clock without knowing how the user has it set; 50% gives a comfortable "I can hear what's happening" tempo regardless. Could surface a speed slider later (25%–100%–200%) if users want finer control.
+  - **Implementation notes:** reuses `previewNote(midi, durMs)` from `renderer/synth-preview.js` — call it per attack, scheduled via `setTimeout` based on step interval. Skip rests and tied continuations (per CLAUDE.md pitfall #16 — only new attacks produce sound). Polyphony works for free because synth-preview already stacks oscillators per call. Need a "step interval" derivation from the sequence's RATE field (`tape.rate` or wherever the codec stashes it) × 2.
+  - **Stop / pause:** click ▶ again to stop. Indicator returns to step 0.
+  - **Loop mode:** optional toggle ("loop") to repeat. Default off.
+  - **Effort:** ~2-3 hours. Most of the cost is the scheduling state machine + visual indicator sync; the audio path is already done.
+  - **Why parked:** waiting for the sequencer editor to gel before adding more audio surface. Could ship before the editor as a standalone "audition" feature if user requests come in.
 
 - **Multi-capture reliability mode for Record (design ready, build only if real-world failures appear).** Conceived May 25, 2026 when sequence Record was suspected to be probabilistic on cheap USB cables. The 10-of-10 KT bit-perfect test the same day showed Record is now deterministic with current software, so this isn't needed for v1 — but the design is fully worked out and worth shipping IF future user reports surface intermittent Record failures on hardware we can't anticipate.
 
@@ -91,6 +121,25 @@ Single source of truth for features that aren't on the formal roadmap (`library-
   **Effort**: ~30–45 min. Most of the cost is restructuring the left-slot DOM + CSS; the trigger wiring is trivial.
 
   **Why deferred**: nice polish but not blocking — the current 4-element layout already works, just isn't telling a story about transfer progress. Pick up alongside any other Record-from-JX UX work.
+
+## User manual content
+
+When JP Patches gets a real user manual (README, in-app help, or a separate `USER_MANUAL.md`), the following nuances need to be documented for end-users so they're not surprised by what they see in the sequencer visualizer:
+
+- **REST vs TIE — what the colors and tooltips mean.** Pulled from CLAUDE.md pitfall #16 and the empirical JX-3P testing 2026-05-26.
+  - **RED cell** = new attack (key pressed at this step).
+  - **GREEN cell** = held / tied continuation (REST entry OR polyphonic note still sounding from prior step).
+  - **BLUE cell** = single-voice TIE event (the JX-3P TIE-button signature: same pitch tied + re-struck).
+  - **Faint blue full-column tint** = silent step (no voices populated; either user never wrote to this step, or page is entirely empty).
+  - **Polyphonic TIE renders as RED cells** (multiple new attacks at the same pitches as the previous column), but the hover tooltip reads `tie`. This is because the JX-3P data format can't distinguish "polyphonic TIE" from "user re-played the same chord" — they're identical in the wire data. The JX firmware uses fresh re-attacks for polyphonic TIE because the canonical single-voice TIE encoding (tied + new-attack pair per pitch) doesn't fit a chord within the 7-voice budget.
+  - **Audible result of TIE** depends on context: single-voice TIE produces a smoother re-articulation (the held note's release tail blends with the new attack); polyphonic TIE is a cleaner chord re-strike (every envelope restarts from zero). Both intentional JX-3P behavior, audible differences most apparent on long-release patches.
+  - **REST after a chord** doesn't tie just voice[0] — it ties ALL chord voices into the next step (multiple green cells appear, one per held note). This matches real JX recording behavior and JP's `insertRestAtStep` produces the same shape via the polyphonic-aware encoding.
+
+- **The JX-3P sequencer has 6-voice polyphony per step.** The data format has 7 voice slots but the synth only plays 6 simultaneously. JP's editor caps inserts at 6 voices to match.
+
+- **REST and TIE are "whole-step" events on the JX-3P.** You can't add REST or TIE to a column that already has other notes — they require an empty step to insert. To turn an existing populated step into a rest, delete the notes first.
+
+- **Sequences are 8 pages × 16 steps = 128 steps maximum.** Pages can be skipped (rendered as faint blue tinted columns) if the user never programmed them on the JX. JP's library treats null pages as 16 rests for display purposes.
 
 ## Distribution
 

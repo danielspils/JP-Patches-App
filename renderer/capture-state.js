@@ -17,12 +17,25 @@
 //     ↓ updates fskPeak, activeMs
 //
 // Auto-stop triggers (priority order, returned in `events.autoStop`):
-//   silence-after-signal  totalSignalMs ≥ 5s AND consecSilenceMs ≥ 1s
+//   silence-after-signal  totalSignalMs ≥ 5s AND consecBelowSignalMs ≥ 1s
 //   dump-timeout          firstSignalMs set AND elapsed since ≥ EXP+500
 //   total-signal          totalSignalMs ≥ EXP
-//   safety-timeout        elapsed since recordStart ≥ EXP+6000
+//   safety-timeout        firstSignalMs set AND elapsed since recordStart ≥ EXP+6000
 //
 // EXP = expectedSignalMs (passed in by caller, varies by tone/sequence kind).
+//
+// All four triggers REQUIRE a signal to have been detected at some
+// point — none fire if the user opens the modal and just sits there.
+// That's deliberate: previously safety-timeout fired purely on wall-
+// clock elapsed (≈36 s after modal open for sequences), so a user who
+// hadn't yet pressed Tape Memory → Save on the JX would get the
+// "Recording didn't decode cleanly" prompt against an empty buffer.
+// The modal now waits idly until the JX actually transmits OR the
+// user clicks Cancel.
+//
+// Trade-off: while idling, the capture loop still buffers audio into
+// `captured` (~176 KB/s at 44.1 kHz × Float32 mono). A 5-minute idle
+// is ~50 MB — not a real concern in practice but worth flagging.
 
 (function () {
   'use strict';
@@ -102,7 +115,19 @@
    * @property {number | null} firstSignalMs Wall-clock when peak first
    *                                          crossed signalThreshold, or null
    * @property {number} activeMs        Accumulated ms inside FSK transmission
-   * @property {number} consecSilenceMs Current consecutive silence streak
+   * @property {number} consecSilenceMs Current consecutive ms below
+   *                                    silenceThreshold (used to gate
+   *                                    fskStartMs detection — requires
+   *                                    ≥500 ms of true-silence before
+   *                                    accepting a signal as "Save press")
+   * @property {number} consecBelowSignalMs Current consecutive ms below
+   *                                        signalThreshold. Looser than
+   *                                        consecSilenceMs — counts any
+   *                                        "not actively transmitting"
+   *                                        time, including a quiet idle
+   *                                        tone that's above silence
+   *                                        floor. Drives silence-after-
+   *                                        signal auto-stop.
    * @property {number | null} lastTickMs Wall-clock of previous tick
    */
 
@@ -115,14 +140,15 @@
    */
   function makeInitialCaptureState() {
     return {
-      runningPeak:     0,      // max peak seen across the entire session
-      fskPeak:         0,      // max peak DURING FSK (after fskStartMs fires)
-      totalSignalMs:   0,      // cumulative ms where peak > signalThreshold
-      fskStartMs:      null,   // wall-clock when silence→signal pattern detected
-      firstSignalMs:   null,   // wall-clock when peak first crossed signalThreshold
-      activeMs:        0,      // accumulated ms inside FSK transmission
-      consecSilenceMs: 0,      // current consecutive silence streak
-      lastTickMs:      null,   // wall-clock of previous tick (for dt computation)
+      runningPeak:        0,    // max peak seen across the entire session
+      fskPeak:            0,    // max peak DURING FSK (after fskStartMs fires)
+      totalSignalMs:      0,    // cumulative ms where peak > signalThreshold
+      fskStartMs:         null, // wall-clock when silence→signal pattern detected
+      firstSignalMs:      null, // wall-clock when peak first crossed signalThreshold
+      activeMs:           0,    // accumulated ms inside FSK transmission
+      consecSilenceMs:    0,    // consecutive ms below silenceThreshold (gates fskStartMs)
+      consecBelowSignalMs:0,    // consecutive ms below signalThreshold (drives silence-after-signal)
+      lastTickMs:         null, // wall-clock of previous tick (for dt computation)
     };
   }
 
@@ -187,14 +213,26 @@
     const { peak, now, silenceThreshold, signalThreshold, recordStartMs, expectedSignalMs } = tick;
     const dtMs = prev.lastTickMs !== null ? (now - prev.lastTickMs) : 0;
 
-    const runningPeak   = peak > prev.runningPeak ? peak : prev.runningPeak;
-    let fskPeak         = prev.fskPeak;
-    let totalSignalMs   = prev.totalSignalMs;
-    let fskStartMs      = prev.fskStartMs;
-    let firstSignalMs   = prev.firstSignalMs;
-    let activeMs        = prev.activeMs;
-    let consecSilenceMs = prev.consecSilenceMs;
-    let fskJustStarted  = false;
+    const runningPeak      = peak > prev.runningPeak ? peak : prev.runningPeak;
+    let fskPeak            = prev.fskPeak;
+    let totalSignalMs      = prev.totalSignalMs;
+    let fskStartMs         = prev.fskStartMs;
+    let firstSignalMs      = prev.firstSignalMs;
+    let activeMs           = prev.activeMs;
+    let consecSilenceMs    = prev.consecSilenceMs;
+    let consecBelowSignalMs = prev.consecBelowSignalMs || 0;   // || 0 for prev states from before this counter existed
+    let fskJustStarted     = false;
+
+    // consecBelowSignalMs: accumulates whenever we're NOT actively
+    // transmitting signal (peak below signalThreshold). Looser than
+    // consecSilenceMs — counts the JX's post-dump idle tone even if
+    // it's loud enough to land above silenceThreshold. The end-of-
+    // dump auto-stop reads this so we don't have to wait for true
+    // silence, which the JX may never produce post-dump on some
+    // hardware/gain combos (bug observed 2026-05-26: 25 s real dump,
+    // modal stayed open 58 s while consecSilenceMs never reached 1 s).
+    if (peak < signalThreshold) consecBelowSignalMs += dtMs;
+    else                        consecBelowSignalMs = 0;
 
     if (peak < silenceThreshold) {
       // Sustained-silence accumulation; signal-side resets the streak.
@@ -231,16 +269,26 @@
     const SAFETY_TIMEOUT_MS = expectedSignalMs + 6000;
 
     let autoStop = null;
-    if (totalSignalMs >= 5000 && consecSilenceMs >= 1000)             autoStop = 'silence-after-signal';
+    // silence-after-signal uses consecBelowSignalMs (looser than
+    // consecSilenceMs) so a quiet-but-not-truly-silent JX post-dump
+    // idle tone — observed on Daniel's KT USB Audio at 15× gain on
+    // 2026-05-26 — doesn't block this trigger from ever firing.
+    if (totalSignalMs >= 5000 && consecBelowSignalMs >= 1000)           autoStop = 'silence-after-signal';
     else if (firstSignalMs !== null && signalElapsed >= DUMP_TIMEOUT_MS) autoStop = 'dump-timeout';
-    else if (totalSignalMs >= expectedSignalMs)                       autoStop = 'total-signal';
-    else if (elapsedTotal >= SAFETY_TIMEOUT_MS)                       autoStop = 'safety-timeout';
+    else if (totalSignalMs >= expectedSignalMs)                         autoStop = 'total-signal';
+    // safety-timeout: gated on firstSignalMs so a user who opens the
+    // modal and hasn't yet pressed Tape Memory → Save doesn't get
+    // an auto-stop firing into an empty buffer (which then yields the
+    // "Recording didn't decode cleanly" prompt). Once signal HAS been
+    // detected, this remains a backstop for runaway dumps that somehow
+    // escape the other three triggers.
+    else if (firstSignalMs !== null && elapsedTotal >= SAFETY_TIMEOUT_MS) autoStop = 'safety-timeout';
 
     return {
       state: {
         runningPeak, fskPeak, totalSignalMs,
         fskStartMs, firstSignalMs, activeMs,
-        consecSilenceMs,
+        consecSilenceMs, consecBelowSignalMs,
         lastTickMs: now,
       },
       events: { fskJustStarted, progressPct, autoStop, elapsedTotal },

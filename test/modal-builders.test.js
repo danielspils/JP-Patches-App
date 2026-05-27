@@ -39,24 +39,22 @@ const {
 
 // ── buildRecordTimelineSection ─────────────────────────────────────
 
-test('buildRecordTimelineSection — sequence kind: 2 segments (init + sequence)', () => {
+test('buildRecordTimelineSection — sequence kind: 3 segments (init + sequence + processing)', () => {
   const { timelineSection, timeline, segs, indicator } = buildRecordTimelineSection('sequence');
   assert.ok(timelineSection);
   assert.equal(timelineSection.className, 'record-jx-section');
-  assert.equal(segs.length, 2);
-  assert.equal(segs[0].kind, 'init');
-  assert.equal(segs[0].pilot, true);
-  assert.equal(segs[1].kind, 'sequence');
-  assert.equal(segs[1].pilot, false);
+  assert.equal(segs.length, 3);
+  assert.deepEqual(segs.map((s) => s.kind),  ['init', 'sequence', 'processing']);
+  assert.deepEqual(segs.map((s) => s.pilot), [true,   false,      false]);
   assert.equal(indicator.className, 'send-jx-indicator');
-  assert.equal(timeline.querySelectorAll('.send-jx-seg').length, 2);
+  assert.equal(timeline.querySelectorAll('.send-jx-seg').length, 3);
 });
 
-test('buildRecordTimelineSection — tone kind: 4 segments (init + bank-c + divider + bank-d)', () => {
+test('buildRecordTimelineSection — tone kind: 5 segments (init + bank-c + divider + bank-d + processing)', () => {
   const { segs } = buildRecordTimelineSection('tone');
-  assert.equal(segs.length, 4);
-  assert.deepEqual(segs.map((s) => s.kind), ['init', 'bank-c', 'divider', 'bank-d']);
-  assert.deepEqual(segs.map((s) => s.pilot), [true, false, true, false]);
+  assert.equal(segs.length, 5);
+  assert.deepEqual(segs.map((s) => s.kind),  ['init', 'bank-c', 'divider', 'bank-d', 'processing']);
+  assert.deepEqual(segs.map((s) => s.pilot), [true,   false,    true,      false,    false]);
 });
 
 test('buildRecordTimelineSection — pilot durations are exactly 4.64 s', () => {
@@ -66,10 +64,17 @@ test('buildRecordTimelineSection — pilot durations are exactly 4.64 s', () => 
   pilots.forEach((p) => assert.equal(p.estSec, 4.64));
 });
 
+test('buildRecordTimelineSection — processing segment has its fixed estSec (4.0)', () => {
+  const tone = buildRecordTimelineSection('tone');
+  const seq  = buildRecordTimelineSection('sequence');
+  assert.equal(tone.segs.find((s) => s.kind === 'processing').estSec, 4.0);
+  assert.equal(seq.segs.find((s) => s.kind === 'processing').estSec,  4.0);
+});
+
 test('buildRecordTimelineSection — segment labels are uppercased in DOM', () => {
   const { timeline } = buildRecordTimelineSection('tone');
   const labels = [...timeline.querySelectorAll('.send-jx-seg-label')].map((el) => el.textContent);
-  assert.deepEqual(labels, ['INIT', 'BANK C', 'DIVIDER', 'BANK D']);
+  assert.deepEqual(labels, ['INIT', 'BANK C', 'DIVIDER', 'BANK D', 'PROCESSING']);
 });
 
 test('buildRecordTimelineSection — flexGrow on each segment matches estSec', () => {
@@ -94,12 +99,11 @@ test('buildRecordTimelineSection — each seg has a className like "send-jx-seg 
 
 // ── buildRecordActions ─────────────────────────────────────────────
 
-test('buildRecordActions — returns Cancel + Stop buttons in that order', () => {
-  const { actions, cancelBtn, stopBtn } = buildRecordActions();
+test('buildRecordActions — returns just the Stop button (Cancel replaced by the close-X at modal level)', () => {
+  const { actions, stopBtn } = buildRecordActions();
   assert.equal(actions.className, 'modal-actions');
-  assert.equal(actions.children[0], cancelBtn);
-  assert.equal(actions.children[1], stopBtn);
-  assert.equal(cancelBtn.textContent, 'Cancel');
+  assert.equal(actions.children.length, 1);
+  assert.equal(actions.children[0], stopBtn);
   assert.equal(stopBtn.textContent, '■ Stop');
 });
 
@@ -108,14 +112,8 @@ test('buildRecordActions — Stop is disabled by default (enabled after getUserM
   assert.equal(stopBtn.disabled, true);
 });
 
-test('buildRecordActions — Cancel is not disabled', () => {
-  const { cancelBtn } = buildRecordActions();
-  assert.equal(cancelBtn.disabled, false);
-});
-
-test('buildRecordActions — buttons use the brand-aligned button classes', () => {
-  const { cancelBtn, stopBtn } = buildRecordActions();
-  assert.ok(cancelBtn.className.includes('modal-btn-cancel'));
+test('buildRecordActions — Stop uses the brand-aligned confirm class', () => {
+  const { stopBtn } = buildRecordActions();
   assert.ok(stopBtn.className.includes('modal-btn-confirm'));
 });
 

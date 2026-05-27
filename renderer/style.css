@@ -469,13 +469,56 @@ body {
 }
 #sequence-visualizer[hidden] { display: none; }
 .seq-viz-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 12px;
   color: var(--text-mid);
   margin-bottom: 6px;
   flex-shrink: 0;
 }
+/* Left side: text identity (name · paired · pages-populated). Allowed
+   to shrink/truncate so a long sequence name can't push the SAVE
+   button off the right edge. */
+.seq-viz-header-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .seq-viz-name { color: var(--text-bright); font-weight: 600; }
 .seq-viz-paired { color: var(--text-bright); font-style: italic; }
+
+/* SAVE button: appears in the visualizer header (right-justified) when
+   the current sequence has uncommitted edits. Roland-green to match
+   "commit / go" affordances elsewhere. Sized to fit WITHIN the 12 px
+   header text line so its appearance doesn't grow the header (giving
+   the editing area more vertical room than reserving a taller header
+   would). Tight padding + line-height:1 keeps the box just barely
+   taller than the title text. */
+.seq-viz-save-btn {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  color: #f7f1e6;
+  background: #1f6e5b;            /* Roland green */
+  border: 1px solid #2a8a72;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.seq-viz-save-btn:hover  { background: #2a8a72; }
+.seq-viz-save-btn:active { background: #185647; }
+.seq-viz-save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 /* Container for the keyboard column + roll. Flex row so they share
    the same vertical extent — pitch rows in the keyboard align with
    pitch rows in the roll because both SVGs render with the same
@@ -521,6 +564,55 @@ body {
 .seq-viz-key-white:hover { fill: #e6dfcd; }
 .seq-viz-key-black:hover { fill: #2d2d2d; }
 
+/* Click-to-preview affordance on roll notes. Cursor changes to pointer
+   only on playable cells (new attacks + TIE events) — hold-rest cells
+   (rests / polyphonic continuations) don't fire a preview, so they
+   stay default-cursor to avoid promising interactivity they don't
+   deliver. Subtle hover brightness bump for visual confirmation. */
+.seq-viz-note[data-type="attack"],
+.seq-viz-note[data-type="tie"] {
+  cursor: pointer;
+  transition: filter 0.08s ease-out;
+}
+.seq-viz-note[data-type="attack"]:hover,
+.seq-viz-note[data-type="tie"]:hover {
+  filter: brightness(1.25);
+}
+/* Keyboard-delete selection (2026-05-26): a clicked note gets a bright
+   cream stroke so the user can see what pressing Delete will remove.
+   Stroke is wider than the natural cell width relative to the viewBox
+   so it reads even at small zoom. Selection clears on click outside,
+   on Escape, on any data mutation (drag/insert/delete), and on
+   sequence navigation. */
+.seq-viz-note.selected {
+  stroke: #f7f1e6;
+  stroke-width: 0.18;
+  filter: brightness(1.3);
+}
+/* Playhead overlay (2026-05-26): faint cream column that sweeps
+   across the visualizer in lockstep with the active step during
+   ▶ playback. 18% opacity reads as "highlight" without obscuring
+   the note bars it overlays.
+   pointer-events: auto (default) so mousedown on the playhead can
+   start a drag — the playhead is now draggable directly (Daniel
+   2026-05-26: drag-from-empty repurposed to marquee selection). */
+.seq-viz-playhead {
+  fill: #f7f1e6;
+  opacity: 0.18;
+  cursor: ew-resize;
+}
+
+/* (Sequential-entry cursor + selected-pitch styles removed
+   2026-05-26 when the sequential entry UI was dropped.) */
+/* During a drag-pitch gesture: vertical-resize cursor everywhere
+   (applied to <body> by the drag handler) communicates the up/down-
+   only constraint that drag enforces internally. Reverts to default
+   on mouseup automatically when the body class is removed. */
+body.seq-dragging-pitch,
+body.seq-dragging-pitch * {
+  cursor: ns-resize !important;
+}
+
 /* Hover tooltip — small floating chip showing the pitch name (e.g.
    "C4", "F#3") at the cursor's vertical position as it moves over the
    piano roll. Position: fixed (anchored to viewport so the position
@@ -530,25 +622,255 @@ body {
   position: fixed;
   background: rgba(26, 26, 26, 0.92);
   color: #f7f1e6;
-  font-family: Helvetica, 'Helvetica Neue', sans-serif;
-  font-size: 11px;
+  /* Symbol-rendering fonts first so musical glyphs (♪ ⌒ 𝄽) get
+     decent shapes from font installations that ship music notation
+     coverage; standard sans fallback for the pitch-name text. */
+  font-family: 'Apple Symbols', 'Symbola', 'STIX Two Math', Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 13px;             /* bumped from 11 — music symbols need more room than 'C4' did */
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 4px 9px;
   border-radius: 3px;
   pointer-events: none;
   z-index: 9999;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  line-height: 1;
 }
 .seq-viz-hover-tip[hidden] { display: none; }
+
+/* Edit tooltip — floating chip with action buttons, surfaced near the
+   cursor by Ctrl/Cmd+click on a sequencer note. Currently hosts a
+   single "Delete note" button (feature #3, 2026-05-26); feature #4
+   will add a NOTE/REST/TIE 3-button variant for empty-cell inserts.
+   Shares the dark hover-tip aesthetic for visual continuity but is
+   pointer-events: auto (vs. the hover tip's :none) since it needs
+   to be clickable. */
+.seq-viz-edit-tip {
+  background: rgba(26, 26, 26, 0.96);
+  border: 1px solid var(--border-dim);
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  gap: 4px;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.seq-viz-edit-tip-btn {
+  font-family: 'Apple Symbols', 'Symbola', Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 16px;              /* fallback base; per-glyph spans override (♪ ⌣ at 38 px, SVG rest 16×28) */
+  font-weight: 600;
+  padding: 2px 6px;             /* tightened around the icons so the colored chip hugs the glyph */
+  min-width: 24px;
+  text-align: center;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #f7f1e6;
+  background: rgba(247, 241, 230, 0.08);
+  transition: background 0.1s, border-color 0.1s;
+  line-height: 1;
+}
+.seq-viz-edit-tip-btn:hover  { background: rgba(247, 241, 230, 0.18); }
+.seq-viz-edit-tip-btn:active { background: rgba(247, 241, 230, 0.28); }
+/* Danger variant — Roland red, used for the Delete-note action. */
+.seq-viz-edit-tip-btn-danger {
+  background: #b94a2e;
+  border-color: #d2563a;
+}
+.seq-viz-edit-tip-btn-danger:hover  { background: #d2563a; }
+.seq-viz-edit-tip-btn-danger:active { background: #a04025; }
+
+/* Insert-tooltip variants (feature #4) — colors mirror the
+   visualization's note types so the user can pattern-match:
+     NOTE  → Roland red    (matches new-attack cell color)
+     REST  → Roland green  (matches hold/rest cell color)
+     TIE   → Roland blue   (matches TIE cell color)
+   Disabled state: dim + not-allowed cursor (REST/TIE go disabled
+   when there's no previous attack to continue). */
+.seq-viz-edit-tip-btn-attack {
+  background: #b94a2e;
+  border-color: #d2563a;
+}
+.seq-viz-edit-tip-btn-attack:hover  { background: #d2563a; }
+.seq-viz-edit-tip-btn-attack:active { background: #a04025; }
+
+.seq-viz-edit-tip-btn-rest {
+  background: #1f6e5b;
+  border-color: #2a8a72;
+}
+.seq-viz-edit-tip-btn-rest:hover  { background: #2a8a72; }
+.seq-viz-edit-tip-btn-rest:active { background: #185647; }
+
+.seq-viz-edit-tip-btn-tie {
+  background: #33508f;
+  border-color: #4664a8;
+}
+.seq-viz-edit-tip-btn-tie:hover  { background: #4664a8; }
+.seq-viz-edit-tip-btn-tie:active { background: #2a4275; }
+
+.seq-viz-edit-tip-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.seq-viz-edit-tip-btn:disabled:hover { background: inherit; }
 /* Page selector — clickable buttons below the piano roll.
    "ALL" + 8 page buttons. Active button has cream-on-Roland-green
    treatment matching the active Library sub-tab. Click an inactive
    button to zoom into that page; click the active button (or ALL when
    already on ALL) to return to the all-pages overview. */
+/* Bottom controls row: Play button under the keyboard column +
+   page buttons in the rest of the space, same horizontal level.
+   Flex layout with the play button as a fixed-width left column
+   matching the keyboard above it (40 px). */
+.seq-viz-controls-row {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+/* Play / Pause button — sized to match .seq-viz-page-btn (same
+   padding, min-width, font-size, border-radius) so the row reads as
+   a uniform strip. Visual distinction is the cream button-face vs the
+   page buttons' transparent background, signaling "this is the
+   primary action." Toggles ▶/⏸ via the .playing class set in
+   setSeqPlayButtonState. */
+.seq-viz-play-btn {
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 4px 10px;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #0a0a0a;
+  background: #cbc4b4;             /* panel button-face cream */
+  border: 1px solid #8a8273;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.seq-viz-play-btn:hover  { background: #dbd4c4; }
+.seq-viz-play-btn:active { background: #b8b1a0; }
+/* Playing state: Roland-green background + cream glyph, signals
+   "this is currently active." */
+.seq-viz-play-btn.playing {
+  background: #1f6e5b;
+  color: #f7f1e6;
+  border-color: #2a8a72;
+}
+.seq-viz-play-btn.playing:hover  { background: #2a8a72; }
+.seq-viz-play-btn.playing:active { background: #185647; }
+
+/* Rate input — slider + number combo. Slider sits left for fast
+   coarse adjustment; number sits right for precise type-in. Both
+   live inside a single bordered chip so they read as one control.
+   Suffix "%" on the far right. Both bidirectionally bound to
+   seqPlayRatePct. */
+.seq-viz-rate-wrap {
+  display: flex;
+  align-items: center;
+  margin-left: 12px;             /* breathing room between Play button + rate */
+  padding: 0 4px;
+  gap: 6px;
+  border: 1px solid #2c2c2c;
+  border-radius: 2px;
+  background: #0e0e0e;
+  height: 24px;                  /* matches .seq-viz-page-btn computed height */
+  box-sizing: border-box;
+}
+/* Slider is hidden by default — only visible when the wrap has the
+   .expanded class (toggled by the ‹/› chevron button). Slide-out
+   behaviour: the wrap grows in width as the slider takes up space;
+   page buttons re-center automatically (they use flex:1). */
+.seq-viz-rate-slider {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+.seq-viz-rate-wrap.expanded .seq-viz-rate-slider {
+  display: block;
+}
+.seq-viz-rate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #cbc4b4;          /* panel button-face cream */
+  border: 1px solid #8a8273;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.seq-viz-rate-slider::-webkit-slider-thumb:hover { background: #dbd4c4; }
+.seq-viz-rate-slider:focus { outline: none; }
+.seq-viz-rate {
+  width: 30px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mid);        /* dimmer than text-bright; reads as "input field" */
+  text-align: right;
+}
+.seq-viz-rate::-webkit-inner-spin-button {
+  /* Remove native spinner buttons now that the slider is the
+     primary adjustment affordance — typing is the precision path. */
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+/* Chevron toggle that expands / collapses the slider. ‹ when
+   expanded (click to collapse), › when collapsed (click to expand).
+   Sits on the far right of the rate chip. Plain text-button look —
+   small, dim, mid-gray hover for affordance. */
+.seq-viz-rate-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-mid);
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.1s;
+}
+.seq-viz-rate-toggle:hover { color: var(--text-bright); }
+.seq-viz-rate::-webkit-inner-spin-button { opacity: 0.5; }   /* dim the spinner so it doesn't dominate */
+.seq-viz-rate-suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 2px;
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mid);
+  user-select: none;
+}
+.seq-viz-rate-wrap:focus-within {
+  border-color: var(--green-sel-bdr, #4a8a7a);
+}
+
 .seq-viz-pages {
   display: flex;
   gap: 4px;
-  margin-top: 6px;
+  flex: 1;
+  margin-left: 8px;
   flex-shrink: 0;
   justify-content: center;
 }
@@ -578,6 +900,22 @@ body {
   border-color: #1f6e5b;
 }
 .seq-viz-page-btn.active:hover { background: #2a8870; border-color: #2a8870; }
+/* .unpopulated: page (or ALL) has no note data. Dimmed so the user
+   can see at a glance which pages have content. Still clickable —
+   zooming into an empty page lets the user Ctrl-click to start
+   inserting; the page initializes on demand (_prepStepForInsert)
+   and the button un-fades on the next render. Hover lifts the
+   opacity slightly so the click affordance is still legible. */
+.seq-viz-page-btn.unpopulated {
+  opacity: 0.4;
+}
+.seq-viz-page-btn.unpopulated:hover {
+  opacity: 0.75;
+}
+
+/* (Sequential-entry row + button styles removed 2026-05-26 when the
+   NOTE/REST/TIE buttons were dropped. Use Ctrl+click insert tooltip
+   for note placement instead.) */
 /* ALL button uses Roland blue when active — distinguishes the "overview"
    choice from the per-page focus buttons. Mirrors the Library sub-tab
    convention (Sequences = blue, Tones = green). */
@@ -1048,6 +1386,7 @@ body {
   z-index: 1000;
 }
 .modal {
+  position: relative;                /* anchor for .modal-close-x children */
   background: #1a1a1a;
   border: 1px solid var(--border-dim);
   border-radius: 5px;
@@ -1056,6 +1395,34 @@ body {
   max-width: 440px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
 }
+
+/* Close-X in the upper-right corner of a modal. Currently only used by
+   the Record-from-JX modal (replaced the bottom-row Cancel button on
+   2026-05-26 to reclaim vertical space); generic class so any future
+   modal can opt in by appending a button.modal-close-x. */
+.modal-close-x {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-mid);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  transition: color 0.1s, background 0.1s;
+}
+.modal-close-x:hover  { color: var(--text-bright); background: rgba(255, 255, 255, 0.06); }
+.modal-close-x:active { background: rgba(255, 255, 255, 0.12); }
+.modal-close-x:focus-visible { outline: 1px solid var(--text-mid); outline-offset: 2px; }
 .modal-title {
   color: var(--text-bright);
   font-size: 15px;
@@ -1143,17 +1510,23 @@ body {
   text-overflow: ellipsis;
   padding: 0 4px;
 }
-/* Per-segment bg/active colors echo the bank palette. */
+/* Per-segment bg/active colors echo the bank palette. The 'processing'
+   segment is the post-dump phase (WAV encode + jx3p decode) — its
+   active color is the warning-amber token to signal "working" rather
+   than borrowing one of the JX-3P bank colors, which would suggest
+   "still receiving from synth." */
 .send-jx-seg-init,
 .send-jx-seg-divider     { background: #3a3a3a; }
 .send-jx-seg-bank-c      { background: rgba(31, 110, 91, 0.30); }
 .send-jx-seg-bank-d      { background: rgba(51, 80, 143, 0.30); }
 .send-jx-seg-sequence    { background: rgba(31, 110, 91, 0.30); }
+.send-jx-seg-processing  { background: rgba(195, 154, 58, 0.18); }   /* amber @ 18% — resting */
 .send-jx-seg.active.send-jx-seg-init,
 .send-jx-seg.active.send-jx-seg-divider { background: #b94a2e; }
 .send-jx-seg.active.send-jx-seg-bank-c  { background: #1f6e5b; }
 .send-jx-seg.active.send-jx-seg-bank-d  { background: #33508f; }
-.send-jx-seg.active.send-jx-seg-sequence { background: #1f6e5b; }
+.send-jx-seg.active.send-jx-seg-sequence  { background: #1f6e5b; }
+.send-jx-seg.active.send-jx-seg-processing { background: #c39a3a; }   /* amber — active */
 .send-jx-seg.active .send-jx-seg-label  { color: #f7f1e6; }
 
 .send-jx-indicator {
@@ -1274,17 +1647,17 @@ body {
 /* Record-from-JX modal — captures live audio from the Mac's input device
    into a temp WAV that the existing decode pipeline can consume. Mirrors
    the Send-to-JX modal layout: instructions on top, device picker + level
-   meter in the middle, Record/Stop in the action row. */
-/* max-height + overflow-y: viewport-aware scroll fallback so the modal
-   can NEVER push its action buttons off the bottom of the screen. The
-   sample-rate notice grew large enough on 2026-05-26 to do exactly
-   that. With this rule, even if a future addition makes the modal
-   taller than the viewport, users can still scroll to reach Cancel /
-   Stop. 90vh leaves a small visual margin above + below. */
+   meter in the middle, Record/Stop in the action row.
+
+   (max-height: 90vh + overflow-y: auto was added defensively 2026-05-26
+   when the sample-rate notice was a multi-line block. The notice has
+   since been compressed to a single flashing line in the device header,
+   so the cap was forcing a permanent scrollbar without serving its
+   original purpose. Removed — modal sizes to natural content again.
+   If a future addition makes the modal exceed the viewport, reintroduce
+   the cap or split the content into a step.) */
 .record-jx-modal {
   max-width: 540px;
-  max-height: 90vh;
-  overflow-y: auto;
 }
 /* Capture-source chooser modal (Save Patches / Save Sequence from JX-3P)
    — three buttons (Cancel + Open WAV file… + Record from JX-3P). Body
@@ -1392,13 +1765,46 @@ body {
   min-width: 52px;
   text-align: right;
 }
+/* "WHAT THE JX-3P SENDS:" section header: label on the left, optional
+   status text (e.g. "Recording — 14s elapsed", capture-warning copy)
+   on the right. Baseline alignment so the status font sits on the
+   same typographic line as the label.
+
+   The `> label` override is required because `.record-jx-section
+   label` sets `display: block; margin-bottom: 6px;` for stacked
+   sections elsewhere in the modal — without the override, the label's
+   bottom margin pushes the timeline bar down 6px AND (more subtly)
+   some browsers' baseline-alignment behaviour with a margin'd flex
+   item shifts the status text onto a visual second row. */
+.record-jx-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.record-jx-timeline-header > label {
+  margin-bottom: 0;
+}
 .record-jx-status {
   font-size: 12px;
   color: var(--text-mid);
-  text-align: right;       /* aligns visually with the meter column above */
-  margin: 0 0 10px 0;      /* tight under calRow; small gap before deviceSection */
-  padding-right: 30px;     /* small inset so the text doesn't kiss the modal's right edge */
-  min-height: 1.2em;       /* reserve a line so the layout doesn't jump on populate/clear */
+  font-variant-numeric: tabular-nums;   /* prevents counter digits from jittering */
+  /* No min-height by default — in the flex timelineHeader the label
+     sets the row height. */
+}
+/* Calibration-mode variant: statusText is reparented from the timeline
+   header up to modal level (timeline section is hidden in calibration).
+   Block layout, right-aligned to visually tie to the meter column
+   above, small bottom margin so it doesn't kiss the dump-progress bar
+   below. min-height reserves a line so the modal doesn't jump when
+   the warning toggles on/off. */
+.record-jx-status.record-jx-status-calibration {
+  display: block;
+  text-align: right;
+  padding-right: 30px;
+  margin: 0 0 10px 0;
+  min-height: 1.2em;
 }
 
 /* Inline device-change notice anchored to the INPUT DEVICE picker.
@@ -1421,46 +1827,58 @@ body {
 }
 .record-jx-device-notice[hidden] { display: none; }
 
-/* Persistent sample-rate-mismatch notice. Started life as a Roland-red
-   warning predicting "certain failure," but real-world testing showed
-   modern interfaces survive 48→44.1 resampling cleanly more often than
-   not. Downgraded to amber-on-dim with an informational ℹ︎ glyph so
-   the visual matches the advisory tone of the copy. Still doesn't
-   auto-fade — stays visible until the device's actual rate matches
-   44.1 kHz or the user dismisses it via Re-check. */
-.record-jx-device-rate-warning {
-  margin-top: 8px;
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #c39a3a;
-  background: rgba(195, 154, 58, 0.10);
-  border-left: 2px solid #c39a3a;
-  border-radius: 2px;
-}
-.record-jx-device-rate-warning[hidden] { display: none; }
+/* Sample-rate-mismatch warning row.
+   The "INPUT DEVICE:" section header places the section label on the
+   left and a right-justified advisory ("JP Patches prefers 44.1kHz")
+   on the right. On the happy path (device IS at 44.1) the advisory
+   stays hidden — no nagging. When the device is at any other rate,
+   we reveal the advisory AND apply the .flashing pulse animation —
+   the flash IS the warning signal.
 
-/* Re-check button inside the sample-rate notice. Subdued cream-outline
-   button — sized small so it reads as a secondary affordance. */
-.record-jx-device-rate-recheck {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 3px 10px;
-  font-family: inherit;
+   History: started as a Roland-red full-width notice predicting
+   "certain failure," then real-world testing showed modern interfaces
+   survive 48→44.1 resampling cleanly more often than not. Iterated
+   through several layouts (below-picker, inline-right-of-label,
+   two-element above+inside-picker) before landing on this minimal
+   flash-only design. Amber `#c39a3a` matches the design-system
+   "approaching limit" token used elsewhere for advisory notices. */
+.record-jx-device-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.record-jx-device-preferred {
   font-size: 11px;
-  color: #f7f1e6;
-  background: transparent;
-  border: 1px solid rgba(207, 200, 184, 0.5);
-  border-radius: 2px;
-  cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  font-style: italic;
+  color: #c39a3a;
 }
-.record-jx-device-rate-recheck:hover  { background: rgba(207, 200, 184, 0.10); border-color: #cfc8b8; }
-.record-jx-device-rate-recheck:active { background: rgba(207, 200, 184, 0.18); }
-.record-jx-device-rate-recheck:disabled {
-  opacity: 0.5;
-  cursor: wait;
+.record-jx-device-preferred[hidden] { display: none; }
+
+/* Picker wrap: <select> with the actual-rate readout overlaid inside
+   it, right-justified just clear of the native chevron. pointer-events:
+   none on the readout so the picker stays fully clickable. Background
+   matches the picker so a long device name clips cleanly behind the
+   readout rather than bleeding through. Visible only on mismatch —
+   same amber as the header advisory above, no flash (the header is
+   the alert, this is the data point). */
+.record-jx-device-picker-wrap {
+  position: relative;
 }
+.record-jx-device-actual {
+  position: absolute;
+  right: 28px;                       /* clear of the native chevron */
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-style: italic;
+  color: #c39a3a;
+  background: #0e0e0e;               /* matches .record-jx-device bg */
+  padding: 0 6px 0 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.record-jx-device-actual[hidden] { display: none; }
 
 /* ───────────────────────────────────────────────────────────────────────
    Button-name hint pill
@@ -1476,6 +1894,21 @@ body {
   padding: 0 5px;
   border: 1px solid rgba(207, 200, 184, 0.5);   /* cream secondary @ 50% */
   border-radius: 2px;
+  line-height: 1.5;
+}
+
+/* Inline color-coded pill — currently used in the calibration instruction
+   ("reach <yellow> target notch") to point the user's eye at the meter's
+   amber/yellow target segment. Background-fill matches the meter's AMBER
+   token (#c39a3a) so the pill and the visual target are clearly the same
+   colour; white text reads cleanly against the amber. Padding/radius
+   tuned to feel like the .btn-hint outlined pills it sits alongside. */
+.pill-yellow {
+  display: inline-block;
+  padding: 0 6px;
+  background: #c39a3a;                   /* AMBER — matches target notch */
+  color: #ffffff;
+  border-radius: 3px;
   line-height: 1.5;
 }
 
@@ -1761,6 +2194,21 @@ body {
   font-size: 13px;
   line-height: 1.25;
   gap: 1px;
+}
+/* Edited-copy distinguisher (feature #8, 2026-05-26). Sequences whose
+   name matches "(edited)" / "(edited N)" get italic + slightly dim
+   styling so users can tell at a glance which entries are derivative
+   from a master. Pattern-driven, not flag-driven: if the user
+   renames an edited copy to something else, the marker drops away
+   automatically (intentional — a renamed copy is a "real" sequence).
+   Selected-state still wins on background; this layers on top of
+   the name text. */
+.package-item.edited-copy .package-name-span {
+  font-style: italic;
+  color: var(--text-mid);
+}
+.package-item.edited-copy.selected .package-name-span {
+  color: var(--text-bright);   /* selected row reasserts contrast */
 }
 
 .package-trash {

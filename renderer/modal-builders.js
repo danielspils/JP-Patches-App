@@ -53,42 +53,78 @@
    * @param {'tone' | 'sequence'} kind Which timeline shape to build
    * @returns {{
    *   timelineSection: HTMLElement,
+   *   timelineHeader:  HTMLElement,
    *   timeline:        HTMLElement,
    *   segs:            RecordTimelineSegment[],
    *   indicator:       HTMLElement,
    * }}
+   * `timelineHeader` is a flex row containing the section label on
+   * the left, with room on the right for the caller to drop in an
+   * inline status node (e.g. the Record modal's "Recording — Ns
+   * elapsed" counter). Layout via .record-jx-timeline-header in CSS.
    */
   function buildRecordTimelineSection(kind) {
     const timelineSection = document.createElement('div');
     timelineSection.className = 'record-jx-section';
+    const timelineHeader = document.createElement('div');
+    timelineHeader.className = 'record-jx-timeline-header';
     const timelineLabel = document.createElement('label');
     timelineLabel.textContent = 'WHAT THE JX-3P SENDS:';
+    timelineHeader.appendChild(timelineLabel);
     const timeline = document.createElement('div');
     timeline.className = 'send-jx-timeline';
 
+    // Final 'processing' segment represents the post-dump phase: WAV
+    // encode → jx3p decode → active-bank update. NOT a pilot, NOT
+    // driven by activeMs (the other segments are advanced by cumulative
+    // FSK signal time). App.js manually activates this segment when
+    // state transitions to 'processing', and snaps the indicator into
+    // its midpoint — see the state-transition handler in showRecordFromJxModal.
     const segs = (kind === 'sequence'
       ? [
-          { kind: 'init',     label: 'Init',     pilot: true  },
-          { kind: 'sequence', label: 'Sequence', pilot: false },
+          { kind: 'init',       label: 'Init',       pilot: true  },
+          { kind: 'sequence',   label: 'Sequence',   pilot: false },
+          { kind: 'processing', label: 'Processing', pilot: false },
         ]
       : [
-          { kind: 'init',    label: 'Init',    pilot: true  },
-          { kind: 'bank-c',  label: 'Bank C',  pilot: false },
-          { kind: 'divider', label: 'Divider', pilot: true  },
-          { kind: 'bank-d',  label: 'Bank D',  pilot: false },
+          { kind: 'init',       label: 'Init',       pilot: true  },
+          { kind: 'bank-c',     label: 'Bank C',     pilot: false },
+          { kind: 'divider',    label: 'Divider',    pilot: true  },
+          { kind: 'bank-d',     label: 'Bank D',     pilot: false },
+          { kind: 'processing', label: 'Processing', pilot: false },
         ]
     ).map((cfg) => {
       const seg = document.createElement('div');
       seg.className = `send-jx-seg send-jx-seg-${cfg.kind}`;
-      // Approximate per-segment durations (seconds) derived from JX-3P
-      // tape-format math: pilots are 4096 bits × 50 samples/bit ÷ 44100 Hz
-      // ≈ 4.64 s; data sections depend on bit content (ONE=50 samples vs
-      // ZERO=11 — 4.5× asymmetry). Used only for the progress bar's
-      // visual proportions; auto-stop is governed by EXPECTED_SIGNAL_MS
-      // and silence-detection regardless.
-      cfg.estSec = cfg.pilot
-        ? 4.64
-        : kind === 'sequence' ? 22.0 : 16.0;
+      // Approximate per-segment durations (seconds) used for both visual
+      // proportions (flexGrow) AND indicator pace (activeMs / totalEst).
+      // Pilots are 4096 bits × 50 samples/bit ÷ 44100 Hz ≈ 4.64 s exactly.
+      // Data sections depend on bit content (ONE=50 samples vs ZERO=11
+      // samples — 4.5× asymmetry) so are calibrated empirically:
+      //   - Sequence: 22 s   (Spils Sequence 3/8 populated = 27.65 s total
+      //                       wall-clock incl. 4.64 s pilot → 23 s data)
+      //   - Tone bank: 8 s   (calibrated 2026-05-26 against ~25 s tone
+      //                       dumps — was 16 s previously, which made the
+      //                       indicator lag visibly behind the JX, only
+      //                       catching up at end-of-dump. Heavier banks
+      //                       can push real bank time toward 12–15 s,
+      //                       but the auto-stop ladder handles overruns
+      //                       gracefully so it's better to err small.)
+      // Auto-stop is governed by EXPECTED_SIGNAL_MS + silence-detection
+      // regardless, so a wrong estSec only hurts visual pace.
+      //
+      // The 'processing' segment is a fixed 4 s. Real decode time
+      // varies (WAV encode + jx3p subprocess + JSON parse + library
+      // write), but typically lands under 3 s. 4 s gives the user a
+      // visible "I'm working" beat without padding the visual bar
+      // disproportionately.
+      if (cfg.kind === 'processing') {
+        cfg.estSec = 4.0;
+      } else {
+        cfg.estSec = cfg.pilot
+          ? 4.64
+          : kind === 'sequence' ? 22.0 : 8.0;
+      }
       seg.style.flexGrow = String(cfg.estSec);
       const label = document.createElement('span');
       label.className = 'send-jx-seg-label';
@@ -102,38 +138,42 @@
     indicator.className = 'send-jx-indicator';
     indicator.style.left = '0%';
     timeline.appendChild(indicator);
-    timelineSection.appendChild(timelineLabel);
+    timelineSection.appendChild(timelineHeader);
     timelineSection.appendChild(timeline);
 
-    return { timelineSection, timeline, segs, indicator };
+    return { timelineSection, timelineHeader, timeline, segs, indicator };
   }
 
   // ── Record-from-JX actions row ────────────────────────────────────────────
   //
-  // Cancel + Stop buttons. Stop is pre-disabled (enabled after
-  // getUserMedia resolves so a too-fast Stop click doesn't fire into a
-  // half-initialized state).
+  // Stop button only. Cancel was removed 2026-05-26 in favour of a
+  // close X in the modal's upper-right corner (the X is mounted at
+  // modal level in app.js, not here). Stop itself is hidden in both
+  // calibration and capture modes — the modal is fully hands-free,
+  // auto-stop fires when the JX dump completes. Kept in the DOM as
+  // invisible chrome so the legacy state-management toggles
+  // (`stopBtn.disabled = true/false`) in app.js don't need to be
+  // ripped out alongside the Cancel removal.
+  //
+  // Pre-disabled (enabled after getUserMedia resolves so a too-fast
+  // Stop click — if ever re-surfaced — doesn't fire into a half-
+  // initialized state).
 
   /**
    * @returns {{
-   *   actions:   HTMLElement,
-   *   cancelBtn: HTMLButtonElement,
-   *   stopBtn:   HTMLButtonElement,
+   *   actions: HTMLElement,
+   *   stopBtn: HTMLButtonElement,
    * }}
    */
   function buildRecordActions() {
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'modal-btn modal-btn-cancel';
-    cancelBtn.textContent = 'Cancel';
     const stopBtn = document.createElement('button');
     stopBtn.className = 'modal-btn modal-btn-confirm';
     stopBtn.textContent = '■ Stop';
     stopBtn.disabled = true;
-    actions.appendChild(cancelBtn);
     actions.appendChild(stopBtn);
-    return { actions, cancelBtn, stopBtn };
+    return { actions, stopBtn };
   }
 
   // ── Send-to-JX actions row ────────────────────────────────────────────────

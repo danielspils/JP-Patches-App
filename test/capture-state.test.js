@@ -48,14 +48,15 @@ test('liveThresholdsFor — null/0/NaN gain clamps to 1×', () => {
 
 test('makeInitialCaptureState — all counters at 0, all timestamps null', () => {
   const s = makeInitialCaptureState();
-  assert.equal(s.runningPeak,     0);
-  assert.equal(s.fskPeak,         0);
-  assert.equal(s.totalSignalMs,   0);
-  assert.equal(s.fskStartMs,      null);
-  assert.equal(s.firstSignalMs,   null);
-  assert.equal(s.activeMs,        0);
-  assert.equal(s.consecSilenceMs, 0);
-  assert.equal(s.lastTickMs,      null);
+  assert.equal(s.runningPeak,         0);
+  assert.equal(s.fskPeak,             0);
+  assert.equal(s.totalSignalMs,       0);
+  assert.equal(s.fskStartMs,          null);
+  assert.equal(s.firstSignalMs,       null);
+  assert.equal(s.activeMs,            0);
+  assert.equal(s.consecSilenceMs,     0);
+  assert.equal(s.consecBelowSignalMs, 0);
+  assert.equal(s.lastTickMs,          null);
 });
 
 // ── updateCaptureState ─────────────────────────────────────────────
@@ -175,12 +176,31 @@ test('updateCaptureState — progressPct caps at 100, never exceeds', () => {
 
 // ── auto-stop ladder ───────────────────────────────────────────────
 
-test('updateCaptureState — silence-after-signal auto-stop after 5s signal + 1s silence', () => {
-  // Build state with 5s signal accumulated and 1s silence after.
+test('updateCaptureState — silence-after-signal auto-stop after 5s signal + 1s below-signal', () => {
+  // The trigger now reads consecBelowSignalMs (looser than the old
+  // consecSilenceMs check) so a quiet-but-not-silent JX post-dump
+  // tone won't block end-of-dump detection. Setup: 5s signal seen,
+  // 1.1s of consec ticks below signal, then one more sub-signal tick.
   let s = makeInitialCaptureState();
-  // Manually craft a state close to the trigger:
-  s = { ...s, totalSignalMs: 6000, consecSilenceMs: 1100, lastTickMs: 9000 };
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 1100, lastTickMs: 9000 };
   const out = updateCaptureState(s, tick({ peak: 0.01, now: 9100 }));
+  assert.equal(out.events.autoStop, 'silence-after-signal');
+});
+
+test('updateCaptureState — silence-after-signal fires even when peak is BELOW signal but ABOVE silence (the loud-idle-tone case)', () => {
+  // Regression for the 2026-05-26 bug: at 15× gain, silenceThreshold
+  // = 0.18 and signalThreshold = 0.375. If post-dump idle tone sits
+  // at e.g. 0.25 (above silence, below signal), the OLD trigger
+  // (consecSilenceMs) never accumulated and modal stayed open 33+ s
+  // past dump end. New trigger uses consecBelowSignalMs so 0.25
+  // counts as "no longer transmitting" and the trigger fires.
+  let s = makeInitialCaptureState();
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 990, lastTickMs: 9000 };
+  const out = updateCaptureState(s, tick({
+    peak: 0.25, now: 9100,
+    silenceThreshold: 0.18, signalThreshold: 0.375,
+  }));
+  // dt = 100ms → consecBelowSignalMs goes 990 → 1090 → trigger fires
   assert.equal(out.events.autoStop, 'silence-after-signal');
 });
 
@@ -211,14 +231,38 @@ test('updateCaptureState — total-signal auto-stop after totalSignalMs ≥ expe
   assert.equal(out.events.autoStop, 'total-signal');
 });
 
-test('updateCaptureState — safety-timeout auto-stop after expected + 6000 from recordStart', () => {
+test('updateCaptureState — safety-timeout auto-stop fires after expected + 6000 ONLY once signal was detected', () => {
+  // Safety-timeout fires only when no other trigger has caught the
+  // capture. Construct a state where:
+  //   - firstSignalMs is set (gating requirement)
+  //   - signal was detected recently enough that DUMP_TIMEOUT_MS
+  //     (signalElapsed ≥ EXP+500) hasn't tripped
+  //   - totalSignalMs is below EXP (else total-signal fires first)
+  //   - elapsedTotal ≥ EXP+6000 (the safety-timeout threshold)
+  let s = makeInitialCaptureState();
+  // recordStart=0, signal detected at t=30000, now=36100:
+  //   elapsedTotal  = 36100 ≥ 36000 (safety threshold)  ✓
+  //   signalElapsed = 6100  <  30500 (dump-timeout)     ✓
+  //   totalSignalMs = 0     <  30000 (total-signal)     ✓
+  s = { ...s, firstSignalMs: 30000, lastTickMs: 36000 };
+  const out = updateCaptureState(s, tick({
+    peak: 0.01, now: 36100, recordStartMs: 0, expectedSignalMs: 30000,
+  }));
+  assert.equal(out.events.autoStop, 'safety-timeout');
+});
+
+test('updateCaptureState — safety-timeout does NOT fire while idling (no signal ever detected)', () => {
+  // Branch B: user opened the modal but never pressed Tape Memory →
+  //   Save, so firstSignalMs stays null. Even past the safety-timeout
+  //   wall-clock window, autoStop stays null — we wait for Cancel.
+  //   (This was the false-positive that caused "Recording didn't
+  //   decode cleanly" prompts against empty buffers pre-2026-05-26.)
   let s = makeInitialCaptureState();
   s = { ...s, lastTickMs: 36100 };
   const out = updateCaptureState(s, tick({
     peak: 0.01, now: 36200, recordStartMs: 0, expectedSignalMs: 30000,
   }));
-  // elapsedTotal = 36200 ≥ 30000 + 6000 = 36000
-  assert.equal(out.events.autoStop, 'safety-timeout');
+  assert.equal(out.events.autoStop, null);
 });
 
 test('updateCaptureState — autoStop is null when no condition met', () => {
@@ -229,12 +273,15 @@ test('updateCaptureState — autoStop is null when no condition met', () => {
 test('updateCaptureState — auto-stop priority: silence-after-signal beats others', () => {
   // Construct state where multiple conditions could trigger; expect
   // the first in the priority order.
+  // (Note: the silence-after-signal trigger reads consecBelowSignalMs,
+  // not consecSilenceMs, since the 2026-05-26 fix for the loud-idle-
+  // tone case. Setting consecSilenceMs alone wouldn't drive it.)
   let s = makeInitialCaptureState();
   s = { ...s,
-        totalSignalMs:  31000,    // ≥ expectedSignalMs
-        consecSilenceMs: 1100,    // ≥ 1000
-        firstSignalMs:   1000,    // signalElapsed will be ≥ DUMP_TIMEOUT
-        lastTickMs:      31900,
+        totalSignalMs:       31000,  // ≥ expectedSignalMs (total-signal would fire)
+        consecBelowSignalMs: 1100,   // ≥ 1000 (silence-after-signal SHOULD win)
+        firstSignalMs:       1000,   // signalElapsed will be ≥ DUMP_TIMEOUT
+        lastTickMs:          31900,
       };
   const out = updateCaptureState(s, tick({
     peak: 0.01, now: 32000, recordStartMs: 0, expectedSignalMs: 30000,

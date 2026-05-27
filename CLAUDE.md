@@ -369,6 +369,26 @@ See `jx3p/patch.py` upstream for canonical types. Key gotchas:
 
     Users coming from other sequencers (where REST creates literal silence in voice[0]) will still report "I recorded rests but they're not showing as blue" — it's a Roland firmware decision, not a JP bug. The blue rest column only appears for fully-empty steps (byte7=127). Bug history: surfaced 2026-05-25 with an inadequate test (`C, REST, C, REST, C-key, C-key`) that didn't capture a TIE event at all, leading to the incorrect "indistinguishable" conclusion. Corrected same day after a proper test sequence (`C, REST, C, TIE+C, C, REST, C`) decoded with the voice[1] new-attack signature for the TIE event.
 
+    **Polyphonic (chord) REST/TIE behavior — empirically verified 2026-05-26:** the single-voice descriptions above don't fully capture the JX firmware's behavior in polyphonic contexts. Daniel recorded a test sequence (`5-voice chord + REST + 3-voice chord + REST + 4-voice chord + REST + 5-voice chord + TIE + TIE + TIE + TIE`) on the actual JX-3P and imported it. The wire encoding showed:
+
+    - **Polyphonic REST** (REST after a held chord) → `voices: [{prev_note_1, tied: true}, {prev_note_2, tied: true}, ..., {prev_note_N, tied: true}, null...]` — ALL chord voices get tied into the next step, not just voice[0]. A 5-voice chord followed by REST produces 5 green cells in the next column, not 1.
+    - **Polyphonic TIE** (TIE after a held chord) → `voices: [{prev_note_1, tied: false}, {prev_note_2, tied: false}, ..., {prev_note_N, tied: false}, null...]` — ALL chord voices get fresh new-attacks. NO tied voices included. The canonical single-voice TIE encoding (tied + new-attack pair per pitch) can't fit polyphonic in the 7-voice budget (2N voices needed for N-note chord); the JX firmware falls back to just re-attacking.
+    - **Consequence for polyphonic TIE**: data-shape-identical to "user played the chord again." There's no distinct polyphonic-TIE signature in the wire data — only single-voice TIE has the tied+new-attack-at-same-pitch discriminator. A polyphonic TIE column renders as all red attack cells (looks like a chord re-strike).
+    - **JX-3P 7-voice-slot budget per step** is the constraint forcing this divergence. Single-voice TIE uses 2/7 slots. Polyphonic-TIE-in-canonical-form would need 2N/7 slots — overflows past N=3.
+    - **Editor must match.** JP's `insertRestAtStep` and `insertTieAtStep` (renderer/app.js) now use `previousColumnAttackPitches` to write one voice per prev-column new-attack (REST → tied voices; TIE → fresh attacks). Earlier versions wrote only voice[0] (REST) or voice[0]+voice[1] (TIE) and produced data shapes the JX itself wouldn't record.
+    - **NOTE insert is also gated symmetrically (2026-05-26).** The JX itself can't record a step that mixes a note attack with a rest/tie continuation — REST and TIE are whole-step events on the front panel. So `insertNoteAtStep` rejects (and the tooltip's NOTE button is disabled) when the column has any tied voice. Stacking notes on a column that has only other notes (chord) is still allowed up to the 6-voice polyphony cap.
+
+    **JP's rendering + tooltip rules (2026-05-26):**
+    - **Cell color is determined by raw data shape — no heuristics:**
+      - New attack with no same-pitch tied voice in step → **RED**
+      - Tied voice with same-pitch new attack in step (single-voice TIE signature) → **BLUE**
+      - Tied voice with no same-pitch new attack → **GREEN** (REST / polyphonic continuation)
+      - Fully-empty step (all voices null OR page null) → full-column **BLUE TINT** at 18% opacity (silent step marker)
+    - **Tooltip uses a heuristic for polyphonic TIE** because the data doesn't distinguish it from chord re-attack: when hovering a new-attack cell, if THIS column's full set of new-attack pitches matches the IMMEDIATELY PREVIOUS column's set exactly, tooltip reads `tie` (otherwise pitch name like `C4`). Single-voice TIE's data signature always reads `tie` regardless of context.
+    - **Why color stays red but tooltip says "tie":** the data really IS just a chord re-attack — there's no distinct polyphonic-TIE signature to color off of. But the user probably pressed TIE on the JX (or our editor's TIE button) to produce it, AND it does sound musically like a re-articulation. So we acknowledge the user intent in the tooltip while keeping the cell color data-truthful.
+    - **Acceptable false positive:** if user intentionally plays the same chord twice in a row (no TIE involved), the tooltip will also say "tie." In practice rare — most music has at least one pitch change between adjacent chords.
+    - **Audible difference between single-voice and polyphonic TIE:** single-voice TIE uses 2 voices (tied + new-attack at same pitch) so the held continuation's release tail bleeds into the new attack — smoother re-articulation. Polyphonic TIE uses N voices (all fresh attacks) so every envelope restarts from zero — cleaner chord re-strike. Subtle but real, more apparent on long-release patches (pads, plucks).
+
 ## When in doubt
 
 - Read the spec doc before designing a new feature.
