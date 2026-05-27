@@ -3747,7 +3747,7 @@ function restoreActiveState(snap) {
 // "Recalibrate" (clear gain). Tertiary defaults to no styling (cream
 // alt-button); pass tertiaryStyle: 'confirm' to make it the green primary
 // and tertiaryStyle: 'alt' for the blue alt-style.
-function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm, tertiaryLabel, onTertiary, tertiaryStyle }) {
+function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, onConfirm, onCancel, tertiaryLabel, onTertiary, tertiaryStyle }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
@@ -3826,9 +3826,17 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  const close = () => {
+  // `didActOnIt` distinguishes "user explicitly chose Confirm/Tertiary"
+  // (the action was handled) from "user dismissed without choosing"
+  // (Cancel / Esc / overlay click). The latter triggers onCancel so
+  // callers can tear down dependent state — e.g. Write mode's
+  // `writePending` flag, which would otherwise leave the user stuck
+  // in the slot-picker loop ("Click a slot to write current patch")
+  // even after pressing Cancel on the confirm modal.
+  const close = (didActOnIt = false) => {
     overlay.remove();
     document.removeEventListener('keydown', onKey);
+    if (!didActOnIt) runCallback(onCancel, 'Cancel action');
   };
   // Run an onConfirm / onTertiary callback safely. The callback may be
   // sync OR async — many callsites pass `async () => { await window.api.X(); ... }`.
@@ -3856,12 +3864,12 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
 
   const onKey = (e) => {
     if (e.key === 'Escape') close();
-    if (e.key === 'Enter')  { runCallback(onConfirm, 'Confirm action'); close(); }
+    if (e.key === 'Enter')  { runCallback(onConfirm, 'Confirm action'); close(true); }
   };
 
-  cancelBtn.addEventListener('click', close);
-  confirmBtn.addEventListener('click', () => { runCallback(onConfirm, 'Confirm action'); close(); });
-  if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => { runCallback(onTertiary, 'Tertiary action'); close(); });
+  cancelBtn.addEventListener('click', () => close());
+  confirmBtn.addEventListener('click', () => { runCallback(onConfirm, 'Confirm action'); close(true); });
+  if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => { runCallback(onTertiary, 'Tertiary action'); close(true); });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   confirmBtn.focus();
@@ -4448,6 +4456,11 @@ function commitWriteTo(destBank, destSlot) {
       `To push the updated bank to the synth, click Load to JX-3P afterward.`,
     confirmLabel: 'Save',
     onConfirm: () => doWriteTo(destBank, destSlot),
+    // Cancel on this modal should exit Write mode entirely — otherwise
+    // dismissing the modal returns the user to the slot-picker banner
+    // ("Click a slot to write current patch") and clicking any slot
+    // re-pops this modal, which feels like a loop. (Daniel 2026-05-27.)
+    onCancel: cancelWriteMode,
   });
 }
 
@@ -7264,9 +7277,12 @@ function renderSequenceVisualizer() {
   const REST_COLOR      = '#33508f';
 
   const pages = (seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
-  // (populatedCount text removed from header 2026-05-26 — the page-
-  // button row at the bottom now communicates the same info visually
-  // via faded-vs-not-faded buttons.)
+  // populatedCount text was removed earlier 2026-05-26 (rationale: the
+  // page-button row at the bottom communicates the same info via
+  // faded-vs-not-faded buttons) and restored later that day at Daniel's
+  // request — the explicit count is more glanceable than reading the
+  // page-button dimming state.
+  const populatedCount = pages.filter((p) => p != null).length;
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
   // (Paired-patch reference removed from the header 2026-05-26 — was
@@ -7490,6 +7506,7 @@ function renderSequenceVisualizer() {
     `<div class="seq-viz-header">` +
       `<div class="seq-viz-header-text">` +
         `<span class="seq-viz-name">${escapeHtml(seqName)}</span>` +
+        ` · ${populatedCount} of ${PAGES} pages populated` +
       `</div>` +
       saveBtnHtml +
     `</div>` +
