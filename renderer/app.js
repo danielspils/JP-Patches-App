@@ -1435,13 +1435,13 @@ function guardSeqNav(action) {
     body:
       `*${subjectName}* has unsaved edits.\n\n` +
       'SAVE creates a new copy in the library; the original stays untouched.\n' +
-      'DELETE discards your changes and reverts to the original.',
+      'REVERT discards your changes and restores the original.',
     confirmLabel: 'SAVE',
     onConfirm: async () => {
       await commitDirtyEditsAsNewCopies();
       action();
     },
-    tertiaryLabel: 'DELETE',
+    tertiaryLabel: 'REVERT',
     tertiaryStyle: 'danger',
     onTertiary: () => {
       discardDirtyEdits();
