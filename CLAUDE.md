@@ -25,7 +25,7 @@ This file is the cold-start summary. Pair it with:
 
 ## Status
 
-Current version: **0.5.13** (May 25, 2026). 25+ public releases since v0.1.0 on May 19.
+Current version: **0.6.0** (May 27, 2026). 25+ public releases since v0.1.0 on May 19.
 
 - **Phase 1** ✅ shipped — panel UI + patch editing
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
