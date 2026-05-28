@@ -32,7 +32,7 @@
 
   --font-stack:    Helvetica, "Helvetica Neue", Arial, sans-serif;
   --content-max:   720px;
-  --header-h:      56px;
+  --header-h:      76px;
   --strip-h:       4px;
 
   /* Light body palette — header and footer stay dark, body goes white
@@ -90,19 +90,21 @@ body {
 .site-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   text-decoration: none;
   color: var(--cream);
   transition: opacity 0.15s ease;
+  min-width: 0;   /* lets the subtitle text shrink/wrap rather than push the download button off-screen */
 }
 .site-brand:hover {
   opacity: 0.85;
 }
 
 .site-logo {
-  height: 28px;
+  height: 42px;
   width: auto;
   display: block;
+  flex-shrink: 0;
   /* Override the lightbox's image styling for this specific image */
   max-width: none !important;
   margin: 0 !important;
@@ -111,11 +113,31 @@ body {
   cursor: default !important;
 }
 
+.site-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
 .site-title {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--cream);
+}
+
+.site-subtitle {
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--cream-sec);
+  /* Allow truncation if the brand area gets squeezed (avoids pushing
+     the Download button off-screen on narrow desktops). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Download CTA — panel-button styled: cream face, dark text, rx=2,
@@ -454,12 +476,23 @@ body {
 
 /* ── Responsive tweaks ─────────────────────────────────────────── */
 
+/* Hide subtitle on tablets + phones — the line gets cramped competing
+   with the download button. Title + logo still convey the brand. */
+@media (max-width: 720px) {
+  .site-subtitle {
+    display: none;
+  }
+}
+
 @media (max-width: 540px) {
   .site-header-inner {
     padding: 0 16px;
   }
+  .site-logo {
+    height: 32px;
+  }
   .site-title {
-    font-size: 15px;
+    font-size: 18px;
   }
   .site-download {
     padding: 6px 12px;
