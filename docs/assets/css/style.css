@@ -37,16 +37,16 @@
   --header-h:      76px;
   --strip-h:       4px;
 
-  /* Body palette — body uses vintage cream (matches the app's panel
-     warmth), header and footer use the design-system app-bg dark
-     (--bg-app #0a0a0a, slightly lighter than pure black, matching the
-     app's main background). Text colors retain enough contrast
-     against the cream surface. */
-  --body-bg:       var(--cream);
+  /* Body palette — pure white background for the content area.
+     Vintage cream (--cream #f7f1e6) is reserved for button labels
+     and other accents (where its warm tone reads as brand-on against
+     the saturated brand-color backgrounds). Header and footer stay
+     dark via --bg-panel for the bookending contrast. */
+  --body-bg:       #ffffff;
   --body-text:     #1a1a1a;
   --body-text-sec: #2a2a2a;
   --body-text-mid: #5a5a5a;
-  --body-border:   #d8d2c4;
+  --body-border:   #e5e5e5;
 }
 
 * { box-sizing: border-box; }
