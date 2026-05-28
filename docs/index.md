@@ -19,7 +19,7 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * other features I'm forgetting ...
 
 #  HOW DOES IT WORK?
-* use this [USB-to-1/4"-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)
+* use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)
 * plug the TS end into Tape Memory/Save
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
