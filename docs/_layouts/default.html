@@ -41,21 +41,22 @@
       </a>
     </div>
     <div class="jx-divider" aria-hidden="true">
-      <!-- JX-3P A/B/C/D bank-indicator motif: 4 sheared parallelogram
-           swoops on the left, each emitting a horizontal stripe to the
-           right edge of the page. Swoop SVG stays fixed-size (200×50);
-           stripes are CSS-positioned and extend to right:0 so they fill
-           any container width without distorting the swoops. -->
-      <svg class="jx-divider-swoops" viewBox="0 0 200 50" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="20,0 100,0 80,14 0,14"     fill="#1f6e5b"/>
-        <polygon points="40,14 120,14 100,28 20,28" fill="#33508f"/>
-        <polygon points="60,28 140,28 120,42 40,42" fill="#b94a2e"/>
-        <polygon points="80,42 160,42 140,50 60,50" fill="#b94a2e"/>
+      <!-- JX-3P A/B/C bank-indicator motif (Daniel-redesigned, May 28):
+           three tall sheared parallelograms layered in stair-step
+           descent (green back, blue middle, red front). Each one's top
+           edge is continued rightward by a CSS-positioned stripe that
+           extends to the right viewport edge. Tops are spaced 6px
+           apart so the stripes cluster tightly at the top of the
+           divider while the parallelograms stand as tall vertical
+           pillars below. -->
+      <svg class="jx-divider-swoops" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="80,0   160,0    80,100   0,100"  fill="#1f6e5b"/>
+        <polygon points="100,6  180,6   105,100  25,100"  fill="#33508f"/>
+        <polygon points="120,12 200,12  130,100  50,100"  fill="#b94a2e"/>
       </svg>
       <span class="jx-line jx-line-a"></span>
       <span class="jx-line jx-line-b"></span>
       <span class="jx-line jx-line-c"></span>
-      <span class="jx-line jx-line-d"></span>
     </div>
   </header>
 
