@@ -15,7 +15,13 @@
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
 
-  <link rel="icon" type="image/png" href="{{ '/assets/img/jp-logo.png' | relative_url }}">
+  <!-- Favicon set, all generated from assets/img/jp-logo.png via sips
+       center-crop (1026×1026 square) → 32 / 180 / 192. Total ~83KB
+       across all three sizes (vs. the 800KB original being downloaded
+       every browser tab). -->
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/img/favicon-32.png' | relative_url }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ '/assets/img/favicon-192.png' | relative_url }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ '/assets/img/apple-touch-icon.png' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
 </head>
 <body>
