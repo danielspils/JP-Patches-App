@@ -125,11 +125,11 @@ body {
 
 /* Blue stripe — top edge of blue swoop extended to viewport edge.
    Blue's top is at y=10 within the SVG (= y=25 in header).
-   left = 24 (page padding) + 240 (blue's top-right X) - 5 (overlap) */
+   left = 24 (page padding) + 245 (blue's top-right X) - 5 (overlap) */
 .stripe-b {
   position: absolute;
   top: 25px;
-  left: 259px;
+  left: 264px;
   right: 0;
   height: 4px;
   background: #33508f;
@@ -191,7 +191,7 @@ body {
 }
 
 .site-logo {
-  height: 42px;
+  height: 74px;
   width: auto;
   display: block;
   flex-shrink: 0;
@@ -212,14 +212,14 @@ body {
 }
 
 .site-title {
-  font-size: 22px;
+  font-size: 38px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--cream);
 }
 
 .site-subtitle {
-  font-size: 12.5px;
+  font-size: 22px;
   font-weight: 400;
   letter-spacing: 0.01em;
   color: var(--cream-sec);
@@ -646,10 +646,10 @@ body {
     display: none;
   }
   .site-logo {
-    height: 32px;
+    height: 56px;
   }
   .site-title {
-    font-size: 18px;
+    font-size: 32px;
   }
   .site-download {
     padding: 6px 12px;
