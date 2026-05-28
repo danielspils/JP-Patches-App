@@ -2,7 +2,7 @@
 
 Free, open-source macOS librarian app for the Roland JX-3P synthesizer.
 
-![JP Patches main panel — PG-200 style controls on the right, active C/D bank list on the left, hardware tape buttons below](docs/screenshots/hero.png)
+![JP Patches main panel — PG-200 style controls on the right, active C/D bank list on the left, hardware tape buttons below](docs/screenshots/jx-hero.png)
 
 > JP Patches is the first app I've ever written (aka "vibe coded"). I've owned my JX-3P since it was released in 1983 and have always wanted a way to save and trade sounds with other JX-3P enthusiasts. This app is designed to work with the tape dump functionality built into every JX-3P, and eventually with the Series Circuits MIDI upgrade kit.
 >
@@ -65,7 +65,7 @@ Once loaded, all 32 patches (C1–D16) populate.
 
 ## Tape Memory — quick reference
 
-![Record-from-JX-3P modal mid-capture — JP Patches logo on the left receiving audio from the JX-3P, level meter and segmented transmission timeline showing live state](docs/screenshots/tape-memory.png)
+![Record-from-JX-3P modal mid-capture — JP Patches logo on the left receiving audio from the JX-3P, level meter and segmented transmission timeline showing live state](docs/screenshots/jx-save-to-app.png)
 
 The app mirrors the JX-3P's hardware Tape Memory buttons:
 
@@ -117,7 +117,7 @@ Tape Memory transfers are FSK audio — the JX-3P encodes patch / sequence data 
 
 ## Library
 
-![Library tab showing the Sequences sub-tab — saved sequences listed with paired-patch info accessible via the row's ⓘ icon](docs/screenshots/library.png)
+![Library tab showing the Sequences sub-tab — saved sequences listed with paired-patch info accessible via the row's ⓘ icon](docs/screenshots/jx-sequencer.png)
 
 The Library tab is your in-app cold storage. Two sub-tabs:
 
@@ -130,7 +130,7 @@ Click the panel's **Write** button to enter "save-as" mode: a sticky banner appe
 
 ## Custom bank builder
 
-![Custom Bank Builder open below the panel — 4×8 slot grid with patches dragged in from multiple library packages, origin labels visible on each entry](docs/screenshots/custom-banks.png)
+![Custom Bank Builder open below the panel — 4×8 slot grid with patches dragged in from multiple library packages, origin labels visible on each entry](docs/screenshots/jx-custom-patch-banks.png)
 
 Once you've collected a handful of C/D snapshots in the Library, you'll often want to **cherry-pick patches across them** into a new custom 32-patch collection — a setlist for a gig, your favorite 32 leads, etc.
 

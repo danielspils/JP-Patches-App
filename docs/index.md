@@ -6,6 +6,8 @@ I've always wanted a way to easily save patches to my computer. But the JX relie
 
 Fast forward a month and I have a beta version of JP Patches, my JX-3P companion app. It works on macOS 12+ on Apple Silicon (arm64) at the moment. It doesn't yet support MIDI — the primitive stock JX-3P MIDI does not support SysEx. I'll wire up support for the Series Circuits MIDI Upgrade Kit in a future release. It operates through tape dumps using a single cord.
 
+![JP Patches main panel — PG-200 style knobs and switches on the right, active C/D patch list on the left, Tape Memory controls below](screenshots/jx-hero.png)
+
 ## WHAT CAN JP PATCHES DO?
 * save patches from JX to JP
 * send patches from JP to JX
@@ -18,7 +20,18 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * fully functional PG-200 software panel
 * other features I'm forgetting ...
 
+![Record-from-JX-3P modal mid-capture — JP Patches receives the tape dump audio with a live level meter and segmented transmission timeline](screenshots/jx-save-to-app.png)
+
+![Send-to-JX-3P modal — JP Patches plays the tape dump out to the synth with timeline progress and pulse indicator](screenshots/jx-save-to-synth.png)
+
+![Custom Bank Builder open below the panel — 4×8 grid filled with patches dragged in from multiple library packages, origin labels on each slot](screenshots/jx-custom-patch-banks.png)
+
+![Library tab showing the sequence editor — piano-roll visualizer with edits in progress, save-as-new-copy flow](screenshots/jx-sequencer.png)
+
 ## HOW DOES IT WORK?
+
+![USB-to-1/4-splitter cable connecting a MacBook to the JX-3P's Tape Memory Save and Load jacks](screenshots/jx-cable.png)
+
 * use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)
 * plug the TS end into Tape Memory/Save
 * plug the TRS end into Tape Memory/Load
