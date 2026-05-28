@@ -1,8 +1,5 @@
 <style>
-  /* Image styling for jx-3p.com: smaller default display + click-to-open
-     full-size in a new tab. On desktop, screenshots cap at ~480px so
-     they don't dominate the page; on mobile they fill the column width.
-     Hover gets a slight lift to hint that images are clickable. */
+  /* Page-content images: small, polished, click opens lightbox. */
   img {
     max-width: 100%;
     height: auto;
@@ -15,29 +12,114 @@
   }
   @media (min-width: 800px) {
     img {
-      max-width: 480px;
+      max-width: 240px;
     }
   }
   img:hover {
-    transform: scale(1.015);
+    transform: scale(1.04);
     box-shadow: 0 4px 26px rgba(0, 0, 0, 0.28);
+  }
+
+  /* Lightbox overlay — full-screen dim with centered full-size image.
+     Click anywhere (overlay, image, or ×) or press Escape to close. */
+  .lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.88);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    cursor: zoom-out;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    padding: 2vw;
+  }
+  .lightbox-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .lightbox-overlay img {
+    max-width: 96vw;
+    max-height: 92vh;
+    width: auto;
+    height: auto;
+    margin: 0;
+    border-radius: 8px;
+    box-shadow: 0 10px 60px rgba(0, 0, 0, 0.6);
+    cursor: zoom-out;
+    /* Defeat the page-image hover scale so the lightbox image stays still */
+    transform: none !important;
+  }
+  .lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    color: #fff;
+    font-size: 36px;
+    line-height: 1;
+    font-family: -apple-system, system-ui, sans-serif;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 4px;
+    opacity: 0.8;
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+  .lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    opacity: 1;
   }
 </style>
 <script>
-  /* Auto-wrap every <img> in a link to its own full-size source, opening
-     in a new tab. Lets visitors click any screenshot to see it at full
-     resolution without navigating away from the landing page. Runs once
-     on DOMContentLoaded; guards against double-wrapping if Jekyll or any
-     theme already linked the image. */
+  /* Minimal lightbox: click any <img> to open it full-size in a centered
+     overlay. Click overlay / image / × / Escape to close. No external
+     library; ~30 lines of vanilla JS + scoped CSS above. */
   document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.createElement('div');
+    overlay.className = 'lightbox-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-hidden', 'true');
+
+    const overlayImg = document.createElement('img');
+    overlayImg.alt = '';
+    overlay.appendChild(overlayImg);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'lightbox-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.textContent = '×';
+    overlay.appendChild(closeBtn);
+
+    document.body.appendChild(overlay);
+
+    function openLightbox(src, alt) {
+      overlayImg.src = src;
+      overlayImg.alt = alt || '';
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeLightbox() {
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
     document.querySelectorAll('img').forEach((img) => {
-      if (img.closest('a')) return;
-      const link = document.createElement('a');
-      link.href = img.src;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      img.parentNode.insertBefore(link, img);
-      link.appendChild(img);
+      if (img === overlayImg) return;
+      img.addEventListener('click', (e) => {
+        e.preventDefault();
+        openLightbox(img.src, img.alt);
+      });
+    });
+    overlay.addEventListener('click', closeLightbox);
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeLightbox(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) closeLightbox();
     });
   });
 </script>
