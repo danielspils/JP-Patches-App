@@ -139,11 +139,13 @@ body {
 
 /* 3. Content row — sits on top of dark band (z-index 2 so it's above
       the swoops if they ever overlap). padding-left clears the AB
-      swoops (which extend to x=24+220=244 at their widest top). */
+      swoops; padding-top shifts the brand row's vertical center down
+      from y=70 to y=85, placing it equidistant between the bottom of
+      the blue stripe (y=29) and the bottom of the dark band (y=140). */
 .site-header-inner {
   position: relative;
   height: 140px;
-  padding: 0 24px 0 290px;
+  padding: 30px 24px 0 290px;
   display: flex;
   align-items: center;
   justify-content: space-between;
