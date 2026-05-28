@@ -277,6 +277,9 @@ body {
   font-size: 16px;
   font-weight: 400;
   letter-spacing: 0.01em;
+  /* Negative margin pulls the label closer to the caret without
+     also tightening the button-to-caret spacing. */
+  margin-left: -5px;
 }
 .site-download:hover .site-download-label {
   opacity: 0.85;
