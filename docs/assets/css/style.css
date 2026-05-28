@@ -160,17 +160,6 @@ body {
   transition: background 0.15s ease, transform 0.05s ease;
   white-space: nowrap;
 }
-.site-download::before {
-  content: '';
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-right: 8px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
-}
 .site-download:hover {
   background: var(--roland-red-hot);
 }
