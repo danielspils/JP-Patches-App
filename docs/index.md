@@ -41,7 +41,7 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * plug the USB C end into a Mac 
 
 ## DO YOU OWN A JX-3P AND A MAC?
-What I need now are computer literate Mac users to download JP Patches from GitHub for testing. I'm not a programmer or IT support person so this would require a person(s) who can navigate the world of GitHub. Specifically, this is an "unapproved" app that a user must permission onto their computer. Until I get an Apple Developers license, it will remain a little tricky to download. Installing involves bypassing macOS's Gatekeeper warning — sometimes just a right-click → Open, sometimes a one-line command in Terminal on newer macOS. [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest)
+What I need now are computer literate Mac users to download JP Patches from GitHub for testing. I'm not a programmer or IT support person so this would require a person(s) who can navigate the world of GitHub. Specifically, this is an "unapproved" app that a user must permission onto their computer. Until I get an Apple Developers license, it will remain a little tricky to download. Installing involves bypassing macOS's Gatekeeper warning — sometimes just a right-click → Open, sometimes a one-line command in Terminal on newer macOS. [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-green}
 
 
 Friends have successfully loaded JP Patches, but none are synth people so they just say, "looks cool dude — congrats!" If you are a JX-3P enthusiast and good with computers, I'd invite your feedback.
@@ -50,4 +50,4 @@ I've been using JP Patches for the past few weeks. It works fantastic—but it's
 
 You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!).
 
-[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest)
+[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-blue}

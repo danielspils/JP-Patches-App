@@ -25,9 +25,11 @@
   --button-face:   #cbc4b4;
   --text-bright:   #e8e2d3;
   --text-mid:      #999;
-  --roland-red:    #b94a2e;
+  --roland-red:     #b94a2e;
   --roland-red-hot: #d05a3a;
-  --roland-blue:   #33508f;
+  --roland-green:   #1f6e5b;
+  --roland-green-hot: #2a8870;
+  --roland-blue:    #33508f;
   --roland-blue-hot: #4264a8;
 
   --font-stack:    Helvetica, "Helvetica Neue", Arial, sans-serif;
@@ -140,14 +142,16 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Download CTA — panel-button styled: cream face, dark text, rx=2,
-   matches the look of the JX-3P Manual/Write/Save/Load buttons. */
+/* Download CTA — Roland-red filled, matches the body buttons but
+   stays anchored in the header. Inline download icon via ::before
+   (same SVG data-URI as the body buttons). */
 .site-download {
-  display: inline-block;
-  padding: 7px 16px;
-  background: var(--button-face);
-  color: #1a1a1a;
-  border: 1px solid #555;
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  background: var(--roland-red);
+  color: var(--cream);
+  border: 1px solid #8a3322;
   border-radius: 2px;
   text-decoration: none;
   font-size: 13px;
@@ -156,8 +160,19 @@ body {
   transition: background 0.15s ease, transform 0.05s ease;
   white-space: nowrap;
 }
+.site-download::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
 .site-download:hover {
-  background: #d4cdba;
+  background: var(--roland-red-hot);
 }
 .site-download:active {
   transform: translateY(1px);
@@ -246,18 +261,22 @@ body {
   text-decoration-color: var(--roland-blue-hot);
 }
 
-/* "Download" type links to GitHub releases — Roland-red filled CTA
-   with cream text + an inline download icon prepended via ::before.
-   Brand-aligned and high-contrast on the white body. The icon is a
-   tray-style download glyph (arrow + horizontal line under it)
-   rendered as an inline SVG data-URI so it never makes a network
-   request and stays the same color as the button text. */
+/* "Download" type links to GitHub releases — brand-colored filled CTA
+   with cream text + inline download icon. Default color is Roland green
+   (the "this is the recommended action" semantic from the design system
+   §4.1a). Override with .btn-blue or .btn-red via Kramdown class syntax
+   in the markdown source: [text](url){:.btn-blue}.
+
+   The icon is a tray-style download glyph (arrow + horizontal line)
+   rendered as an inline SVG data-URI — no network request, stays the
+   same cream color as the button text. */
 .site-content a[href*="/releases/"] {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   padding: 7px 16px;
-  background: var(--roland-red);
+  background: var(--roland-green);
   color: var(--cream);
-  border: 1px solid #8a3322;
+  border: 1px solid #144a3d;
   border-radius: 2px;
   text-decoration: none;
   font-weight: 600;
@@ -272,17 +291,33 @@ body {
   width: 16px;
   height: 16px;
   margin-right: 9px;
-  vertical-align: -3px;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
 }
 .site-content a[href*="/releases/"]:hover {
-  background: var(--roland-red-hot);
+  background: var(--roland-green-hot);
 }
 .site-content a[href*="/releases/"]:active {
   transform: translateY(1px);
+}
+
+/* Color variants — override the default green via Kramdown class syntax
+   in the markdown source ({:.btn-blue} / {:.btn-red}). */
+.site-content a.btn-blue[href*="/releases/"] {
+  background: var(--roland-blue);
+  border-color: #243860;
+}
+.site-content a.btn-blue[href*="/releases/"]:hover {
+  background: var(--roland-blue-hot);
+}
+.site-content a.btn-red[href*="/releases/"] {
+  background: var(--roland-red);
+  border-color: #8a3322;
+}
+.site-content a.btn-red[href*="/releases/"]:hover {
+  background: var(--roland-red-hot);
 }
 
 /* Code / kbd — light-bg variant */
