@@ -287,6 +287,28 @@ body {
   box-shadow: 0 4px 26px rgba(0, 0, 0, 0.55);
 }
 
+/* ── Gallery: 2×2 grid for the feature screenshots ─────────────
+   Wraps a sequence of <img> tags in a 2-column grid on desktop;
+   stacks back to a single column on narrow screens. Overrides the
+   per-image max-width/margin from `.site-content img` so the grid
+   cells fill their tracks instead of capping at 260px. */
+.site-content .gallery {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  margin: 1.75em 0;
+}
+.site-content .gallery img {
+  max-width: 100% !important;
+  width: 100%;
+  margin: 0 !important;
+}
+@media (max-width: 540px) {
+  .site-content .gallery {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Lightbox overlay ──────────────────────────────────────────── */
 
 .lightbox-overlay {

@@ -24,13 +24,12 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * fully functional PG-200 software panel
 * other features I'm forgetting ...
 
-![Record-from-JX-3P modal mid-capture — JP Patches receives the tape dump audio with a live level meter and segmented transmission timeline](screenshots/jx-save-to-app.png)
-
-![Send-to-JX-3P modal — JP Patches plays the tape dump out to the synth with timeline progress and pulse indicator](screenshots/jx-save-to-synth.png)
-
-![Custom Bank Builder open below the panel — 4×8 grid filled with patches dragged in from multiple library packages, origin labels on each slot](screenshots/jx-custom-patch-banks.png)
-
-![Library tab showing the sequence editor — piano-roll visualizer with edits in progress, save-as-new-copy flow](screenshots/jx-sequencer.png)
+<div class="gallery">
+  <img src="screenshots/jx-save-to-app.png" alt="Record-from-JX-3P modal mid-capture — JP Patches receives the tape dump audio with a live level meter and segmented transmission timeline">
+  <img src="screenshots/jx-save-to-synth.png" alt="Send-to-JX-3P modal — JP Patches plays the tape dump out to the synth with timeline progress and pulse indicator">
+  <img src="screenshots/jx-custom-patch-banks.png" alt="Custom Bank Builder open below the panel — 4×8 grid filled with patches dragged in from multiple library packages, origin labels on each slot">
+  <img src="screenshots/jx-sequencer.png" alt="Library tab showing the sequence editor — piano-roll visualizer with edits in progress, save-as-new-copy flow">
+</div>
 
 ## HOW DOES IT WORK?
 
