@@ -1,3 +1,22 @@
+<style>
+  /* Image styling for jx-3p.com: cap width on wide screens so screenshots
+     don't blow out the page; keep responsive on mobile; add a subtle
+     shadow + rounded corners so screenshots feel polished, not raw. */
+  img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1.75em auto;
+    border-radius: 6px;
+    box-shadow: 0 2px 18px rgba(0, 0, 0, 0.18);
+  }
+  @media (min-width: 800px) {
+    img {
+      max-width: 820px;
+    }
+  }
+</style>
+
 Hello JX-3People!
 
 I've owned the JX-3P since it was released. I bought it (oddly) at Down Home Guitar in Anchorage, Alaska as a freshman in high school. I own many synths, but have kept and played the JX-3P since that time.
