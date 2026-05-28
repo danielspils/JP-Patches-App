@@ -178,11 +178,54 @@ body {
   transform: translateY(1px);
 }
 
-/* Roland-red strip below the header — echoes the JX panel's bottom
-   accent strip and the section dividers inside the synth. */
-.site-header-strip {
-  height: var(--strip-h);
-  background: var(--roland-red);
+/* JX A/B/C/D bank-indicator divider — replaces the simple red strip
+   between the dark header and the white body. The 4 swoops are an
+   inline SVG anchored to the left (fixed 200×50); each swoop's top
+   edge is continued rightward by a CSS-positioned stripe that
+   extends to the right viewport edge so the motif fills any width
+   without distorting the swoops. Background is white to match the
+   body — the dark header sits above, the JX motif acts as the
+   visual transition into the content area. */
+.jx-divider {
+  position: relative;
+  height: 50px;
+  background: var(--body-bg);
+  overflow: hidden;
+}
+.jx-divider-swoops {
+  display: block;
+  width: 200px;
+  height: 50px;
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.jx-line {
+  position: absolute;
+  height: 3px;
+  right: 0;
+}
+/* Stripe positions match each swoop's top-right vertex so the line
+   appears as a continuation of the swoop's top edge:
+     swoop A top-right = (100, 0)   → line A left=100, top=0
+     swoop B top-right = (120, 14)  → line B left=120, top=14
+     swoop C top-right = (140, 28)  → line C left=140, top=28
+     swoop D top-right = (160, 42)  → line D left=160, top=42 */
+.jx-line-a { background: #1f6e5b; top:  0px; left: 100px; }
+.jx-line-b { background: #33508f; top: 14px; left: 120px; }
+.jx-line-c { background: #b94a2e; top: 28px; left: 140px; }
+.jx-line-d { background: #b94a2e; top: 42px; left: 160px; }
+
+/* Mobile: shrink the swoops + tighten line offsets so the motif still
+   fits and stays readable on phones. */
+@media (max-width: 540px) {
+  .jx-divider { height: 38px; }
+  .jx-divider-swoops { width: 150px; height: 38px; }
+  /* New stripe offsets scaled from 200→150 (×0.75) and 50→38 (×0.76) */
+  .jx-line-a { top:  0px; left:  75px; }
+  .jx-line-b { top: 11px; left:  90px; }
+  .jx-line-c { top: 21px; left: 105px; }
+  .jx-line-d { top: 32px; left: 120px; }
 }
 
 /* ── Main content ───────────────────────────────────────────────── */

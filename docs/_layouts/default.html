@@ -40,7 +40,23 @@
         Download for macOS
       </a>
     </div>
-    <div class="site-header-strip" aria-hidden="true"></div>
+    <div class="jx-divider" aria-hidden="true">
+      <!-- JX-3P A/B/C/D bank-indicator motif: 4 sheared parallelogram
+           swoops on the left, each emitting a horizontal stripe to the
+           right edge of the page. Swoop SVG stays fixed-size (200×50);
+           stripes are CSS-positioned and extend to right:0 so they fill
+           any container width without distorting the swoops. -->
+      <svg class="jx-divider-swoops" viewBox="0 0 200 50" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="20,0 100,0 80,14 0,14"     fill="#1f6e5b"/>
+        <polygon points="40,14 120,14 100,28 20,28" fill="#33508f"/>
+        <polygon points="60,28 140,28 120,42 40,42" fill="#b94a2e"/>
+        <polygon points="80,42 160,42 140,50 60,50" fill="#b94a2e"/>
+      </svg>
+      <span class="jx-line jx-line-a"></span>
+      <span class="jx-line jx-line-b"></span>
+      <span class="jx-line jx-line-c"></span>
+      <span class="jx-line jx-line-d"></span>
+    </div>
   </header>
 
   <main class="site-main">
