@@ -70,23 +70,107 @@ body {
 
 /* ── Site header ────────────────────────────────────────────────── */
 
+/* Header total height = dark band (140) + bleed zone (60) = 200.
+   The dark band is full width; AB swoops sit on top of it (extending
+   from band-top down through the band into the bleed zone). CD red
+   swoops + stripe sit entirely in the bleed zone below the band. */
 .site-header {
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-dim);
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  position: relative;
+  height: 200px;
+  background: transparent;
+  /* Not sticky — the JX motif is too tall to comfortably stick */
 }
 
+/* 1. Dark band — the canvas for the brand content + green/blue swoops */
+.site-header-band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 140px;
+  background: var(--bg-panel);
+  z-index: 0;
+}
+
+/* 2. Green + Blue swoops, ON TOP of the dark band, on the left.
+      Positioned at left:24px (small viewport-edge padding) so they
+      anchor visually to the page's left edge. SVG height 185px =
+      header height (200) minus swoop top offset (15) — swoops extend
+      from y=15 (inside dark band, above logo) to y=200 (bottom of
+      header, in bleed zone, bleeding below the band). */
+.ab-swoops {
+  position: absolute;
+  top: 15px;
+  left: 24px;
+  width: 220px;
+  height: 185px;
+  z-index: 1;
+  display: block;
+}
+
+/* Green stripe — top edge of green swoop extended to viewport edge.
+   left = 24 (page padding) + 160 (green's top-right X in SVG viewBox) */
+.stripe-a {
+  position: absolute;
+  top: 15px;
+  left: 184px;
+  right: 0;
+  height: 4px;
+  background: #1f6e5b;
+  z-index: 1;
+}
+
+/* Blue stripe — top edge of blue swoop extended to viewport edge.
+   Blue's top is at y=10 within the SVG (= y=25 in header).
+   left = 24 (page padding) + 180 (blue's top-right X in SVG) */
+.stripe-b {
+  position: absolute;
+  top: 25px;
+  left: 204px;
+  right: 0;
+  height: 4px;
+  background: #33508f;
+  z-index: 1;
+}
+
+/* 3. Content row — sits on top of dark band (z-index 2 so it's above
+      the swoops if they ever overlap). padding-left clears the AB
+      swoops (which extend to x=24+220=244 at their widest top). */
 .site-header-inner {
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: 0 24px;
-  height: var(--header-h);
+  position: relative;
+  height: 140px;
+  padding: 0 24px 0 270px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  z-index: 2;
+}
+
+/* 4. Red C/D swoops — sit in the bleed zone below the dark band.
+      Aligned horizontally under the logo (same left as content's
+      padding-left). 50px tall, occupying y=145–195 of the header. */
+.cd-swoops {
+  position: absolute;
+  top: 145px;
+  left: 270px;
+  width: 170px;
+  height: 50px;
+  z-index: 1;
+  display: block;
+}
+
+/* Red stripe — from D's (rightmost red parallelogram) top-right
+   corner, extending right to the viewport edge.
+   left = 270 (cd-swoops left offset) + 150 (D's top-right X in SVG) */
+.stripe-cd {
+  position: absolute;
+  top: 145px;
+  left: 420px;
+  right: 0;
+  height: 4px;
+  background: #b94a2e;
+  z-index: 1;
 }
 
 .site-brand {
@@ -167,52 +251,9 @@ body {
   transform: translateY(1px);
 }
 
-/* JX A/B/C bank-indicator divider (Daniel-redesigned, May 28):
-   three tall sheared parallelograms layered in stair-step descent,
-   each with a top-edge stripe extending to the right viewport edge.
-   The parallelograms (inline SVG, fixed 220×100) stand as vertical
-   pillars; the stripes cluster tightly at the top (6px apart) so the
-   compact stair-step reads cleanly even at smaller header widths.
-   Background is white to match the body — the dark header sits above,
-   the JX motif acts as the visual transition into content. */
-.jx-divider {
-  position: relative;
-  height: 100px;
-  background: var(--body-bg);
-  overflow: hidden;
-}
-.jx-divider-swoops {
-  display: block;
-  width: 220px;
-  height: 100px;
-  position: absolute;
-  left: 0;
-  top: 0;
-}
-.jx-line {
-  position: absolute;
-  height: 4px;
-  right: 0;
-}
-/* Stripe positions match each parallelogram's top-right vertex so the
-   line appears as a seamless continuation of the parallelogram's top
-   edge:
-     green top-right = (160, 0)   → line A left=160, top=0
-     blue  top-right = (180, 6)   → line B left=180, top=6
-     red   top-right = (200, 12)  → line C left=200, top=12 */
-.jx-line-a { background: #1f6e5b; top:  0px; left: 160px; }
-.jx-line-b { background: #33508f; top:  6px; left: 180px; }
-.jx-line-c { background: #b94a2e; top: 12px; left: 200px; }
-
-/* Mobile: shrink the parallelograms + tighten line offsets so the
-   motif still fits and stays readable on phones. Scaled to 75%. */
-@media (max-width: 540px) {
-  .jx-divider { height: 75px; }
-  .jx-divider-swoops { width: 165px; height: 75px; }
-  .jx-line-a { top:  0px; left: 120px; }
-  .jx-line-b { top:  5px; left: 135px; }
-  .jx-line-c { top:  9px; left: 150px; }
-}
+/* (Old .jx-divider element + styles removed May 28 — the JX A/B/C/D
+   motif is now structurally integrated into .site-header above,
+   not a separate strip below it.) */
 
 /* ── Main content ───────────────────────────────────────────────── */
 
@@ -565,8 +606,26 @@ body {
 }
 
 @media (max-width: 540px) {
+  /* Mobile: collapse the header to just the dark band + brand row.
+     Hiding the AB/CD SVG swoops + their stripes at this width avoids
+     a cramped fight between the JX motif and the brand content.
+     Could re-introduce a phone-scale motif as a follow-up iteration. */
+  .site-header {
+    height: 110px;
+  }
+  .site-header-band {
+    height: 110px;
+  }
   .site-header-inner {
     padding: 0 16px;
+    height: 110px;
+  }
+  .ab-swoops,
+  .stripe-a,
+  .stripe-b,
+  .cd-swoops,
+  .stripe-cd {
+    display: none;
   }
   .site-logo {
     height: 32px;

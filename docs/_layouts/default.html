@@ -25,7 +25,34 @@
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
 </head>
 <body>
-  <header class="site-header">
+  <header class="site-header" aria-label="Site header">
+    <!-- JX-3P front-panel A/B/C/D bank-indicator motif structurally
+         integrated into the header (Daniel-spec, May 28):
+         - Dark band fills the full width as the canvas
+         - Green/blue swoops sit ON TOP of the dark band's left side,
+           their top edges form stripes (above the logo, within the
+           dark band), their bodies extend down through the band, and
+           their bottoms bleed BELOW the band into the body area
+         - Red C/D parallelograms sit ENTIRELY BELOW the dark band in
+           the bleed zone, aligned horizontally with the logo
+         - Single red stripe from D's top-right extends to viewport edge -->
+
+    <!-- 1. Dark band background, full width -->
+    <div class="site-header-band" aria-hidden="true"></div>
+
+    <!-- 2. Green (A) + Blue (B) swoops — absolute, on top of dark band,
+            extending from y=15 (inside band, above logo) down to y=200
+            (bottom of header, in bleed zone). Stripes are CSS-positioned
+            so they can extend to the viewport's right edge. -->
+    <svg class="ab-swoops" viewBox="0 0 220 185" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <polygon points="80,0   160,0   80,185   0,185"  fill="#1f6e5b"/>
+      <polygon points="100,10 180,10 104,185  24,185"  fill="#33508f"/>
+    </svg>
+    <span class="header-stripe stripe-a" aria-hidden="true"></span>
+    <span class="header-stripe stripe-b" aria-hidden="true"></span>
+
+    <!-- 3. Content row — sits on top of the dark band. padding-left
+            clears the AB swoops so logo doesn't overlap them. -->
     <div class="site-header-inner">
       <a href="{{ '/' | relative_url }}" class="site-brand" aria-label="JP Patches home">
         <img src="{{ '/assets/img/jp-logo.png' | relative_url }}" alt="" class="site-logo">
@@ -40,24 +67,15 @@
         Download for macOS
       </a>
     </div>
-    <div class="jx-divider" aria-hidden="true">
-      <!-- JX-3P A/B/C bank-indicator motif (Daniel-redesigned, May 28):
-           three tall sheared parallelograms layered in stair-step
-           descent (green back, blue middle, red front). Each one's top
-           edge is continued rightward by a CSS-positioned stripe that
-           extends to the right viewport edge. Tops are spaced 6px
-           apart so the stripes cluster tightly at the top of the
-           divider while the parallelograms stand as tall vertical
-           pillars below. -->
-      <svg class="jx-divider-swoops" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="80,0   160,0    80,100   0,100"  fill="#1f6e5b"/>
-        <polygon points="100,6  180,6   105,100  25,100"  fill="#33508f"/>
-        <polygon points="120,12 200,12  130,100  50,100"  fill="#b94a2e"/>
-      </svg>
-      <span class="jx-line jx-line-a"></span>
-      <span class="jx-line jx-line-b"></span>
-      <span class="jx-line jx-line-c"></span>
-    </div>
+
+    <!-- 4. Red C/D swoops — two matching parallelograms side-by-side,
+            sitting in the bleed zone below the dark band. Horizontally
+            anchored to start below the logo's left edge. -->
+    <svg class="cd-swoops" viewBox="0 0 170 50" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <polygon points="20,0  80,0  60,50  0,50"  fill="#b94a2e"/>
+      <polygon points="90,0 150,0 130,50 70,50"  fill="#b94a2e"/>
+    </svg>
+    <span class="header-stripe stripe-cd" aria-hidden="true"></span>
   </header>
 
   <main class="site-main">
