@@ -4,7 +4,7 @@ I've owned the JX-3P since it was released. I bought it (oddly) at Down Home Gui
 I've always wanted a way to easily save patches to my computer. But the JX relies on outdated tape dump technology — think, the hiss, chirp and screech of an ‘80s dial-up modem + audio cassette tape as memory!  None of the programs I used were great so I decided to build my own. This was also an excuse to figure out how to "vibe code" — something I knew nothing about until I began.
 Fast forward a month and I have a beta version of JP Patches, my JX-3P companion app. It works on macOS 12+ on Apple Silicon (arm64) at the moment. It doesn't yet support MIDI — the primitive stock JX-3P MIDI does not support SysEx. I'll wire up support for the Series Circuits MIDI Upgrade Kit in a future release. It operates through tape dumps using a single cord.
 
-WHAT CAN JP PATCHES DO?
+<b>WHAT CAN JP PATCHES DO?</b>
 * save patches from JX to JP
 * send patches from JP to JX
 * build custom patch banks w/ drag & drop reorder
