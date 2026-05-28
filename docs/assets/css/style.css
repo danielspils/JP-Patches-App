@@ -34,6 +34,15 @@
   --content-max:   720px;
   --header-h:      56px;
   --strip-h:       4px;
+
+  /* Light body palette — header and footer stay dark, body goes white
+     for easier reading. The Roland-red strip below the header bookends
+     the contrast transition. */
+  --body-bg:       #ffffff;
+  --body-text:     #1a1a1a;
+  --body-text-sec: #2a2a2a;
+  --body-text-mid: #5a5a5a;
+  --body-border:   #e5e5e5;
 }
 
 * { box-sizing: border-box; }
@@ -45,8 +54,8 @@ html {
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg-app);
-  color: var(--text-bright);
+  background: var(--body-bg);
+  color: var(--body-text);
   font-family: var(--font-stack);
   font-size: 16px;
   line-height: 1.65;
@@ -154,7 +163,7 @@ body {
 /* Body paragraphs */
 .site-content p {
   margin: 1.1em 0;
-  color: var(--text-bright);
+  color: var(--body-text-sec);
 }
 
 /* H1 — currently unused (no H1 in markdown), but styled in case */
@@ -163,17 +172,18 @@ body {
   font-weight: 600;
   letter-spacing: 0.01em;
   margin: 0 0 0.6em;
-  color: var(--cream);
+  color: var(--body-text);
 }
 
 /* H2 — section headings ("WHAT CAN", "HOW DOES IT WORK", etc.)
-   Roland-red left-bar accent + uppercase + slight tracking. */
+   Roland-red left-bar accent + uppercase + slight tracking. Dark text
+   on the now-white body. */
 .site-content h2 {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cream);
+  color: var(--body-text);
   margin: 2.4em 0 1em;
   padding-left: 14px;
   border-left: 4px solid var(--roland-red);
@@ -185,7 +195,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--cream-sec);
+  color: var(--body-text-mid);
   margin: 2em 0 0.6em;
 }
 
@@ -197,15 +207,15 @@ body {
 }
 .site-content li {
   margin: 0.35em 0;
-  color: var(--text-bright);
+  color: var(--body-text-sec);
 }
 
 /* Inline links — Roland-blue. Download links to GitHub releases get
-   the same panel-button treatment as the header CTA so they stand out. */
+   a Roland-red filled CTA treatment so they pop against the white body. */
 .site-content a {
   color: var(--roland-blue);
   text-decoration: underline;
-  text-decoration-color: rgba(51, 80, 143, 0.4);
+  text-decoration-color: rgba(51, 80, 143, 0.45);
   text-underline-offset: 2px;
   transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
@@ -214,44 +224,47 @@ body {
   text-decoration-color: var(--roland-blue-hot);
 }
 
-/* Specific style override for "download JP Patches here" type links —
-   any link that points at a GitHub release gets the cream-button look. */
+/* "Download JP Patches here" type links — Roland-red filled CTA with
+   cream text. Brand-aligned and high-contrast on the white body. */
 .site-content a[href*="/releases/"] {
   display: inline-block;
-  padding: 6px 14px;
-  background: var(--button-face);
-  color: #1a1a1a;
-  border: 1px solid #555;
+  padding: 7px 16px;
+  background: var(--roland-red);
+  color: var(--cream);
+  border: 1px solid #8a3322;
   border-radius: 2px;
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.02em;
   margin: 0.2em 0;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.05s ease;
 }
 .site-content a[href*="/releases/"]:hover {
-  background: #d4cdba;
+  background: var(--roland-red-hot);
+}
+.site-content a[href*="/releases/"]:active {
+  transform: translateY(1px);
 }
 
-/* Code / kbd */
+/* Code / kbd — light-bg variant */
 .site-content code {
   font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.9em;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-dim);
+  background: #f3f0eb;
+  border: 1px solid var(--body-border);
   border-radius: 3px;
   padding: 1px 6px;
-  color: var(--cream-sec);
+  color: var(--body-text);
 }
 
-/* Blockquote — Roland-blue left bar, used for callouts */
+/* Blockquote — Roland-blue left bar, light tinted background */
 .site-content blockquote {
   margin: 1.4em 0;
   padding: 0.4em 1em;
   border-left: 3px solid var(--roland-blue);
-  background: rgba(51, 80, 143, 0.08);
-  color: var(--text-bright);
+  background: rgba(51, 80, 143, 0.06);
+  color: var(--body-text-sec);
 }
 .site-content blockquote p {
   margin: 0.4em 0;
@@ -261,7 +274,7 @@ body {
 .site-content hr {
   border: none;
   height: 1px;
-  background: var(--border-dim);
+  background: var(--body-border);
   margin: 2.4em 0;
 }
 
@@ -273,7 +286,8 @@ body {
   height: auto;
   margin: 1.75em auto;
   border-radius: 6px;
-  box-shadow: 0 2px 18px rgba(0, 0, 0, 0.4);
+  /* Lighter shadow tuned for the white body */
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   cursor: zoom-in;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
@@ -284,7 +298,7 @@ body {
 }
 .site-content img:hover {
   transform: scale(1.04);
-  box-shadow: 0 4px 26px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
 }
 
 /* ── Gallery: 2×2 grid for the feature screenshots ─────────────
@@ -359,6 +373,42 @@ body {
 .lightbox-close:hover {
   background: rgba(247, 241, 230, 0.12);
   opacity: 1;
+}
+
+/* Lightbox prev/next nav — anchored to the viewport edges, big chevrons.
+   Cycles through every .site-content img. Hidden on the smallest screens
+   where the image already fills the width and arrows would overlap it. */
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  color: var(--cream);
+  font-size: 48px;
+  line-height: 1;
+  font-family: var(--font-stack);
+  padding: 6px 14px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  z-index: 10000;
+  user-select: none;
+}
+.lightbox-nav:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.75);
+}
+.lightbox-prev { left: 20px; }
+.lightbox-next { right: 20px; }
+@media (max-width: 540px) {
+  .lightbox-nav {
+    font-size: 32px;
+    padding: 4px 10px 6px;
+  }
+  .lightbox-prev { left: 8px; }
+  .lightbox-next { right: 8px; }
 }
 
 /* ── Site footer ───────────────────────────────────────────────── */
