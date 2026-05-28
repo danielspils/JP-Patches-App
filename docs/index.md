@@ -1,7 +1,8 @@
 <style>
-  /* Image styling for jx-3p.com: cap width on wide screens so screenshots
-     don't blow out the page; keep responsive on mobile; add a subtle
-     shadow + rounded corners so screenshots feel polished, not raw. */
+  /* Image styling for jx-3p.com: smaller default display + click-to-open
+     full-size in a new tab. On desktop, screenshots cap at ~480px so
+     they don't dominate the page; on mobile they fill the column width.
+     Hover gets a slight lift to hint that images are clickable. */
   img {
     max-width: 100%;
     height: auto;
@@ -9,13 +10,37 @@
     margin: 1.75em auto;
     border-radius: 6px;
     box-shadow: 0 2px 18px rgba(0, 0, 0, 0.18);
+    cursor: zoom-in;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
   }
   @media (min-width: 800px) {
     img {
-      max-width: 820px;
+      max-width: 480px;
     }
   }
+  img:hover {
+    transform: scale(1.015);
+    box-shadow: 0 4px 26px rgba(0, 0, 0, 0.28);
+  }
 </style>
+<script>
+  /* Auto-wrap every <img> in a link to its own full-size source, opening
+     in a new tab. Lets visitors click any screenshot to see it at full
+     resolution without navigating away from the landing page. Runs once
+     on DOMContentLoaded; guards against double-wrapping if Jekyll or any
+     theme already linked the image. */
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('img').forEach((img) => {
+      if (img.closest('a')) return;
+      const link = document.createElement('a');
+      link.href = img.src;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      img.parentNode.insertBefore(link, img);
+      link.appendChild(img);
+    });
+  });
+</script>
 
 Hello JX-3People!
 
