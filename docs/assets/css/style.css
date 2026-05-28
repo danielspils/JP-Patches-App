@@ -246,8 +246,12 @@ body {
   text-decoration-color: var(--roland-blue-hot);
 }
 
-/* "Download JP Patches here" type links — Roland-red filled CTA with
-   cream text. Brand-aligned and high-contrast on the white body. */
+/* "Download" type links to GitHub releases — Roland-red filled CTA
+   with cream text + an inline download icon prepended via ::before.
+   Brand-aligned and high-contrast on the white body. The icon is a
+   tray-style download glyph (arrow + horizontal line under it)
+   rendered as an inline SVG data-URI so it never makes a network
+   request and stays the same color as the button text. */
 .site-content a[href*="/releases/"] {
   display: inline-block;
   padding: 7px 16px;
@@ -261,6 +265,18 @@ body {
   letter-spacing: 0.02em;
   margin: 0.2em 0;
   transition: background 0.15s ease, transform 0.05s ease;
+}
+.site-content a[href*="/releases/"]::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 9px;
+  vertical-align: -3px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
 }
 .site-content a[href*="/releases/"]:hover {
   background: var(--roland-red-hot);
