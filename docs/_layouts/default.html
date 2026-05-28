@@ -62,8 +62,21 @@
       </a>
       <a href="https://github.com/danielspils/JP-Patches-App/releases/latest"
          class="site-download"
-         rel="noopener">
-        JP Patches for macOS
+         rel="noopener"
+         aria-label="Download JP Patches for macOS">
+        <!-- Panel-button primitive from docs/design-system.md §3.1:
+             58×58 cream face + dark LED + cream highlight strip.
+             JS arms the LED to Roland-red on click before navigating. -->
+        <svg class="site-download-btn" viewBox="0 0 58 58" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="1" y="1" width="56" height="56" fill="#cbc4b4" stroke="#555" stroke-width="1.5" rx="2"/>
+          <rect class="site-download-led" x="18" y="1" width="22" height="15" fill="#333" rx="1"/>
+          <rect x="18" y="1" width="22" height="4" fill="#dbd4c4"/>
+        </svg>
+        <!-- White left-pointing caret pointing back to the button -->
+        <svg class="site-download-caret" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <polygon points="11,1 11,13 1,7" fill="#ffffff"/>
+        </svg>
+        <span class="site-download-label">JP Patches</span>
       </a>
     </div>
 

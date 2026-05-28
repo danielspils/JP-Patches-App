@@ -9,6 +9,24 @@
 // the site-header logo and other layout images are excluded.
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Header download button: panel-LED flash → navigate ─────────
+  // Intercepts the click on the panel-style download button so the
+  // LED rect can flash Roland-red (via the .armed class) before the
+  // browser follows the link. ~350 ms gives users time to register
+  // the visual confirmation without feeling laggy.
+  const downloadBtn = document.querySelector('.site-download');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', (e) => {
+      if (downloadBtn.classList.contains('armed')) return;   // already navigating
+      e.preventDefault();
+      downloadBtn.classList.add('armed');
+      setTimeout(() => {
+        // Open in same tab; matches the link's default behavior.
+        window.location.href = downloadBtn.href;
+      }, 350);
+    });
+  }
+
   const images = Array.from(document.querySelectorAll('.site-content img'));
   if (images.length === 0) return;
 

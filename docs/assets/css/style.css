@@ -226,42 +226,48 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Download CTA — Roland-red parallelogram matching the body buttons
-   (same wording, same download icon, same JX-panel parallelogram
-   shape). Anchored in the header. */
+/* Download CTA — JX-3P panel-button primitive (design-system §3.1):
+   58×58 cream-faced button with dark LED + cream highlight strip,
+   followed by a white left-caret and "JP Patches" Helvetica label.
+   JS toggles .armed on click to flash the LED red before nav. */
 .site-download {
   display: inline-flex;
   align-items: center;
-  padding: 7px 26px;
-  background: var(--roland-red);
-  color: var(--cream);
-  border: none;
+  gap: 12px;
   text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition: background 0.15s ease, transform 0.05s ease;
+  cursor: pointer;
   white-space: nowrap;
-  /* JX-panel parallelogram shape — top sheared right (mirrors the
-     swoops). 12px shear at the top-left and bottom-right corners. */
-  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
 }
-.site-download::before {
-  content: '';
-  display: inline-block;
+.site-download-btn {
+  width: 58px;
+  height: 58px;
+  display: block;
+  flex-shrink: 0;
+}
+/* LED transitions from dark to Roland-red when the click handler
+   adds .armed to the parent <a>. .15s ease gives a brief but
+   readable flash before the navigation kicks in. */
+.site-download-led {
+  transition: fill 0.15s ease;
+}
+.site-download.armed .site-download-led {
+  fill: var(--roland-red);
+}
+.site-download-caret {
   width: 14px;
   height: 14px;
-  margin-right: 8px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
+  display: block;
+  flex-shrink: 0;
 }
-.site-download:hover {
-  background: var(--roland-red-hot);
+.site-download-label {
+  color: var(--cream);
+  font-family: var(--font-stack);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
-.site-download:active {
-  transform: translateY(1px);
+.site-download:hover .site-download-label {
+  opacity: 0.85;
 }
 
 /* (Old .jx-divider element + styles removed May 28 — the JX A/B/C/D
