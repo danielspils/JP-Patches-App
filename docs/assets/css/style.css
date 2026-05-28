@@ -29,8 +29,8 @@
   --roland-red-hot: #d05a3a;
   --roland-green:   #1f6e5b;
   --roland-green-hot: #2a8870;
-  --roland-blue:    #2c5fb5;
-  --roland-blue-hot: #3d72c8;
+  --roland-blue:    #33508f;
+  --roland-blue-hot: #4264a8;
 
   --font-stack:    Helvetica, "Helvetica Neue", Arial, sans-serif;
   --content-max:   720px;
@@ -130,7 +130,7 @@ body {
   left: 259px;
   right: 0;
   height: 4px;
-  background: #2c5fb5;
+  background: #33508f;
   z-index: 1;
 }
 
