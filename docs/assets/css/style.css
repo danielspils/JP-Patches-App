@@ -29,8 +29,8 @@
   --roland-red-hot: #d05a3a;
   --roland-green:   #1f6e5b;
   --roland-green-hot: #2a8870;
-  --roland-blue:    #33508f;
-  --roland-blue-hot: #4264a8;
+  --roland-blue:    #2c5fb5;
+  --roland-blue-hot: #3d72c8;
 
   --font-stack:    Helvetica, "Helvetica Neue", Arial, sans-serif;
   --content-max:   720px;
@@ -102,18 +102,19 @@ body {
   position: absolute;
   top: 15px;
   left: 24px;
-  width: 220px;
+  width: 250px;
   height: 185px;
   z-index: 1;
   display: block;
 }
 
 /* Green stripe — top edge of green swoop extended to viewport edge.
-   left = 24 (page padding) + 160 (green's top-right X in SVG viewBox) */
+   left = 24 (page padding) + 160 (green's top-right X) - 5 (overlap
+   into the swoop so the stripe reads as a seamless continuation) */
 .stripe-a {
   position: absolute;
   top: 15px;
-  left: 184px;
+  left: 179px;
   right: 0;
   height: 4px;
   background: #1f6e5b;
@@ -122,14 +123,14 @@ body {
 
 /* Blue stripe — top edge of blue swoop extended to viewport edge.
    Blue's top is at y=10 within the SVG (= y=25 in header).
-   left = 24 (page padding) + 180 (blue's top-right X in SVG) */
+   left = 24 (page padding) + 240 (blue's top-right X) - 5 (overlap) */
 .stripe-b {
   position: absolute;
   top: 25px;
-  left: 204px;
+  left: 259px;
   right: 0;
   height: 4px;
-  background: #33508f;
+  background: #2c5fb5;
   z-index: 1;
 }
 
@@ -139,7 +140,7 @@ body {
 .site-header-inner {
   position: relative;
   height: 140px;
-  padding: 0 24px 0 270px;
+  padding: 0 24px 0 290px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -148,12 +149,12 @@ body {
 }
 
 /* 4. Red C/D swoops — sit in the bleed zone below the dark band.
-      Aligned horizontally under the logo (same left as content's
-      padding-left). 50px tall, occupying y=145–195 of the header. */
+      Aligned horizontally under the logo. 50px tall, occupying
+      y=145–195 of the header. left shifted -30 from initial 270. */
 .cd-swoops {
   position: absolute;
   top: 145px;
-  left: 270px;
+  left: 240px;
   width: 170px;
   height: 50px;
   z-index: 1;
@@ -162,11 +163,12 @@ body {
 
 /* Red stripe — from D's (rightmost red parallelogram) top-right
    corner, extending right to the viewport edge.
-   left = 270 (cd-swoops left offset) + 150 (D's top-right X in SVG) */
+   left = 240 (cd-swoops offset) + 145 (D's top-right after -5 shift)
+         - 5 (overlap into the swoop for seamless continuation) */
 .stripe-cd {
   position: absolute;
   top: 145px;
-  left: 420px;
+  left: 380px;
   right: 0;
   height: 4px;
   background: #b94a2e;
