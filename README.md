@@ -78,11 +78,13 @@ The app mirrors the JX-3P's hardware Tape Memory buttons:
 
 Tape Memory transfers are FSK audio — the JX-3P encodes patch / sequence data as audible tones and reads them back the same way. Two hardware paths work reliably; pick based on what you already have.
 
-**Option A — USB audio cable (lowest cost, single jack):**
+**Option A — USB audio cable (lowest cost):**
 
-- **One USB-C → 1/4" TS guitar / audio cable** with a built-in ADC+DAC chip (e.g. KT USB Audio, J&D, Tisino, ART TConnect). $15–40.
+![USB-C to dual 1/4" splitter cable connecting a MacBook to the JX-3P's Tape Memory Save and Load jacks](docs/screenshots/jx-cable.png)
+
+- **The cable I use:** a [USB-C → dual 1/4" splitter](https://www.amazon.com/dp/B0G43JQJXT) — ~$20 on Amazon. USB-C end into the Mac; **TS** end into the JX's **Tape Memory Save** jack; **TRS** end into the JX's **Tape Memory Load** jack. Both legs are cabled simultaneously, so no swap when switching directions between capturing and sending.
+- **This is the only cable I've personally tested.** Other USB-to-1/4" cables in this category (KT USB Audio, J&D, Tisino, ART TConnect) may work but haven't been verified. If you'd prefer guaranteed reliability over price, **Option B** below uses any standard USB audio interface — anything modern with a clean signal will definitely work.
 - **Caveats:**
-  - Single 1/4" jack — you'll physically swap the cable between the JX's Tape Memory **Save** (when capturing) and **Load** (when sending) jacks each time you switch directions.
   - Many of these cables expose the **output side** as separately reconfigurable in Audio MIDI Setup but **lock the input side at 48 kHz**. That's fine — JP and the decoder tolerate this.
 - **Setup:**
   1. Plug in the cable. Open **Applications → Utilities → Audio MIDI Setup**.
