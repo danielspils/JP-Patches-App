@@ -6,7 +6,7 @@ I've always wanted a way to easily save patches to my computer. But the JX relie
 
 Fast forward a month and I have a beta version of JP Patches, my JX-3P companion app. It works on macOS 12+ on Apple Silicon (arm64) at the moment. It doesn't yet support MIDI — the primitive stock JX-3P MIDI does not support SysEx. I'll wire up support for the Series Circuits MIDI Upgrade Kit in a future release. It operates through tape dumps using a single cord.
 
-#   WHAT CAN JP PATCHES DO?
+## WHAT CAN JP PATCHES DO?
 * save patches from JX to JP
 * send patches from JP to JX
 * build custom patch banks w/ drag & drop reorder
@@ -18,13 +18,13 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * fully functional PG-200 software panel
 * other features I'm forgetting ...
 
-#   HOW DOES IT WORK?
+## HOW DOES IT WORK?
 * use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)
 * plug the TS end into Tape Memory/Save
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
 
-#   DO YOU OWN A JX-3P AND A MAC?
+## DO YOU OWN A JX-3P AND A MAC?
 What I need now are computer literate Mac users to download JP Patches from GitHub for testing. I'm not a programmer or IT support person so this would require a person(s) who can navigate the world of GitHub. Specifically, this is an "unapproved" app that a user must permission onto their computer. Until I get an Apple Developers license, it will remain a little tricky to download. Installing involves bypassing macOS's Gatekeeper warning — sometimes just a right-click → Open, sometimes a one-line command in Terminal on newer macOS.
 
 Friends have successfully loaded JP Patches, but none are synth people so they just say, "looks cool dude — congrats!" If you are a JX-3P enthusiast and good with computers, I'd invite your feedback.
