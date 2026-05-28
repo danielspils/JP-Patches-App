@@ -152,10 +152,11 @@ body {
 
 /* 4. Red C/D swoops — sit in the bleed zone below the dark band.
       Aligned horizontally under the logo. 50px tall, occupying
-      y=145–195 of the header. left shifted -30 from initial 270. */
+      y=150–200 of the header so their bottoms align with the
+      green/blue swoop bottoms at y=200 (header bottom). */
 .cd-swoops {
   position: absolute;
-  top: 145px;
+  top: 150px;
   left: 240px;
   width: 170px;
   height: 50px;
@@ -169,7 +170,7 @@ body {
          - 5 (overlap into the swoop for seamless continuation) */
 .stripe-cd {
   position: absolute;
-  top: 145px;
+  top: 150px;
   left: 380px;
   right: 0;
   height: 4px;
