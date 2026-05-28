@@ -72,13 +72,14 @@ body {
 
 /* ── Site header ────────────────────────────────────────────────── */
 
-/* Header total height = dark band (140) + bleed zone (60) = 200.
+/* Header total height = dark band (140) + bleed zone (55) = 195.
    The dark band is full width; AB swoops sit on top of it (extending
    from band-top down through the band into the bleed zone). CD red
-   swoops + stripe sit entirely in the bleed zone below the band. */
+   swoops + stripe sit entirely in the bleed zone below the band.
+   All four swoop bottoms align at y=195 = header bottom. */
 .site-header {
   position: relative;
-  height: 200px;
+  height: 195px;
   background: transparent;
   /* Not sticky — the JX motif is too tall to comfortably stick */
 }
@@ -96,16 +97,16 @@ body {
 
 /* 2. Green + Blue swoops, ON TOP of the dark band, on the left.
       Positioned at left:24px (small viewport-edge padding) so they
-      anchor visually to the page's left edge. SVG height 185px =
-      header height (200) minus swoop top offset (15) — swoops extend
-      from y=15 (inside dark band, above logo) to y=200 (bottom of
-      header, in bleed zone, bleeding below the band). */
+      anchor visually to the page's left edge. SVG height 180px =
+      header height (195) minus swoop top offset (15) — swoops extend
+      from y=15 (inside dark band, above logo) to y=195 (bottom of
+      header, aligned with red swoop bottoms). */
 .ab-swoops {
   position: absolute;
   top: 15px;
   left: 24px;
   width: 250px;
-  height: 185px;
+  height: 180px;
   z-index: 1;
   display: block;
 }
