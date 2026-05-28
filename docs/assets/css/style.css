@@ -226,6 +226,16 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Two subtitle variants: the long one shows on desktop, the short one
+   on mobile. Toggled in the mobile breakpoint at the bottom. */
+.site-subtitle-mobile { display: none; }
+
+/* Mobile-only compact JX motif — hidden on desktop, shown in the
+   mobile breakpoint, anchored to the right edge of the dark band. */
+.site-header-mobile-motif {
+  display: none;
+}
+
 /* Download CTA — JX-3P panel-button primitive (design-system §3.1):
    58×58 cream-faced button with dark LED + cream highlight strip,
    followed by a white left-caret and "JP Patches" Helvetica label.
@@ -626,10 +636,12 @@ body {
 }
 
 @media (max-width: 540px) {
-  /* Mobile: collapse the header to just the dark band + brand row.
-     Hiding the AB/CD SVG swoops + their stripes at this width avoids
-     a cramped fight between the JX motif and the brand content.
-     Could re-introduce a phone-scale motif as a follow-up iteration. */
+  /* Mobile header: JP logo on left, compact JX motif on right.
+     The full desktop AB/CD swoops + their right-extending stripes
+     are too wide for phone screens, so they're swapped out for a
+     mobile-only SVG anchored to the right edge of the dark band.
+     The panel-button download CTA is hidden — visitors can use any
+     of the in-content download buttons instead. */
   .site-header {
     height: 110px;
   }
@@ -640,19 +652,34 @@ body {
     padding: 0 16px;
     height: 110px;
   }
+  /* Hide the desktop motif elements + the panel-button CTA */
   .ab-swoops,
   .stripe-a,
   .stripe-b,
   .cd-swoops,
-  .stripe-cd {
+  .stripe-cd,
+  .site-download {
     display: none;
+  }
+  /* Show the mobile-only motif, positioned at right edge of header */
+  .site-header-mobile-motif {
+    display: block;
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    width: 165px;
+    height: 70px;
+    z-index: 1;
+    pointer-events: none;
+  }
+  /* Swap subtitle: short version visible, long version hidden */
+  .site-subtitle-desktop { display: none; }
+  .site-subtitle-mobile  { display: block; }
+  .site-subtitle {
+    font-size: 13px;
   }
   .site-logo {
     height: 56px;
-  }
-  .site-download {
-    padding: 6px 12px;
-    font-size: 12px;
   }
   .site-main {
     padding: 24px 16px 40px;

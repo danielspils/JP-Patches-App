@@ -57,9 +57,29 @@
       <a href="{{ '/' | relative_url }}" class="site-brand" aria-label="JP Patches home">
         <img src="{{ '/assets/img/jp-logo.png' | relative_url }}" alt="" class="site-logo">
         <span class="site-brand-text">
-          <span class="site-subtitle">a companion app for the Roland JX-3P and PG-200</span>
+          <span class="site-subtitle site-subtitle-desktop">a companion app for the Roland JX-3P and PG-200</span>
+          <span class="site-subtitle site-subtitle-mobile">for the JX-3P &amp; PG-200</span>
         </span>
       </a>
+
+      <!-- Mobile-only compact JX motif (right side of dark band).
+           Replaces the desktop's AB/CD swoops + stripes which are
+           hidden under 540px width. Sized to anchor at the right edge
+           of the dark band; preserveAspectRatio keeps it crisp at
+           any phone width. -->
+      <svg class="site-header-mobile-motif" viewBox="0 0 220 80"
+           preserveAspectRatio="xMaxYMid meet"
+           xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- Green stripe extending leftward + small swoop at its left end -->
+        <rect x="0" y="0" width="220" height="3" fill="#1f6e5b"/>
+        <polygon points="40,3 60,3 40,17 20,17" fill="#1f6e5b"/>
+        <!-- Blue stripe (slightly shorter) + small swoop -->
+        <rect x="40" y="20" width="180" height="3" fill="#33508f"/>
+        <polygon points="60,23 80,23 60,37 40,37" fill="#33508f"/>
+        <!-- Two red parallelograms at the bottom-right (no stripe) -->
+        <polygon points="120,42 160,42 140,62 100,62" fill="#b94a2e"/>
+        <polygon points="170,42 210,42 190,62 150,62" fill="#b94a2e"/>
+      </svg>
       <a href="https://github.com/danielspils/JP-Patches-App/releases/latest"
          class="site-download"
          rel="noopener"
