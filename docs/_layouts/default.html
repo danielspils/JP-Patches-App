@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page.title | default: site.title }}</title>
+  <meta name="description" content="{{ page.description | default: site.description }}">
+
+  <!-- Open Graph / Twitter card — gives jx-3p.com a nice preview when
+       shared in Slack, iMessage, Facebook, etc. Uses the hero screenshot. -->
+  <meta property="og:title" content="{{ site.title }}">
+  <meta property="og:description" content="{{ site.description }}">
+  <meta property="og:image" content="{{ '/screenshots/jx-hero.png' | absolute_url }}">
+  <meta property="og:url" content="{{ site.url }}">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" type="image/png" href="{{ '/assets/img/jp-logo.png' | relative_url }}">
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="{{ '/' | relative_url }}" class="site-brand" aria-label="JP Patches home">
+        <img src="{{ '/assets/img/jp-logo.png' | relative_url }}" alt="" class="site-logo">
+        <span class="site-title">JP Patches</span>
+      </a>
+      <a href="https://github.com/danielspils/JP-Patches-App/releases/latest"
+         class="site-download"
+         rel="noopener">
+        Download v0.6.0
+      </a>
+    </div>
+    <div class="site-header-strip" aria-hidden="true"></div>
+  </header>
+
+  <main class="site-main">
+    <article class="site-content">
+      {{ content }}
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-strip" aria-hidden="true"></div>
+    <div class="site-footer-inner">
+      <span>JP Patches is free and open source · MIT licensed</span>
+      <span class="site-footer-dot" aria-hidden="true">·</span>
+      <a href="https://github.com/danielspils/JP-Patches-App" rel="noopener">GitHub</a>
+      <span class="site-footer-dot" aria-hidden="true">·</span>
+      <span>Made by Daniel Spils</span>
+    </div>
+  </footer>
+
+  <script src="{{ '/assets/js/site.js' | relative_url }}"></script>
+</body>
+</html>

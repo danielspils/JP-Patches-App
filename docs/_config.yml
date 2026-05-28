@@ -1,0 +1,16 @@
+# Jekyll config for jx-3p.com (GitHub Pages source: /docs).
+#
+# Deliberately NO `theme:` key — this lets our custom _layouts/default.html
+# take over without a default theme's CSS leaking in. The result: total
+# visual control via assets/css/style.css, brand-aligned with the JP
+# Patches app design system (see docs/design-system.md).
+
+title: JP Patches
+description: Free macOS companion app for the Roland JX-3P synthesizer — save, edit, and trade patches and sequences via tape dump.
+url: "https://jx-3p.com"
+
+# Default front matter for any markdown file that doesn't specify its own.
+# Only `index.md` opts into the `default` layout via explicit front matter;
+# other .md files in docs/ (release notes, smoke test, etc.) render bare
+# without layout — they're internal docs, not landing-page consumers.
+defaults: []
