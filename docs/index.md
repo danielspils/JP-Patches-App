@@ -1,7 +1,10 @@
 <style>
-  /* Page-content images: small, polished, click opens lightbox. */
+  /* Page-content images: small, polished, click opens lightbox.
+     !important needed to override the GitHub Pages theme's own
+     .main-content img rule, which is more specific than plain `img`
+     and would otherwise stretch screenshots to 100% column width. */
   img {
-    max-width: 100%;
+    max-width: 100% !important;
     height: auto;
     display: block;
     margin: 1.75em auto;
@@ -12,7 +15,7 @@
   }
   @media (min-width: 800px) {
     img {
-      max-width: 240px;
+      max-width: 240px !important;
     }
   }
   img:hover {
@@ -41,8 +44,9 @@
     pointer-events: auto;
   }
   .lightbox-overlay img {
-    max-width: 96vw;
-    max-height: 92vh;
+    /* !important to defeat the 240px cap we just put on plain `img` */
+    max-width: 96vw !important;
+    max-height: 92vh !important;
     width: auto;
     height: auto;
     margin: 0;
