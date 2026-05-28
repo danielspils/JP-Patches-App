@@ -669,11 +669,16 @@ body {
   /* Mobile motif temporarily disabled (per Daniel — to revisit later).
      The SVG is still in default.html; just re-enable with display:block
      plus the position rules in the prior version to bring it back. */
-  /* Swap subtitle: short version visible, long version hidden */
+  /* Swap subtitle: short version visible, long version hidden.
+     The mobile span contains an explicit <br> so it wraps onto two
+     lines; tighter line-height + reset of nowrap keep the stack
+     compact and readable. */
   .site-subtitle-desktop { display: none; }
   .site-subtitle-mobile  { display: block; }
   .site-subtitle {
     font-size: 13px;
+    line-height: 1.25;
+    white-space: normal;
   }
   .site-logo {
     height: 56px;
