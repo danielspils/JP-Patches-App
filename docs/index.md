@@ -2,7 +2,7 @@
 layout: default
 ---
 
-Hello JX-3People!
+Hello JX-3People.
 
 I've owned the JX-3P since it was released. I bought it (oddly) at Down Home Guitar in Anchorage, Alaska as a freshman in high school. I own many synths, but have kept and played the JX-3P since that time.
 
