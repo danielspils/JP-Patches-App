@@ -666,17 +666,9 @@ body {
   .site-download {
     display: none;
   }
-  /* Show the mobile-only motif, positioned at right edge of header */
-  .site-header-mobile-motif {
-    display: block;
-    position: absolute;
-    top: 12px;
-    right: 16px;
-    width: 165px;
-    height: 70px;
-    z-index: 1;
-    pointer-events: none;
-  }
+  /* Mobile motif temporarily disabled (per Daniel — to revisit later).
+     The SVG is still in default.html; just re-enable with display:block
+     plus the position rules in the prior version to bring it back. */
   /* Swap subtitle: short version visible, long version hidden */
   .site-subtitle-desktop { display: none; }
   .site-subtitle-mobile  { display: block; }
