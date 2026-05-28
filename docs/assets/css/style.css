@@ -226,23 +226,36 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Download CTA — Roland-red filled, matches the body buttons but
-   stays anchored in the header. Inline download icon via ::before
-   (same SVG data-URI as the body buttons). */
+/* Download CTA — Roland-red parallelogram matching the body buttons
+   (same wording, same download icon, same JX-panel parallelogram
+   shape). Anchored in the header. */
 .site-download {
   display: inline-flex;
   align-items: center;
-  padding: 7px 14px;
+  padding: 7px 26px;
   background: var(--roland-red);
   color: var(--cream);
-  border: 1px solid #8a3322;
-  border-radius: 2px;
+  border: none;
   text-decoration: none;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
   transition: background 0.15s ease, transform 0.05s ease;
   white-space: nowrap;
+  /* JX-panel parallelogram shape — top sheared right (mirrors the
+     swoops). 12px shear at the top-left and bottom-right corners. */
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+}
+.site-download::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f7f1e6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v12'/><path d='M7 10l5 5 5-5'/><path d='M5 21h14'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
 }
 .site-download:hover {
   background: var(--roland-red-hot);
@@ -343,17 +356,20 @@ body {
 .site-content a[href*="/releases/"] {
   display: inline-flex;
   align-items: center;
-  padding: 7px 16px;
+  padding: 8px 28px;
   background: var(--roland-green);
   color: var(--cream);
-  border: 1px solid #144a3d;
-  border-radius: 2px;
+  border: none;
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.02em;
   margin: 0.2em 0;
   transition: background 0.15s ease, transform 0.05s ease;
+  /* JX-panel parallelogram shape — same shear as .site-download
+     and the header swoops (top sheared right, 14px at the
+     top-left/bottom-right corners). */
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
 }
 .site-content a[href*="/releases/"]::before {
   content: '';
@@ -377,14 +393,12 @@ body {
    in the markdown source ({:.btn-blue} / {:.btn-red}). */
 .site-content a.btn-blue[href*="/releases/"] {
   background: var(--roland-blue);
-  border-color: #243860;
 }
 .site-content a.btn-blue[href*="/releases/"]:hover {
   background: var(--roland-blue-hot);
 }
 .site-content a.btn-red[href*="/releases/"] {
   background: var(--roland-red);
-  border-color: #8a3322;
 }
 .site-content a.btn-red[href*="/releases/"]:hover {
   background: var(--roland-red-hot);
