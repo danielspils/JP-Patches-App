@@ -237,20 +237,22 @@ body {
 }
 
 /* Download CTA — JX-3P panel-button primitive (design-system §3.1):
-   58×58 cream-faced button with dark LED + cream highlight strip,
-   followed by a white left-caret and "JP Patches" Helvetica label.
+   ~44×44 cream-faced button (25% smaller than the canonical 58×58
+   for a tighter header presence) with dark LED + cream highlight
+   strip, followed by a white left-caret and "JP Patches" Helvetica
+   label that matches the subtitle's 16px cream-sec styling.
    JS toggles .armed on click to flash the LED red before nav. */
 .site-download {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
 }
 .site-download-btn {
-  width: 58px;
-  height: 58px;
+  width: 44px;
+  height: 44px;
   display: block;
   flex-shrink: 0;
 }
@@ -264,16 +266,16 @@ body {
   fill: var(--roland-red);
 }
 .site-download-caret {
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
   display: block;
   flex-shrink: 0;
 }
 .site-download-label {
-  color: var(--cream);
+  color: var(--cream-sec);
   font-family: var(--font-stack);
-  font-size: 22px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 400;
   letter-spacing: 0.01em;
 }
 .site-download:hover .site-download-label {
