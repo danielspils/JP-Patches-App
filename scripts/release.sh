@@ -11,7 +11,7 @@
 #   2. Bumps package.json version
 #   3. Bumps CLAUDE.md "Current version" Status line + date
 #   4. Runs the test suite (must pass)
-#   5. Builds the unsigned DMG (electron-builder)
+#   5. Builds the signed + notarized DMG (electron-builder)
 #   6. Asks for confirmation before any destructive step
 #   7. Commits the version bump
 #   8. Tags + pushes (both main and the tag)
@@ -120,6 +120,30 @@ if git rev-parse "v$VERSION" &>/dev/null; then
 fi
 echo "✓ tag v$VERSION is available"
 
+# 8. Signing + notarization prerequisites
+if [[ ! -f .env ]]; then
+  echo "❌ .env not found. Copy .env.example to .env and fill in"
+  echo "   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID."
+  exit 1
+fi
+# Load Apple credentials for electron-builder's notarize step.
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+for var in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+  if [[ -z "${!var:-}" ]]; then
+    echo "❌ $var is not set in .env"
+    exit 1
+  fi
+done
+if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
+  echo "❌ No 'Developer ID Application' certificate in your keychain."
+  echo "   Create one at developer.apple.com → Certificates, then double-click the .cer."
+  exit 1
+fi
+echo "✓ signing cert + notarization credentials present"
+
 echo ""
 
 # ─── Update version in source files ───────────────────────────────
@@ -154,8 +178,8 @@ echo ""
 
 # ─── Build DMG ────────────────────────────────────────────────────
 
-echo "── Building DMG (this takes a couple minutes) ──"
-if ! npm run dist:unsigned --silent; then
+echo "── Building signed + notarized DMG (this takes a few minutes — uploads to Apple) ──"
+if ! npm run dist --silent; then
   echo "❌ DMG build failed. Aborting release."
   git checkout -- package.json CLAUDE.md
   exit 1
