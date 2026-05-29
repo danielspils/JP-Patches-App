@@ -20,26 +20,9 @@ Free, open-source macOS librarian app for the Roland JX-3P synthesizer.
 
 Once a release is published you can grab the latest **JP Patches.dmg** from the [Releases page](https://github.com/danielspils/JP-Patches-App/releases), drag the app to Applications, and launch. The `.dmg` bundles Bruce's `jx3p` tool and the `uv` Python runner, so there's nothing else to install — the first WAV import will take ~10–30s while `uv` fetches a Python interpreter into its local cache; subsequent runs are instant.
 
-### First-launch on macOS — "damaged" dialog
+### First-launch on macOS
 
-The GitHub builds are not signed with an Apple Developer ID yet. When you first try to open JP Patches you'll see a dialog saying *"JP Patches is damaged and can't be opened."* The app isn't damaged — macOS Gatekeeper blocks unsigned downloads by default. Pick whichever of these works for you:
-
-**Option 1 — System Settings (recommended, easiest)**
-1. Double-click JP Patches in Applications. The "damaged" dialog appears. Click **Cancel**.
-2. Open **System Settings → Privacy & Security**.
-3. Scroll down to the **Security** section. You should see a line saying *"JP Patches was blocked to protect your Mac"* with an **Open Anyway** button.
-4. Click **Open Anyway**, confirm with Touch ID or your password.
-5. JP Patches launches. After this first time, it opens normally.
-
-**Option 2 — Terminal (one command)**
-
-Open **Terminal.app** (Spotlight → "Terminal") and paste:
-```
-xattr -dr com.apple.quarantine "/Applications/JP Patches.app"
-```
-Then double-click JP Patches normally. This removes the quarantine flag macOS adds to files downloaded via a browser.
-
-The old right-click → Open trick no longer works on macOS Ventura (13) and later — Apple removed that loophole. The two options above are the current paths for any unsigned macOS app from GitHub.
+JP Patches is signed and notarized by Apple, so it opens normally — no Gatekeeper warning, no right-click workaround, no Terminal commands.
 
 ## Run from source
 
@@ -147,7 +130,7 @@ Click **Create Custom Banks** below the PG-200 panel to open a staging area: a 4
 - **Phase 1** ✅ Panel UI + patch editing
 - **Phase 2** ✅ Library tab (Tones + Sequences, drag-reorder, paired-patch model)
 - **Phase 3** ⏳ MIDI integration (Series Circuits kit)
-- **Phase 4** 🚧 Distribution (`.dmg`, code-sign + notarize, GitHub Releases)
+- **Phase 4** 🚧 Distribution (signed + notarized `.dmg` on GitHub Releases ✅; Mac App Store TBD)
 
 Full design spec: [`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md).
 
@@ -160,7 +143,7 @@ npm run dist:unsigned   # produces dist/JP Patches-0.1.0-arm64.dmg
 
 `npm run setup-vendor` (run automatically before `dist`) populates `vendor/` with the `uv` binary and a copy of `~/JP-Patches/`. Set `JX3P_SRC=/path/to/your/clone` to point at a different location.
 
-`npm run dist` (without `:unsigned`) requires an Apple Developer ID for code-signing — coming when notarization is set up.
+`npm run dist` (without `:unsigned`) produces a signed + notarized DMG. It requires an Apple Developer ID certificate in your keychain plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` in a `.env` file (see `.env.example`).
 
 ## License
 
