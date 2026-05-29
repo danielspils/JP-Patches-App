@@ -15,8 +15,7 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 ![JP Patches main panel — PG-200 style knobs and switches on the right, active C/D patch list on the left, Tape Memory controls below](screenshots/jx-hero.png)
 
 ## WHAT CAN JP PATCHES DO?
-* save patches from JX to JP
-* send patches from JP to JX
+* transfer patches JX ⇄ JP
 * build custom patch banks w/ drag & drop reorder
 * custom names for patches (e.g. C1 as "Warm Pad")
 * save sequences from JX to JP
