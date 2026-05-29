@@ -502,15 +502,16 @@ body {
 }
 
 /* ── Video embed (YouTube Shorts at page bottom) ──────────────────
-   YouTube Shorts are 9:16 portrait. Capped at 320px wide on desktop
-   so the video doesn't dominate the page; aspect-ratio keeps it
-   proportional at any container width (modern browsers all support
-   the aspect-ratio property). Uses youtube-nocookie.com for privacy
-   (no YouTube cookies until the user actively interacts). */
+   YouTube Shorts are 9:16 portrait. Locked to explicit pixel
+   dimensions (320×568) on desktop so the iframe is unambiguously
+   vertical regardless of browser CSS quirks. Responsive variant
+   below the breakpoint scales the height to maintain the 9:16
+   ratio at viewport width. Uses youtube-nocookie.com for privacy. */
 .video-embed {
   display: block;
-  max-width: 320px;
-  aspect-ratio: 9 / 16;
+  width: 320px;
+  height: 568px;
+  max-width: 100%;
   margin: 2em auto;
   border-radius: 8px;
   overflow: hidden;
@@ -522,6 +523,12 @@ body {
   height: 100%;
   border: 0;
   display: block;
+}
+@media (max-width: 380px) {
+  .video-embed {
+    width: calc(100vw - 32px);
+    height: calc((100vw - 32px) * 16 / 9);
+  }
 }
 
 /* ── Lightbox overlay ──────────────────────────────────────────── */
