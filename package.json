@@ -25,6 +25,7 @@
   "build": {
     "appId": "com.danielspils.jp-patches",
     "productName": "JP Patches",
+    "afterAllArtifactBuild": "scripts/staple-dmg.js",
     "directories": {
       "output": "dist"
     },
