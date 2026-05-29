@@ -204,17 +204,21 @@ body {
   background: var(--body-bg);
 }
 /* Tab sizing matched to the body "JP Patches for macOS" download button
-   primitive (see "Download type links" section below) — same padding
-   (8px / 28px), same font (Helvetica 14px / 600 / 0.02em letter-
+   primitive (see "Download type links" section below) — same vertical
+   padding (8px), same font (Helvetica 14px / 600 / 0.02em letter-
    spacing), same cream label. Rectangles (no clip-path) on purpose to
    distinguish tabs from the parallelogram body buttons. Intrinsic
    height ≈ 40px (8 + 8 padding + 14 × 1.65 line-height), shorter than
    the C/D swoops' 50px — both share the y=145 top edge but the tabs
-   stop ~10px above the swoop bottom. */
+   stop ~10px above the swoop bottom.
+
+   Tabs size intrinsically to their text — Patches reads narrower than
+   Sequences (different word lengths). Horizontal padding is matched on
+   both tabs (18px each side) so the word-to-edge gap is consistent. */
 .cd-nav-tab {
   display: inline-flex;
   align-items: center;
-  padding: 8px 28px;
+  padding: 8px 18px;
   background: var(--roland-red);
   color: var(--cream);
   font-family: var(--font-stack);
