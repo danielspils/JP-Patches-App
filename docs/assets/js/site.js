@@ -52,15 +52,62 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ── Feedback button: panel-LED flash → navigate to /feedback/ ──
-  // Same affordance as the header download button — the LED rect flashes
-  // Roland-red (.armed) for ~350 ms before following the link.
+  // ── Feedback button: blip + panel-LED flash → navigate ─────────
+  // Same affordance as the header download button — on click the LED rect
+  // flashes Roland-red (.armed) and a short blip plays, then the browser
+  // follows the link after ~350 ms (enough for both to register).
+  //
+  // Sound: if a file exists at assets/audio/feedback-click.{mp3,wav} it's
+  // used; otherwise a JX-style blip is synthesized via the Web Audio API
+  // (no asset, no download weight). Drop a real file at that path to swap
+  // it in — no code change needed.
+  const FEEDBACK_SOUND_SRC = '/assets/audio/feedback-click.mp3';
+
+  function synthFeedbackBlip() {
+    // Short two-tone square-wave chirp with a fast exponential decay —
+    // reads as a vintage-synth UI click. ~180 ms, comfortably inside the
+    // 350 ms navigation delay.
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      const t = ctx.currentTime;
+      osc.frequency.setValueAtTime(660, t);          // E5
+      osc.frequency.exponentialRampToValueAtTime(990, t + 0.09); // up to B5
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.01);    // quick attack
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);  // fast decay
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+      osc.onended = () => ctx.close();
+    } catch (_) { /* audio unavailable — silent no-op */ }
+  }
+
+  function playFeedbackSound() {
+    // Try the file first; fall back to the synth if it's missing/unplayable.
+    try {
+      const audio = new Audio(FEEDBACK_SOUND_SRC);
+      audio.volume = 0.6;
+      const p = audio.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => synthFeedbackBlip());
+      }
+    } catch (_) {
+      synthFeedbackBlip();
+    }
+  }
+
   const feedbackBtn = document.querySelector('.feedback-btn');
   if (feedbackBtn) {
     feedbackBtn.addEventListener('click', (e) => {
       if (feedbackBtn.classList.contains('armed')) return;   // already navigating
       e.preventDefault();
       feedbackBtn.classList.add('armed');
+      playFeedbackSound();
       setTimeout(() => {
         window.location.href = feedbackBtn.href;
       }, 350);

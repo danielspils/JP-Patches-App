@@ -7,9 +7,8 @@ permalink: /feedback/
 
 ## FISHING FOR FEEDBACK
 
-Spotted a bug, have a feature idea, or just want to say how it's working
-with your JX-3P? Drop me a note below. Your email goes straight to me —
-it isn't published anywhere.
+Found a bug or just want to say how it's working with your JX-3P? Drop me
+a note below. Your email goes straight to me.
 
 <form class="feedback-form" action="https://api.web3forms.com/submit" method="POST">
   <input type="hidden" name="access_key" value="93a74b71-92b8-4d52-bf2d-da81779b93c6">
