@@ -6,7 +6,7 @@ Hello JX-3People.
 
 I've owned the JX-3P since it was released. I bought it (oddly) at Down Home Guitar in Anchorage, Alaska as a freshman in high school. I own many synths, but have kept and played the JX-3P since that time.
 
-I've always wanted a way to easily save patches to my computer. But the JX relies on outdated tape dump technology — think, the hiss, chirp and screech of an ‘80s dial-up modem + audio cassette tape as memory!  None of the programs I used were great so I decided to build my own. This was also an excuse to figure out how to "vibe code" — something I knew nothing about until I began.
+I've always wanted a way to easily save patches to my computer. But the JX relies on outdated tape dump technology — think, the hiss, chirp and screech of an ‘80s dial-up modem + audio cassette tape as memory!  None of the programs I used were great so I decided to build my own. This was also an excuse to figure out how to "vibe code" — something I knew nothing about until I began in May of 2026.
 
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-red}
 
