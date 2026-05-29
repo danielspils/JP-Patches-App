@@ -9,6 +9,31 @@
 // the site-header logo and other layout images are excluded.
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ── Strip tracking params from the address bar ────────────────
+  // Facebook (fbclid), Google (gclid), Mailchimp (mc_eid), and the
+  // utm_* family are all click-attribution tags that get appended
+  // when someone follows a link from those platforms. They make the
+  // URL look ugly and aren't used by the site. history.replaceState
+  // rewrites the bar without a navigation, so it's cosmetic-only.
+  const TRACKING_PARAMS = [
+    'fbclid', 'gclid', 'mc_eid', '_ga', 'ref',
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+  ];
+  try {
+    const url = new URL(window.location.href);
+    let stripped = false;
+    TRACKING_PARAMS.forEach((p) => {
+      if (url.searchParams.has(p)) {
+        url.searchParams.delete(p);
+        stripped = true;
+      }
+    });
+    if (stripped) {
+      const cleanUrl = url.pathname + (url.search || '') + (url.hash || '');
+      window.history.replaceState({}, '', cleanUrl);
+    }
+  } catch (_) { /* old browser without URL constructor — no-op */ }
+
   // ── Header download button: panel-LED flash → navigate ─────────
   // Intercepts the click on the panel-style download button so the
   // LED rect can flash Roland-red (via the .armed class) before the
