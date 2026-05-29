@@ -185,13 +185,17 @@ body {
    anchored. Square corners on purpose (rectangles, not parallelograms)
    so they read as "tabs" rather than as a continuation of the swoop
    motif. z-index: 2 keeps them visually on top of stripe-cd so the
-   stripe terminates cleanly into the tab edges. */
+   stripe terminates cleanly into the tab edges.
+
+   TEMPORARILY HIDDEN (2026-05-29) — destinations /patches/ and
+   /sequences/ don't exist yet, so visitors clicking the tabs would
+   404. To re-enable: change `display: none` below to `display: flex`. */
 .cd-nav-tabs {
   position: absolute;
   top: 145px;
   right: 0;
   height: 50px;
-  display: flex;
+  display: none;
   gap: 2px;
   z-index: 2;
 }
