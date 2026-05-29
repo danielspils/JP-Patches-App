@@ -87,17 +87,30 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (_) { /* audio unavailable — silent no-op */ }
   }
 
-  function playFeedbackSound() {
-    // Try the file first; fall back to the synth if it's missing/unplayable.
+  // Track the active click sound so we can stop it if the page is restored
+  // from the back/forward cache (otherwise bfcache resumes it on Back).
+  let feedbackAudio = null;
+
+  // Returns a promise-ish "done" callback fired when the sound finishes
+  // (or immediately if it can't play), so navigation waits for the full
+  // clip rather than a fixed timeout that could cut the 2nd click off.
+  function playFeedbackSound(onDone) {
+    let finished = false;
+    const done = () => { if (!finished) { finished = true; onDone(); } };
     try {
       const audio = new Audio(FEEDBACK_SOUND_SRC);
+      feedbackAudio = audio;
       audio.volume = 0.6;
+      audio.addEventListener('ended', done);
       const p = audio.play();
       if (p && typeof p.catch === 'function') {
-        p.catch(() => synthFeedbackBlip());
+        p.catch(() => { synthFeedbackBlip(); setTimeout(done, 200); });
       }
+      // Safety net: if 'ended' never fires (decode hiccup), don't hang.
+      setTimeout(done, 800);
     } catch (_) {
       synthFeedbackBlip();
+      setTimeout(done, 200);
     }
   }
 
@@ -107,12 +120,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (feedbackBtn.classList.contains('armed')) return;   // already navigating
       e.preventDefault();
       feedbackBtn.classList.add('armed');
-      playFeedbackSound();
-      setTimeout(() => {
+      playFeedbackSound(() => {
         window.location.href = feedbackBtn.href;
-      }, 350);
+      });
     });
   }
+
+  // Stop any in-flight click sound before the page is hidden/cached, so
+  // the back/forward cache doesn't restore a mid-playback page and replay
+  // the clip with no user interaction.
+  window.addEventListener('pagehide', () => {
+    if (feedbackAudio) {
+      feedbackAudio.pause();
+      feedbackAudio.currentTime = 0;
+      feedbackAudio = null;
+    }
+  });
 
   const images = Array.from(document.querySelectorAll('.site-content img'));
   if (images.length === 0) return;
