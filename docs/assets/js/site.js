@@ -52,6 +52,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ── Feedback button: panel-LED flash → navigate to /feedback/ ──
+  // Same affordance as the header download button — the LED rect flashes
+  // Roland-red (.armed) for ~350 ms before following the link.
+  const feedbackBtn = document.querySelector('.feedback-btn');
+  if (feedbackBtn) {
+    feedbackBtn.addEventListener('click', (e) => {
+      if (feedbackBtn.classList.contains('armed')) return;   // already navigating
+      e.preventDefault();
+      feedbackBtn.classList.add('armed');
+      setTimeout(() => {
+        window.location.href = feedbackBtn.href;
+      }, 350);
+    });
+  }
+
   const images = Array.from(document.querySelectorAll('.site-content img'));
   if (images.length === 0) return;
 

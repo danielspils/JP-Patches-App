@@ -810,3 +810,108 @@ body {
     font-size: 11px;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   §6. Feedback — CTA button (landing page) + form page (/feedback/)
+   ──────────────────────────────────────────────────────────── */
+
+/* "Feedback Form" CTA on the landing page — JX-3P panel-button primitive
+   (design-system §3.1), the same cream-face + LED + caret + label unit as
+   the header download button. Adapted for the WHITE body: caret + label
+   are dark (the header's cream/white would vanish on white). JS arms the
+   LED to Roland-red on click before navigating (see site.js). */
+.site-content a.feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  margin: 0.4em 0;
+}
+.feedback-btn-face {
+  width: 44px;
+  height: 44px;
+  display: block;
+  flex-shrink: 0;
+}
+/* LED flashes Roland-red when site.js adds .armed to the parent <a>. */
+.feedback-btn-led { transition: fill 0.15s ease; }
+.feedback-btn.armed .feedback-btn-led { fill: var(--roland-red); }
+.feedback-btn-caret {
+  width: 11px;
+  height: 11px;
+  display: block;
+  flex-shrink: 0;
+}
+.feedback-btn-label {
+  color: var(--body-text);
+  font-family: var(--font-stack);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  margin-left: -5px;
+}
+.site-content a.feedback-btn:hover .feedback-btn-label { opacity: 0.75; }
+
+/* Form on /feedback/ — sits on the white body, so fields use the body
+   (dark-on-light) palette, not the dark-panel cream palette. */
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 520px;
+  margin: 28px 0 8px;
+}
+.feedback-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--body-text);
+  margin-top: 14px;
+}
+.feedback-hint {
+  font-weight: 400;
+  color: var(--body-text-mid);
+}
+.feedback-input {
+  font-family: var(--font-stack);
+  font-size: 15px;
+  color: var(--body-text);
+  background: #fff;
+  border: 1.5px solid var(--body-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.feedback-input:focus {
+  outline: none;
+  border-color: var(--roland-blue);
+}
+.feedback-textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+}
+/* Honeypot — off-screen, out of tab order. Bots fill it; humans can't. */
+.feedback-hp {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+}
+.feedback-submit {
+  align-self: flex-start;
+  margin-top: 20px;
+  padding: 13px 26px;
+  font-family: var(--font-stack);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--cream);
+  background: var(--roland-green);
+  border: none;
+  cursor: pointer;
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+}
+.feedback-submit:hover { background: var(--roland-green-hot); }
+.site-content a.feedback-back {
+  display: inline-block;
+  margin-top: 28px;
+}

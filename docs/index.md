@@ -46,6 +46,18 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 
 Friends have successfully loaded JP Patches, but none are synth people so they just say, "looks cool dude — congrats!" If you are a JX-3P enthusiast, I'd invite your feedback.
 
+<a href="/feedback/" class="feedback-btn" aria-label="Open the feedback form">
+  <svg class="feedback-btn-face" viewBox="0 0 58 58" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="1" y="1" width="56" height="56" fill="#cbc4b4" stroke="#555" stroke-width="1.5" rx="2"/>
+    <rect class="feedback-btn-led" x="18" y="1" width="22" height="15" fill="#333" rx="1"/>
+    <rect x="18" y="1" width="22" height="4" fill="#dbd4c4"/>
+  </svg>
+  <svg class="feedback-btn-caret" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <polygon points="11,1 11,13 1,7" fill="#5a5a5a"/>
+  </svg>
+  <span class="feedback-btn-label">Feedback Form</span>
+</a>
+
 I've been using JP Patches for the past few weeks. It works fantastic—but it's just me using it. I send C/D banks back-and-forth between my computer and JX. I send sequences. I edit sequences within the app, save 'em, and send back to my JX. I create custom names for my personal JX C/D banks. I turn knobs on the PG-200 onscreen because it's fun (it'll be more fun when MIDI is working). I went ahead and seeded JP Patches with my personal patches and a sequence I wrote so a new user of the software will see something upon initial download. In the future I envision JX users easily trading patch banks, sequences, and enjoying the JX-3P with the modern conveniences of software.
 
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-blue}
