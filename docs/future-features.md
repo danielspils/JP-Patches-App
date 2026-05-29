@@ -168,6 +168,33 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
 
 - **Per-patch event log (Patch history v2).** Today the Patch history modal shows two static lines: current slot + library, and a single origin line with the upload date. A richer version would carry a chronological event trail on each patch — created, library renamed, copied into another library, edited (with which params changed), renamed. Modal would render each event as one dated row, so the patch's full story is visible at a glance. Shape sketch: each slotMeta entry grows an `events: []` array; saves diff against prior state and append entries with `{ when, kind, detail }`. Edits log only at save time, not per knob twist, to keep the trail readable. Migration: existing patches start with one synthetic `Snapshot recorded …` entry using the current snapshot date — the real first-upload date is unrecoverable for libraries that predate the event log. Estimated 2–3 hours including diff logic, schema, migration, and modal redesign. Data cost is small (≈80 bytes per event; a heavy user with 10 libraries × 20 events per patch is still under 1 MB).
 
+## Community library
+
+Browsable / downloadable user-contributed patches and sequences. Multi-phase rollout — the site comes first, the in-app browser is the eventual payoff.
+
+- **Phase 1 — Website pages at jx-3p.com** (in progress, May 29, 2026). `/patches/` and `/sequences/` index pages built from Jekyll YAML data files (`docs/_data/patches.yml`, `_data/sequences.yml`) with `.json`-only payloads in `docs/library/patches/` and `docs/library/sequences/`. Expected volume: ~25 patch banks + ~100 sequences. Submissions via GitHub Issue templates, manually curated by Daniel.
+  - **Header nav tabs (Patches / Sequences) already shipped** to `docs/_layouts/default.html` + `docs/assets/css/style.css` (May 29) — `.cd-nav-tabs` block, right-anchored, same vertical band as the C/D swoops, square corners to read as tabs not parallelograms. Active-state CSS rule (`.cd-nav-tab.active`) defined but not wired yet — kicks in when the destination pages are built.
+  - **Tape-dump users have full access** even though payloads are `.json` only — `tapeLoad` IPC handler accepts both `.wav` and `.json`, and Send-to-JX-3P synthesizes the WAV on the fly from the JSON for cable transmission. Downloading a community `.json` and sending it to a real JX takes the same number of clicks as loading a local library entry. See the Q&A trail in the May 29 session for the full reasoning.
+  - **Next steps (still to build):** `docs/_data/` YAML schemas, `docs/library/` folders + seed JSON, `/patches/` and `/sequences/` Jekyll index templates, per-entry detail page template, GitHub Issue templates for submissions, mobile nav treatment (currently hidden under 540 px).
+
+- **Phase 2 — In-app community browser.** Add a "Community" sub-tab inside JP Patches that fetches the same manifest used to render the site, displays the available patches/sequences, and lets the user one-click download into their Library Tones or Library Sequences. Tape-dump users would then Send-to-JX-3P from the Library row as usual — no browser visit required.
+
+  **Why this matters:** the site path needs at least 3 user steps (visit jx-3p.com → download `.json` → drag into JP Patches), each with the risk that a non-technical user gives up. In-app browse-and-load is the Roland-grade UX: never leave the app. Probably doubles the practical adoption of the community library.
+
+  **Implementation sketch:**
+  - **Manifest endpoint**: `https://jx-3p.com/library/index.json` — single machine-readable file built from the same YAML data the site renders. Generated at Jekyll build time (a small Liquid template that emits JSON, or a `_plugins/library-manifest.rb` generator).
+  - **Manifest shape**: `{patches: [...], sequences: [...]}` where each entry carries `{id, name, author, description, addedAt, downloadUrl, sizeBytes, tags?, audioPreviewUrl?}`. `downloadUrl` is the absolute URL to the raw `.json` payload.
+  - **In-app fetch**: at app launch + on manual refresh; result cached in `library.json` under `community: {fetchedAt, patches: [...], sequences: [...]}` so the UI renders instantly on subsequent launches even when offline.
+  - **UI**: new "Community" sub-tab under Library (alongside Tones and Sequences). Browse list with name + author + description + download button. On click, fetch the JSON file, validate against the schema, drop into Library Tones or Library Sequences with a `community: {author, id, addedAt}` marker so the user can see it's a community-sourced entry.
+  - **Conflict handling**: if a user already has the same community entry, surface a "Re-download anyway?" prompt.
+  - **CSP**: needs `connect-src 'self' https://jx-3p.com` added to the meta tag in `renderer/index.html`.
+
+  **Why parked**: Phase 1 needs to ship and accumulate content before Phase 2 is worth building. Once there are 5–10 real entries, this becomes the clear next move.
+
+- **Phase 1 design decision that needs to happen NOW (May 29, 2026):** the manifest format must be machine-consumable from day one, not just rendered to HTML. Practically, this means the YAML data files need to carry every field the in-app browser will eventually need (`id`, `author`, `addedAt`, `description`, `tags`, `audioPreviewUrl`) — not just the fields the site happens to render. Free if we set it up now; expensive retrofit if Phase 1 ships with a schema designed only for HTML and Phase 2 has to backfill or restructure all the entries.
+
+- **Audio previews per sequence** (deferred, decide after first submissions land). 10-second MP3 captured by Daniel or contributors at submission time; rendered inline on the site (HTML `<audio>` tag) and surfaced via the manifest's `audioPreviewUrl` field for the in-app browser. ~50 KB per file; trivial storage; meaningful UX win since users can audition before downloading.
+
 ## Smaller polish
 
 - **App-level Undo/Redo.** The macOS Edit menu's Undo/Redo items are currently omitted because they would only undo text edits inside name fields — not the much more interesting "undo the last knob twist / patch load / custom-bank reorder". A real Undo/Redo would require an action-history stack: push an inverse operation each time the user does something with persistent effect (knob change, switch toggle, slot rename, patch load, custom-bank slot edit, package save/delete, sequence save/delete). Add the items back to the Edit menu and bind Cmd+Z / Cmd+Shift+Z. Estimate: small-to-medium — the history infrastructure is straightforward but the universe of "undoable actions" is wide (~15 entry points) and each one needs an inverse defined and tested. Worth doing once the v1 surface stops changing weekly.

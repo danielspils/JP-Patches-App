@@ -180,6 +180,48 @@ body {
   z-index: 1;
 }
 
+/* Patches / Sequences community-library nav tabs — sit in the same
+   bleed zone as the C/D swoops (top: 145, height: 50) but right-
+   anchored. Square corners on purpose (rectangles, not parallelograms)
+   so they read as "tabs" rather than as a continuation of the swoop
+   motif. z-index: 2 keeps them visually on top of stripe-cd so the
+   stripe terminates cleanly into the tab edges. */
+.cd-nav-tabs {
+  position: absolute;
+  top: 145px;
+  right: 0;
+  height: 50px;
+  display: flex;
+  gap: 2px;
+  z-index: 2;
+}
+.cd-nav-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50px;
+  min-width: 130px;
+  padding: 0 26px;
+  background: var(--roland-red);
+  color: var(--cream);
+  font-family: var(--font-stack);
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.cd-nav-tab:hover {
+  background: #cf5a3e;  /* +12% lightness on Roland red for hover */
+}
+/* Active state for when the visitor is currently viewing /patches/ or
+   /sequences/. Wire up later via Jekyll page.url comparison; the rule
+   is here so it's ready when the index pages get built. */
+.cd-nav-tab.active {
+  background: #8e3a25;  /* −22% lightness on Roland red — "pressed in" */
+  color: #ffffff;
+}
+
 .site-brand {
   display: flex;
   align-items: center;
@@ -697,12 +739,16 @@ body {
     padding: 0 16px;
     height: 110px;
   }
-  /* Hide the desktop motif elements + the panel-button CTA */
+  /* Hide the desktop motif elements + the panel-button CTA + the
+     Patches/Sequences nav tabs. Mobile nav will be its own treatment
+     (hamburger or stacked links below the logo) — wire up when the
+     /patches and /sequences pages exist. */
   .ab-swoops,
   .stripe-a,
   .stripe-b,
   .cd-swoops,
   .stripe-cd,
+  .cd-nav-tabs,
   .site-download {
     display: none;
   }
