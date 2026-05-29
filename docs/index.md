@@ -21,7 +21,7 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * custom names for patches (e.g. C1 as "Warm Pad")
 * save sequences from JX to JP
 * send sequences from JP to JX
-* edit/save and audio playback of sequences
+* edit, save and audio playback of sequences
 * library for saving & naming C/D banks & sequences
 * fully functional PG-200 software panel
 * other features I'm forgetting ...
