@@ -197,6 +197,11 @@ body {
   display: none;
   gap: 2px;
   z-index: 2;
+  /* Body bg fills behind the 2px flex gap so the divider reads the
+     same color top-to-bottom. Without this, the red stripe-cd (at
+     z-index 1) shows through the gap's top 4px, breaking the divider
+     line at the tab tops. */
+  background: var(--body-bg);
 }
 /* Tab sizing matched to the body "JP Patches for macOS" download button
    primitive (see "Download type links" section below) — same padding
