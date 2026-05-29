@@ -55,3 +55,12 @@ I've been using JP Patches for the past few weeks. It works fantastic—but it's
 You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!).
 
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-blue}
+
+<div class="video-embed">
+  <iframe src="https://www.youtube-nocookie.com/embed/ztEHTNLF7LQ"
+          title="JP Patches — demo"
+          frameborder="0"
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
+</div>
