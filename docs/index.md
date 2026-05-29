@@ -40,9 +40,6 @@ Fast forward a month and I have a beta version of JP Patches, my JX-3P companion
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
 
-## DO YOU OWN A JX-3P AND A MAC?
-What I need now are Mac users to download JP Patches from GitHub for testing. Installing is easy: download the `.dmg`, drag JP Patches to your Applications folder, and open it. The app is signed and notarized by Apple, so it opens normally — no security warnings, no workarounds.
-
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-green}
 
 
