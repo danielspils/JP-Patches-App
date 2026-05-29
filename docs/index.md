@@ -61,4 +61,4 @@ I've been using JP Patches for the past few weeks. It works fantastic—but it's
           allowfullscreen></iframe>
 </div>
 
-You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!).
+You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!). *— Daniel Spils*
