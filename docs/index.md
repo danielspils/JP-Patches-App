@@ -52,8 +52,6 @@ Friends have successfully loaded JP Patches, but none are synth people so they j
 
 I've been using JP Patches for the past few weeks. It works fantastic—but it's just me using it. I send C/D banks back-and-forth between my computer and JX. I send sequences. I edit sequences within the app, save 'em, and send back to my JX. I create custom names for my personal JX C/D banks. I turn knobs on the PG-200 onscreen because it's fun (it'll be more fun when MIDI is working). I went ahead and seeded JP Patches with my personal patches and a sequence I wrote so a new user of the software will see something upon initial download. In the future I envision JX users easily trading patch banks, sequences, and enjoying the JX-3P with the modern conveniences of software.
 
-You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!).
-
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest){:.btn-blue}
 
 <div class="video-embed">
@@ -64,3 +62,5 @@ You’re either a JX-3P owner or terribly bored if you’ve read this far. I’v
           referrerpolicy="strict-origin-when-cross-origin"
           allowfullscreen></iframe>
 </div>
+
+You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!).
