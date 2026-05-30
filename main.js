@@ -16,7 +16,6 @@ const execAsync = promisify(exec);
 // app.getPath('userData') lookup.
 app.setName('jp-patches');
 
-const RELEASES_URL = 'https://github.com/danielspils/JP-Patches-App/releases';
 const REPO_URL     = 'https://github.com/danielspils/JP-Patches-App';
 
 // When the app is packaged into a .dmg, vendor/jx3p and vendor/uv/uv are
@@ -136,7 +135,7 @@ function buildAppMenu() {
         { role: 'about' },
         {
           label: 'Check for Updates…',
-          click: () => shell.openExternal(RELEASES_URL),
+          click: () => checkForUpdates({ manual: true }),
         },
         { type: 'separator' },
         { role: 'hide' },
@@ -203,7 +202,7 @@ function buildAppMenu() {
         },
         {
           label: 'Check for Updates…',
-          click: () => shell.openExternal(RELEASES_URL),
+          click: () => checkForUpdates({ manual: true }),
         },
       ],
     },
@@ -246,9 +245,80 @@ function createWindow() {
   win.loadFile('renderer/index.html');
 }
 
+// ── Auto-update (electron-updater + GitHub Releases) ─────────────
+// Industry-standard macOS flow: on launch, silently check GitHub for a
+// newer release and download it in the background; when the download is
+// ready, prompt the user to restart now or later. The "Check for
+// Updates…" menu items run the same check but with visible feedback
+// (up-to-date / error). Updates only work in the packaged, signed app;
+// in dev (npm start) the calls no-op (or explain, for a manual check).
+let manualUpdateCheck = false;
+
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-not-available', () => {
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'You’re up to date',
+      detail: `JP Patches ${app.getVersion()} is the latest version.`,
+      buttons: ['OK'],
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Update ready to install',
+      detail: `JP Patches ${info && info.version ? info.version : ''} has been `
+        + 'downloaded. Restart now to finish updating?',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall();
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    // Background errors (offline, rate-limited, etc.) stay silent so we
+    // never nag. Surface only when the user explicitly asked.
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: 'error',
+      message: 'Update check failed',
+      detail: String((err && err.message) || err),
+      buttons: ['OK'],
+    });
+  });
+}
+
+function checkForUpdates({ manual = false } = {}) {
+  if (!app.isPackaged) {
+    if (manual) {
+      dialog.showMessageBox({
+        type: 'info',
+        message: 'Updates unavailable in development',
+        detail: 'Auto-update only works in the installed (packaged) app.',
+        buttons: ['OK'],
+      });
+    }
+    return;
+  }
+  manualUpdateCheck = manual;
+  autoUpdater.checkForUpdates().catch(() => { /* surfaced via the error handler */ });
+}
+
 app.whenReady().then(() => {
   buildAppMenu();
   createWindow();
+  setupAutoUpdater();
+  checkForUpdates();   // silent background check on launch
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
