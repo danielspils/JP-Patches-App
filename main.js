@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

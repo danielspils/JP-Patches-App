@@ -244,7 +244,22 @@ echo "✓ release created"
 
 echo "── Uploading DMG + blockmap ──"
 gh release upload "v$VERSION" "$DMG_FILE" "$BLOCKMAP_FILE"
-echo "✓ assets uploaded"
+echo "✓ DMG uploaded"
+
+# Auto-update feed (electron-updater): the installed app polls
+# latest-mac.yml on GitHub and downloads the mac .zip to self-update.
+# These MUST be attached or auto-update silently finds nothing. Glob
+# the zip because electron-builder's zip artifact name carries the arch.
+echo "── Uploading auto-update feed (zip + latest-mac.yml) ──"
+shopt -s nullglob
+UPDATE_ASSETS=(dist/*-mac.zip dist/*-mac.zip.blockmap dist/latest-mac.yml)
+shopt -u nullglob
+if [ ${#UPDATE_ASSETS[@]} -gt 0 ]; then
+  gh release upload "v$VERSION" "${UPDATE_ASSETS[@]}"
+  echo "✓ auto-update feed uploaded (${#UPDATE_ASSETS[@]} files)"
+else
+  echo "⚠ no auto-update feed in dist/ (zip/yml) — auto-update will NOT work for this release"
+fi
 
 # ─── Done ─────────────────────────────────────────────────────────
 
