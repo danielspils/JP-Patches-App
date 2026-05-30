@@ -46,8 +46,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 NOTES_FILE="docs/release-notes-$VERSION.md"
-DMG_FILE="dist/JP Patches-$VERSION.dmg"
-BLOCKMAP_FILE="dist/JP Patches-$VERSION.dmg.blockmap"
+# DMG is versionless (JP-Patches.dmg) so jx-3p.com can link to a stable
+# /releases/latest/download/JP-Patches.dmg URL with no per-release edits.
+DMG_FILE="dist/JP-Patches.dmg"
+BLOCKMAP_FILE="dist/JP-Patches.dmg.blockmap"
 
 echo "═══ JP Patches release: v$VERSION ═══"
 echo "Repo:        $REPO_ROOT"
@@ -251,8 +253,10 @@ echo "✓ DMG uploaded"
 # These MUST be attached or auto-update silently finds nothing. Glob
 # the zip because electron-builder's zip artifact name carries the arch.
 echo "── Uploading auto-update feed (zip + latest-mac.yml) ──"
+# Scope the glob to THIS version so a stale zip from an earlier build in
+# dist/ never gets swept onto the release.
 shopt -s nullglob
-UPDATE_ASSETS=(dist/*-mac.zip dist/*-mac.zip.blockmap dist/latest-mac.yml)
+UPDATE_ASSETS=(dist/JP-Patches-"$VERSION"-*-mac.zip dist/JP-Patches-"$VERSION"-*-mac.zip.blockmap dist/latest-mac.yml)
 shopt -u nullglob
 if [ ${#UPDATE_ASSETS[@]} -gt 0 ]; then
   gh release upload "v$VERSION" "${UPDATE_ASSETS[@]}"

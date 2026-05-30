@@ -66,6 +66,7 @@
       "hardenedRuntime": true,
       "notarize": true,
       "gatekeeperAssess": false,
+      "artifactName": "JP-Patches-${version}-${arch}-mac.${ext}",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
@@ -74,7 +75,7 @@
     },
     "dmg": {
       "title": "JP Patches ${version}",
-      "artifactName": "${productName}-${version}.${ext}"
+      "artifactName": "JP-Patches.${ext}"
     }
   },
   "dependencies": {
