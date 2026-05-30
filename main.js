@@ -108,6 +108,19 @@ function focusedWebContentsAction(method) {
   }
 }
 
+// Button-sound preference mirrored into the View menu checkbox. The
+// authoritative value lives in the renderer's library.json; on launch the
+// renderer pushes the saved value via `button-sounds-initial` and we sync
+// the checkbox. Toggling the menu sends `button-sounds-changed` back so the
+// renderer can apply + persist it.
+let buttonSoundsChecked = true;
+
+function setButtonSoundsFromMenu(enabled) {
+  buttonSoundsChecked = enabled;
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (win && win.webContents) win.webContents.send('button-sounds-changed', enabled);
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   // Explicit submenus for Edit and View — using `role: 'editMenu'` or
@@ -168,6 +181,14 @@ function buildAppMenu() {
         { type: 'separator' },
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomFromMenu(1.0)  },
         { label: '75%',         accelerator: 'CmdOrCtrl+-', click: () => setZoomFromMenu(0.75) },
+        { type: 'separator' },
+        {
+          id: 'button-sounds',
+          label: 'Button && switch sounds',
+          type: 'checkbox',
+          checked: buttonSoundsChecked,
+          click: (item) => setButtonSoundsFromMenu(item.checked),
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
@@ -231,6 +252,16 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// Renderer reports its saved button-sound preference on launch so the View
+// menu checkbox matches library.json (the menu is built before the renderer
+// has loaded the library).
+ipcMain.on('button-sounds-initial', (_e, enabled) => {
+  buttonSoundsChecked = !!enabled;
+  const menu = Menu.getApplicationMenu();
+  const item = menu && menu.getMenuItemById('button-sounds');
+  if (item) item.checked = buttonSoundsChecked;
+});
 
 ipcMain.handle('load-patches', () => {
   return readJsonOrNull(PATCHES_PATH) || readJsonOrNull(SEED_PATCHES_PATH);

@@ -175,6 +175,35 @@ const BUTTON_REGISTRY = [
 
 const LED_OFF = '#333';
 
+// ── Panel interaction sounds ────────────────────────────────────
+// Recorded JX sounds played on panel interaction: a button click for the
+// 6 panel buttons (Tone Save/Load, Sequencer Save/Load, Manual, Write) and
+// a distinct switch click for the 8 toggle switches. Both share the same
+// on/off state — toggled via View > Button Sounds, persisted to
+// library.json (`buttonSounds`) and pushed from main on change.
+let buttonSoundsEnabled = true;
+
+// Cache one Audio element per sound (created lazily). Resetting currentTime
+// before each play lets rapid presses retrigger the sound.
+function makeSoundPlayer(src, volume) {
+  let audio = null;
+  return () => {
+    if (!buttonSoundsEnabled) return;
+    try {
+      if (!audio) {
+        audio = new Audio(src);
+        audio.volume = volume;
+      }
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) { /* audio unavailable — silent no-op */ }
+  };
+}
+
+const playButtonClick = makeSoundPlayer('assets/button-click.mp3', 0.6);
+const playSwitchClick = makeSoundPlayer('assets/switch-click.mp3', 0.48);
+
 // ═══════════════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════════════
@@ -2918,10 +2947,12 @@ function setupInteraction(svg) {
       e.preventDefault();
     } else if (type === 'switch') {
       handleSwitchClick(ctrl);
+      playSwitchClick();
       e.preventDefault();
     } else if (type === 'button') {
       downBtnId = ctrl.dataset.buttonId;
       lightButton(downBtnId, true);
+      playButtonClick();
       e.preventDefault();
     }
   });
@@ -2955,9 +2986,14 @@ function setupInteraction(svg) {
       if (onSame && downBtnId === 'write') {
         enterWriteMode();
       } else {
-        lightButton(downBtnId, false);
+        // Briefly keep the LED lit so the press registers visually (the
+        // mousedown→mouseup window is too quick to notice otherwise), then
+        // turn it off. Write is the exception above — its LED stays lit
+        // while it awaits a destination slot. Manual remains otherwise
+        // visual-only (real behavior lands with Phase 3 / MIDI).
+        const releasedId = downBtnId;
+        setTimeout(() => lightButton(releasedId, false), 150);
       }
-      // Manual stays visual-only (Phase 3 / MIDI work).
       downBtnId = null;
     }
   });
@@ -9279,6 +9315,19 @@ async function init() {
       saveLibraryDebounced();
     });
   }
+  // Button-sound toggle (View > Button Sounds). Restore the saved state,
+  // tell main its initial checkbox value, then react to future toggles.
+  buttonSoundsEnabled = library.buttonSounds !== false;   // default on
+  if (typeof window.api.setButtonSoundsInitial === 'function') {
+    window.api.setButtonSoundsInitial(buttonSoundsEnabled);
+  }
+  if (typeof window.api.onButtonSoundsChanged === 'function') {
+    window.api.onButtonSoundsChanged((enabled) => {
+      buttonSoundsEnabled = !!enabled;
+      library.buttonSounds = buttonSoundsEnabled;
+      saveLibraryDebounced();
+    });
+  }
   // No source label at boot — active C/D banks are unnamed until the user
   // explicitly loads a library package (which sets activeBanksSourceLabel
   // to that package's name). The send-to-JX modal falls back to the
@@ -9357,7 +9406,10 @@ function setupHwButtons() {
   const wire = (id, handler) => {
     const btn = document.getElementById(`hw-${id}`);
     if (!btn) return;
-    btn.addEventListener('mousedown', () => btn.classList.add('pressed'));
+    btn.addEventListener('mousedown', () => {
+      btn.classList.add('pressed');
+      if (!btn.disabled) playButtonClick();
+    });
     btn.addEventListener('mouseup',   () => btn.classList.remove('pressed'));
     btn.addEventListener('mouseleave', () => btn.classList.remove('pressed'));
     btn.addEventListener('click', handler);

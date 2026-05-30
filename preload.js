@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld('api', {
   // callback lets the renderer persist the new value into library.json
   // so the next launch opens at the same size.
   onZoomChanged: (cb) => ipcRenderer.on('zoom-changed', (_, factor) => cb(factor)),
+  // View > Button Sounds. Renderer reports its saved preference on launch
+  // (so the menu checkbox matches), and listens for menu toggles to apply
+  // + persist the new value into library.json.
+  setButtonSoundsInitial: (enabled) => ipcRenderer.send('button-sounds-initial', enabled),
+  onButtonSoundsChanged: (cb) => ipcRenderer.on('button-sounds-changed', (_, enabled) => cb(enabled)),
 });
