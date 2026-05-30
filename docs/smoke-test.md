@@ -26,6 +26,10 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Drag a smooth knob vertically | tooltip updates live; patch value changes | |
 | Double-click a smooth knob, type `50`, Enter | knob snaps to 50%; tooltip dismisses | |
 | Click a snap knob (e.g. DCO-1 Range) | cycles to next enum value | |
+| Click any of the 8 toggle switches | cycles position **and plays the switch-click sound** | |
+| Press Manual / Write panel buttons | LED lights on press **and plays the button-click sound** | |
+| Press Tape Memory Save / Load buttons (when enabled) | red/green glow lights on click, just before the dialog opens, with the button-click sound | |
+| Rapid repeated presses on any panel button | sound retriggers cleanly each press (no cutoff/overlap glitch) | |
 | After editing a patch, a small dot appears next to its row | modified indicator | |
 | Hover the dot | tooltip says "Revert" (or similar) | |
 | Click the dot | patch reverts to clean state, dot disappears | |
@@ -153,7 +157,10 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | View → 75% | window + renderer scale to 75% | |
 | View → 100% | back to 100% | |
 | View → Toggle DevTools | DevTools opens / closes | |
+| View → Button & switch sounds (uncheck) | buttons + switches go silent | |
+| View → Button & switch sounds (re-check) | sounds return | |
 | Help → GitHub link | browser opens repo | |
+| JP Patches → Check for Updates… (dev / `npm start`) | "Updates unavailable in development" dialog — no crash | |
 | Cmd+W | window closes (app stays in dock) | |
 
 ## 11. Persistence check
@@ -162,6 +169,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 |---|---|---|
 | Edit a patch, reload renderer (Cmd+R) | dot persists; revert still works | |
 | Quit + relaunch app | active C/D persists; modified dots persist | |
+| Toggle Button & switch sounds off, quit + relaunch | menu checkbox stays unchecked; buttons/switches stay silent | |
 | `library.json` is well-formed JSON | `python3 -c "import json;json.load(open(PATH))"` | |
 | `library.json` has a `captureLog` field after a capture | telemetry working | |
 
@@ -172,7 +180,21 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | `npm run setup-vendor` succeeds | populates `vendor/uv/` and `vendor/jx3p/` | |
 | `npm run dist:unsigned` produces a DMG in `dist/` | no errors | |
 | Open the DMG, drag JP Patches to Applications | install completes | |
-| Right-click app → Open (Gatekeeper bypass) | app launches with the same first-run behavior | |
+| Double-click the installed app | launches cleanly — no Gatekeeper "damaged"/unidentified warning (signed + notarized) | |
+| `xcrun stapler validate "dist/JP Patches-<ver>.dmg"` | "The validate action worked!" | |
+
+## 13. Auto-update (release-prep — requires two published builds)
+
+Auto-update only activates in the installed (packaged) app, and only proves out across two real releases. Run this when verifying a release that the previous one should update *to*.
+
+| Check | Expected | Result |
+|---|---|---|
+| Build emits the update feed | `dist/` contains `*-mac.zip` and `latest-mac.yml` after `npm run dist` | |
+| Release published with feed attached | GitHub release has the `.dmg`, the `-mac.zip`, and `latest-mac.yml` assets | |
+| Launch the OLDER installed build with a newer release live | update downloads silently in the background (no prompt yet) | |
+| When the download finishes | "Update ready to install — Restart Now / Later" dialog appears | |
+| Click Restart Now | app relaunches; JP Patches → About shows the new version | |
+| Check for Updates… when already on latest | "You're up to date" dialog | |
 
 ---
 
