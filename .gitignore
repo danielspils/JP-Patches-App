@@ -5,3 +5,6 @@ vendor/
 
 # Signing/notarization credentials — never commit
 .env
+
+# Unused stray asset (kept on disk, not tracked)
+docs/assets/img/jp-patches-logo.svg

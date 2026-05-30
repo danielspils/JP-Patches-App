@@ -9412,7 +9412,18 @@ function setupHwButtons() {
     });
     btn.addEventListener('mouseup',   () => btn.classList.remove('pressed'));
     btn.addEventListener('mouseleave', () => btn.classList.remove('pressed'));
-    btn.addEventListener('click', handler);
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      // Re-light the button and let the glow paint before running the
+      // handler — most handlers open a modal synchronously, which would
+      // otherwise block the render so the press visual never appears.
+      btn.classList.add('pressed');
+      setTimeout(() => {
+        handler();
+        // Clear the glow shortly after the handler fires (modal is now up).
+        setTimeout(() => btn.classList.remove('pressed'), 180);
+      }, 130);
+    });
   };
   wire('tone-save', handleTapeToneSave);
   wire('tone-load', handleTapeToneLoad);
