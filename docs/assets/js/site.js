@@ -34,39 +34,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   } catch (_) { /* old browser without URL constructor — no-op */ }
 
-  // ── Header download button: panel-LED flash → navigate ─────────
-  // Intercepts the click on the panel-style download button so the
-  // LED rect can flash Roland-red (via the .armed class) before the
-  // browser follows the link. ~350 ms gives users time to register
-  // the visual confirmation without feeling laggy.
-  const downloadBtn = document.querySelector('.site-download');
-  if (downloadBtn) {
-    downloadBtn.addEventListener('click', (e) => {
-      if (downloadBtn.classList.contains('armed')) return;   // already navigating
-      e.preventDefault();
-      downloadBtn.classList.add('armed');
-      setTimeout(() => {
-        // Open in same tab; matches the link's default behavior.
-        window.location.href = downloadBtn.href;
-      }, 350);
-    });
-  }
-
-  // ── Feedback button: blip + panel-LED flash → navigate ─────────
-  // Same affordance as the header download button — on click the LED rect
-  // flashes Roland-red (.armed) and a short blip plays, then the browser
-  // follows the link after ~350 ms (enough for both to register).
+  // ── JX panel-button click sound ────────────────────────────────
+  // Shared by the header download button and the feedback button: on
+  // click the LED rect flashes Roland-red (.armed) and the recorded JX
+  // button click plays, then the browser follows the link once the sound
+  // finishes (so the full clip is heard, not cut off by a fixed timeout).
   //
-  // Sound: if a file exists at assets/audio/feedback-click.{mp3,wav} it's
-  // used; otherwise a JX-style blip is synthesized via the Web Audio API
-  // (no asset, no download weight). Drop a real file at that path to swap
-  // it in — no code change needed.
-  const FEEDBACK_SOUND_SRC = '/assets/audio/feedback-click.mp3';
+  // Sound: the recorded click at assets/audio/feedback-click.mp3; if it
+  // can't play, a JX-style blip is synthesized via the Web Audio API as a
+  // fallback. Swap the file at that path to change it — no code change.
+  const CLICK_SOUND_SRC = '/assets/audio/feedback-click.mp3';
 
-  function synthFeedbackBlip() {
+  function synthClickBlip() {
     // Short two-tone square-wave chirp with a fast exponential decay —
-    // reads as a vintage-synth UI click. ~180 ms, comfortably inside the
-    // 350 ms navigation delay.
+    // reads as a vintage-synth UI click. ~180 ms.
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -89,51 +70,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Track the active click sound so we can stop it if the page is restored
   // from the back/forward cache (otherwise bfcache resumes it on Back).
-  let feedbackAudio = null;
+  let clickAudio = null;
 
-  // Returns a promise-ish "done" callback fired when the sound finishes
-  // (or immediately if it can't play), so navigation waits for the full
-  // clip rather than a fixed timeout that could cut the 2nd click off.
-  function playFeedbackSound(onDone) {
+  // Plays the click sound and calls onDone when it finishes (or right away
+  // if it can't play), so navigation waits for the full clip.
+  function playClickSound(onDone) {
     let finished = false;
     const done = () => { if (!finished) { finished = true; onDone(); } };
     try {
-      const audio = new Audio(FEEDBACK_SOUND_SRC);
-      feedbackAudio = audio;
+      const audio = new Audio(CLICK_SOUND_SRC);
+      clickAudio = audio;
       audio.volume = 0.6;
       audio.addEventListener('ended', done);
       const p = audio.play();
       if (p && typeof p.catch === 'function') {
-        p.catch(() => { synthFeedbackBlip(); setTimeout(done, 200); });
+        p.catch(() => { synthClickBlip(); setTimeout(done, 200); });
       }
       // Safety net: if 'ended' never fires (decode hiccup), don't hang.
       setTimeout(done, 800);
     } catch (_) {
-      synthFeedbackBlip();
+      synthClickBlip();
       setTimeout(done, 200);
     }
   }
 
-  const feedbackBtn = document.querySelector('.feedback-btn');
-  if (feedbackBtn) {
-    feedbackBtn.addEventListener('click', (e) => {
-      if (feedbackBtn.classList.contains('armed')) return;   // already navigating
+  // Wire a panel-style <a> button to: flash its LED (.armed) + play the
+  // click sound, then navigate once the sound ends.
+  function wirePanelButton(el) {
+    if (!el) return;
+    el.addEventListener('click', (e) => {
+      if (el.classList.contains('armed')) return;   // already navigating
       e.preventDefault();
-      feedbackBtn.classList.add('armed');
-      playFeedbackSound(() => {
-        window.location.href = feedbackBtn.href;
-      });
+      el.classList.add('armed');
+      playClickSound(() => { window.location.href = el.href; });
     });
   }
+
+  wirePanelButton(document.querySelector('.site-download'));  // header
+  wirePanelButton(document.querySelector('.feedback-btn'));   // landing page
 
   // Stop any in-flight click sound before the page is hidden/cached, so
   // the back/forward cache doesn't restore a mid-playback page and replay
   // the clip with no user interaction.
   window.addEventListener('pagehide', () => {
-    if (feedbackAudio) {
-      feedbackAudio.pause();
-      feedbackAudio.currentTime = 0;
-      feedbackAudio = null;
+    if (clickAudio) {
+      clickAudio.pause();
+      clickAudio.currentTime = 0;
+      clickAudio = null;
     }
   });
 
