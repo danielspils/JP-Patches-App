@@ -9,7 +9,7 @@
 # so Google shows the terms JX-3P owners actually search (patch editor,
 # librarian, Mac) — see _layouts/default.html <title>.
 title: JP Patches
-tagline: Roland JX-3P Patch Editor & Librarian for Mac
+tagline: Roland JX-3P Librarian, Sequencer, and Editor for Mac
 description: Free Mac app for the Roland JX-3P synthesizer — save, edit, organize, and share JX-3P patches and sequences. A modern patch editor and librarian that talks to the JX-3P over tape dump.
 url: "https://jx-3p.com"
 
