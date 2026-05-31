@@ -5164,6 +5164,29 @@ function showSendToJxFlow(opts) {
   const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram: _jxKeyDiagram } = buildSendRow(kind, sourceLabel);
   modal.appendChild(sendRow);
 
+  // Play CTA — the focal trigger in step 2. The standard Roland-green
+  // confirm button (reused, not a bespoke style) sits in the cause→effect
+  // row's right slot (where the JX-3P logo fades in once transmission
+  // starts), with a caption beneath it, so the eye travels diagram → arrow
+  // → Play. The bottom action row drops to Cancel-only in step 2 (see
+  // enterPlayState); this button replaces the old bottom-row "▶ Play". On
+  // click it's swapped out for the JX-3P logo and the transfer begins.
+  // Visibility is state-driven via the .play-ready / .playing classes.
+  const playCtaWrap = document.createElement('div');
+  playCtaWrap.className = 'send-jx-play-cta';
+  const playBtn = document.createElement('button');
+  playBtn.type = 'button';
+  playBtn.className = 'modal-btn modal-btn-confirm send-jx-play-btn';
+  playBtn.textContent = '▶ Play';
+  const playCaption = document.createElement('div');
+  playCaption.className = 'send-jx-play-caption';
+  // Two lines: "Press 'Play' to" / "begin data dump" — fixed copy, no user
+  // input, so static innerHTML with the <br> is safe here.
+  playCaption.innerHTML = "Press 'Play' to<br>begin data dump";
+  playCtaWrap.appendChild(playBtn);
+  playCtaWrap.appendChild(playCaption);
+  sendRow.insertBefore(playCtaWrap, sendJxLogo);
+
   // Per-segment timeline + indicator + status text. Construction in
   // buildSendStatusSection above. Hidden until enterPlayState (step 2).
   const { status, timeline, segs, indicator, statusText } = buildSendStatusSection(segments);
@@ -5259,8 +5282,10 @@ function showSendToJxFlow(opts) {
 
   // Step 2: arm the JX, then click Play to send the audio.
   const enterPlayState = (durationSec) => {
-    primaryBtn.disabled = false;
-    primaryBtn.textContent = '▶ Play';
+    // Step 2's bottom action row is Cancel-only — the big PLAY CTA in the
+    // cause→effect row (added above) is the transfer trigger now, replacing
+    // the old small "▶ Play" button.
+    primaryBtn.style.display = 'none';
     saveBtn.style.display = 'none';
     // Widen the modal for step 2 (timeline + sendRow need the room). Step 1
     // is a tighter shell — header + 3 buttons. See .send-jx-modal CSS.
@@ -5287,6 +5312,10 @@ function showSendToJxFlow(opts) {
     // is when the user actually needs to know which key to press and watch
     // the output level during playback.
     sendRow.style.display = '';
+    // Arm the row: reveals the big PLAY CTA + the (static) arrow pointing at
+    // it, and hides the JX-3P logo until PLAY is pressed (startPlayback swaps
+    // .play-ready → .playing).
+    sendRow.classList.add('play-ready');
     // Query the OS for the current default audio output and surface its
     // label. enumerateDevices requires a prior getUserMedia grant in some
     // browsers; falls back to a generic label if blocked.
@@ -5305,14 +5334,21 @@ function showSendToJxFlow(opts) {
   };
 
   const startPlayback = async () => {
-    primaryBtn.disabled = true;
+    playBtn.disabled = true;
     cancelBtn.textContent = 'Cancel';
     statusText.textContent = 'Playing…';
+    // Swap PLAY out for the JX-3P logo: drop .play-ready (hides the CTA,
+    // restores the logo slot) and add .playing (fades the logo in, starts
+    // the arrow march). Done before play() so the visual flips immediately
+    // on click even if play() takes a beat to resolve.
+    sendRow.classList.remove('play-ready');
     try {
       await audioEl.play();
     } catch (err) {
+      // Re-arm the CTA so the user can retry.
+      sendRow.classList.add('play-ready');
+      playBtn.disabled = false;
       statusText.textContent = `Playback blocked: ${err.message}`;
-      primaryBtn.disabled = false;
       return;
     }
     // Arrow pulse driven by playback state — not audio analysis. As long
@@ -5333,16 +5369,16 @@ function showSendToJxFlow(opts) {
     }, 100);
   };
 
-  // Step 1 → 2: encode the WAV, then hand off to enterPlayState. The primary
-  // button is then re-armed as a Play button, and finally as a Done button
-  // that closes the modal after the transfer completes.
+  // The Play CTA is the step-2 transfer trigger (the bottom row is
+  // Cancel-only there). It's display:none until enterPlayState arms the row.
+  playBtn.addEventListener('click', () => { startPlayback(); });
+
+  // Step 1 → 2: encode the WAV, then hand off to enterPlayState. After the
+  // transfer completes the primary button reappears as a Done button that
+  // closes the modal (the Play step now lives in the big CTA above).
   primaryBtn.addEventListener('click', async () => {
     if (primaryBtn.dataset.state === 'done') {
       await close();
-      return;
-    }
-    if (primaryBtn.dataset.state === 'play') {
-      startPlayback();
       return;
     }
 
@@ -5371,7 +5407,6 @@ function showSendToJxFlow(opts) {
 
     audioEl.addEventListener('loadedmetadata', () => {
       enterPlayState(audioEl.duration);
-      primaryBtn.dataset.state = 'play';
     });
 
     audioEl.addEventListener('ended', () => {
@@ -5393,7 +5428,10 @@ function showSendToJxFlow(opts) {
       const sendLabelEl = sendJxLogo.querySelector('.record-jx-package-label');
       if (sendLabelEl) sendLabelEl.classList.add('complete');
       statusText.textContent = '✓ Complete. Check your JX for confirmation.';
-      // Done is now the only action — it closes the modal.
+      // Done is now the only action — it closes the modal. The bottom button
+      // was hidden in enterPlayState (Cancel-only step 2); bring it back as
+      // Done now that the transfer is finished.
+      primaryBtn.style.display = '';
       primaryBtn.textContent = 'Done';
       primaryBtn.disabled = false;
       primaryBtn.dataset.state = 'done';

@@ -2071,6 +2071,38 @@ body.seq-dragging-pitch * {
   -webkit-user-drag: none;
 }
 
+/* Play CTA — Send-to-JX modal step 2 (pre-playback). The standard Roland-
+   green confirm button (reused via .modal-btn-confirm, not a bespoke style)
+   sits in the JX-3P logo's slot in the cause→effect row so the layout reads
+   diagram → arrow → Play, with a caption beneath it. On click it's swapped
+   for the logo and the transfer begins (see showSendToJxFlow /
+   startPlayback). In this state the bottom action row is Cancel-only — this
+   is the sole transfer trigger. Visibility is state-driven: hidden by
+   default, shown when sendRow has .play-ready, hidden again once .playing
+   replaces it. */
+.send-jx-play-cta {
+  display: none;                 /* shown only via .play-ready below */
+  flex: 0 0 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.record-jx-cal-row.play-ready .send-jx-play-cta { display: flex; }
+.send-jx-play-caption {
+  font-size: 12px;
+  color: #cfc8b8;                /* cream secondary */
+  text-align: center;
+  line-height: 1.35;
+}
+/* Pre-playback: Play takes the logo's slot, so hide the logo until Play.
+   The arrow stays hidden too — it signals live Mac→JX transmission, so it
+   must not appear until the user has armed the JX and clicked Play. It keeps
+   the capture-mode default (opacity:0) and is revealed only by .playing
+   (added in startPlayback), at which point the logo returns + fades in and
+   the arrow starts its march. */
+.record-jx-cal-row.play-ready .record-jx-jx3p-logo { display: none; }
+
 /* "saving: {package}" / "loading: {package}" label that sits below the
    JP logo (Record-from-JX capture) or the JX-3P logo (Send-to-JX). Tells
    the user at a glance which package is being read/written. Typography
