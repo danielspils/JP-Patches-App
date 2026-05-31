@@ -5,9 +5,18 @@
 # visual control via assets/css/style.css, brand-aligned with the JP
 # Patches app design system (see docs/design-system.md).
 
+# `title` is the brand; `tagline` is appended for the search-result <title>
+# so Google shows the terms JX-3P owners actually search (patch editor,
+# librarian, Mac) — see _layouts/default.html <title>.
 title: JP Patches
-description: Free macOS companion app for the Roland JX-3P synthesizer — save, edit, and trade patches and sequences via tape dump.
+tagline: Roland JX-3P Patch Editor & Librarian for Mac
+description: Free Mac app for the Roland JX-3P synthesizer — save, edit, organize, and share JX-3P patches and sequences. A modern patch editor and librarian that talks to the JX-3P over tape dump.
 url: "https://jx-3p.com"
+
+# GitHub Pages natively supports jekyll-sitemap — generates /sitemap.xml so
+# Google can discover and crawl the site. Submit it in Search Console.
+plugins:
+  - jekyll-sitemap
 
 # Default front matter for any markdown file that doesn't specify its own.
 # Only `index.md` opts into the `default` layout via explicit front matter;

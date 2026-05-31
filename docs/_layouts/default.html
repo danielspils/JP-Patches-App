@@ -3,17 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ page.title | default: site.title }}</title>
+  <!-- Search-result title: "JP Patches — Roland JX-3P Patch Editor &
+       Librarian for Mac". Leads with the brand, then the terms JX-3P
+       owners actually search. A page can override via its own front-matter
+       `title`. -->
+  <title>{% if page.title %}{{ page.title }} · {{ site.title }}{% else %}{{ site.title }} — {{ site.tagline }}{% endif %}</title>
   <meta name="description" content="{{ page.description | default: site.description }}">
+  <meta name="keywords" content="JX-3P, Roland JX-3P, JX-3P patches, JX-3P patch editor, JX-3P librarian, JX-3P editor, JX-3P sequences, JX-3P software, JX-3P Mac, JX-3P tape dump, PG-200">
+  <link rel="canonical" href="{{ page.url | absolute_url }}">
+  <meta name="robots" content="index, follow">
 
   <!-- Open Graph / Twitter card — gives jx-3p.com a nice preview when
        shared in Slack, iMessage, Facebook, etc. Uses the hero screenshot. -->
-  <meta property="og:title" content="{{ site.title }}">
+  <meta property="og:title" content="{{ site.title }} — {{ site.tagline }}">
   <meta property="og:description" content="{{ site.description }}">
   <meta property="og:image" content="{{ '/screenshots/jx-hero.png' | absolute_url }}">
   <meta property="og:url" content="{{ site.url }}">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
+
+  <!-- Structured data (JSON-LD) — tells Google this is a free macOS app,
+       which can yield a richer result (name, OS, price). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "JP Patches",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "macOS 12+ (Apple Silicon)",
+    "description": "{{ site.description }}",
+    "url": "{{ site.url }}",
+    "downloadUrl": "https://github.com/danielspils/JP-Patches-App/releases/latest",
+    "softwareVersion": "0.6.3",
+    "author": { "@type": "Person", "name": "Daniel Spils" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
 
   <!-- Favicon set, all generated from assets/img/jp-logo.png via sips
        center-crop (1026×1026 square) → 32 / 180 / 192. Total ~83KB
