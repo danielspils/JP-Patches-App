@@ -121,6 +121,18 @@ function setButtonSoundsFromMenu(enabled) {
   if (win && win.webContents) win.webContents.send('button-sounds-changed', enabled);
 }
 
+// Tape-dump-sounds preference, mirrored into the View menu checkbox the
+// same way as button sounds. Off by default; the authoritative value lives
+// in the renderer's library.json (transmissionSounds.enabled), pushed up
+// via `tape-dump-sounds-initial` on launch.
+let tapeDumpSoundsChecked = false;
+
+function setTapeDumpSoundsFromMenu(enabled) {
+  tapeDumpSoundsChecked = enabled;
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (win && win.webContents) win.webContents.send('tape-dump-sounds-changed', enabled);
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   // Explicit submenus for Edit and View — using `role: 'editMenu'` or
@@ -188,6 +200,13 @@ function buildAppMenu() {
           type: 'checkbox',
           checked: buttonSoundsChecked,
           click: (item) => setButtonSoundsFromMenu(item.checked),
+        },
+        {
+          id: 'tape-dump-sounds',
+          label: 'Play tape dump sounds',
+          type: 'checkbox',
+          checked: tapeDumpSoundsChecked,
+          click: (item) => setTapeDumpSoundsFromMenu(item.checked),
         },
         { type: 'separator' },
         { role: 'togglefullscreen' },
@@ -332,6 +351,14 @@ ipcMain.on('button-sounds-initial', (_e, enabled) => {
   const menu = Menu.getApplicationMenu();
   const item = menu && menu.getMenuItemById('button-sounds');
   if (item) item.checked = buttonSoundsChecked;
+});
+
+// Same launch-time sync for the tape-dump-sounds checkbox.
+ipcMain.on('tape-dump-sounds-initial', (_e, enabled) => {
+  tapeDumpSoundsChecked = !!enabled;
+  const menu = Menu.getApplicationMenu();
+  const item = menu && menu.getMenuItemById('tape-dump-sounds');
+  if (item) item.checked = tapeDumpSoundsChecked;
 });
 
 ipcMain.handle('load-patches', () => {

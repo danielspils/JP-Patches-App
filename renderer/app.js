@@ -183,6 +183,13 @@ const LED_OFF = '#333';
 // library.json (`buttonSounds`) and pushed from main on change.
 let buttonSoundsEnabled = true;
 
+// Tape Dump Sounds (View > Play tape dump sounds). When on, the Send-to-JX
+// flow plays the FSK quietly out the Mac speakers in parallel with the
+// cable. Off by default; persisted to library.json (transmissionSounds
+// .enabled) and pushed from main on change. The actual playback lives in
+// renderer/transmission-sounds.js and is fully isolated from the transfer.
+let tapeDumpSoundsEnabled = false;
+
 // Cache one Audio element per sound (created lazily). Resetting currentTime
 // before each play lets rapid presses retrigger the sound.
 function makeSoundPlayer(src, volume) {
@@ -5206,6 +5213,12 @@ function showSendToJxFlow(opts) {
   let tempPath = null;
   let progressTimer = null;
   let cancelled = false;
+  // Tape Dump Sounds: the real deviceId behind the system default output
+  // (resolved in enterPlayState), passed to the sound feature as the
+  // cable-exclusion guard so the parallel sound is never routed to the
+  // device the transfer is using. (Per-modal mute toggle lands with the
+  // mute icon — wired to `muted` below.)
+  let cableDeviceId = null;
 
   // NOTE: We deliberately do NOT route the audio element through an
   // AudioContext + createMediaElementSource for Send-to-JX. That setup
@@ -5226,6 +5239,8 @@ function showSendToJxFlow(opts) {
 
   const cleanup = async () => {
     if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+    // Stop any parallel tape-dump sound (no-op if none playing / feature off).
+    try { if (typeof stopTapeDumpSound === 'function') stopTapeDumpSound(); } catch {}
     if (audioEl) {
       try { audioEl.pause(); } catch {}
       audioEl.src = '';
@@ -5329,6 +5344,13 @@ function showSendToJxFlow(opts) {
           const span = labelEl.querySelector('span');
           if (span) span.textContent = (def && def.label) || 'System default (label unavailable)';
         }
+        // Resolve the REAL device behind the 'default' alias (same groupId)
+        // so Tape Dump Sounds can exclude it — the transfer plays out the
+        // system default, so that's the "cable" we must never echo onto.
+        if (def) {
+          const real = outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+          cableDeviceId = (real && real.deviceId) || def.deviceId || null;
+        }
       } catch {}
     })();
   };
@@ -5350,6 +5372,20 @@ function showSendToJxFlow(opts) {
       playBtn.disabled = false;
       statusText.textContent = `Playback blocked: ${err.message}`;
       return;
+    }
+    // Tape Dump Sounds (View > Play tape dump sounds; off by default).
+    // Fire-and-forget the parallel low-volume FSK out the Mac speakers.
+    // Fully isolated + silent-fail (separate <audio>, never the cable) —
+    // not awaited so it can't delay or affect the transfer. Only fires
+    // here, AFTER the transfer's own play() resolved, so sound ⇒ transfer.
+    if (typeof maybePlayTapeDumpSound === 'function') {
+      maybePlayTapeDumpSound({
+        tempWavPath:   'file://' + tempPath,
+        cableDeviceId,
+        enabled:       tapeDumpSoundsEnabled,
+        muted:         false,   // becomes the per-modal mute-icon state next
+        volume:        0.3,
+      });
     }
     // Arrow pulse driven by playback state — not audio analysis. As long
     // as the audio element is actively playing (not paused / ended), the
@@ -9363,6 +9399,21 @@ async function init() {
     window.api.onButtonSoundsChanged((enabled) => {
       buttonSoundsEnabled = !!enabled;
       library.buttonSounds = buttonSoundsEnabled;
+      saveLibraryDebounced();
+    });
+  }
+  // Tape-dump-sounds toggle (View > Play tape dump sounds). Off by default;
+  // same restore / report-initial / react-to-toggle handshake as button
+  // sounds, persisted under library.transmissionSounds.enabled.
+  tapeDumpSoundsEnabled = !!(library.transmissionSounds && library.transmissionSounds.enabled);
+  if (typeof window.api.setTapeDumpSoundsInitial === 'function') {
+    window.api.setTapeDumpSoundsInitial(tapeDumpSoundsEnabled);
+  }
+  if (typeof window.api.onTapeDumpSoundsChanged === 'function') {
+    window.api.onTapeDumpSoundsChanged((enabled) => {
+      tapeDumpSoundsEnabled = !!enabled;
+      if (!library.transmissionSounds) library.transmissionSounds = {};
+      library.transmissionSounds.enabled = tapeDumpSoundsEnabled;
       saveLibraryDebounced();
     });
   }

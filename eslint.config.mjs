@@ -88,6 +88,12 @@ export default [
         previewNote:                'readonly',
         midiToHz:                   'readonly',
 
+        // Globals exposed by renderer/transmission-sounds.js
+        selectTapeDumpSpeaker:      'readonly',
+        maybePlayTapeDumpSound:     'readonly',
+        stopTapeDumpSound:          'readonly',
+        MAC_SPEAKER_LABEL_RE:       'readonly',
+
         // Electron-injected globals via preload.js contextBridge
         api:                    'readonly',     // window.api.* — IPC surface
 
