@@ -156,6 +156,53 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
 
 - **Adaptive app sizing + larger zoom presets.** Window is currently locked at 1140×710 with `resizable: false`. On big displays the app appears as a small fixed window with dark space around it; on Macs smaller than 1140 wide, content gets clipped offscreen. Drop the resize lock, set a sensible `minWidth`/`minHeight` floor, add a max-width / aspect-ratio constraint so the panel SVG doesn't stretch on giant monitors. The View menu already ships **75%** and **100%** presets (both scale the window AND the renderer together, no clipping). The corresponding larger presets — **125%**, **150%**, and **200%** — are deferred until the resize lock is fully dropped: at 150% on Daniel's 1147×719 logical screen, the resulting 1710×1065 window would overflow off the right and bottom of the display, so the resize call needs a screen-bound check and graceful clamp (and the window should re-center on the active screen). 125/150/200% are the standard scale set for audio/synth apps (Logic Pro, Ableton, Native Instruments) — keep that exact ladder when shipping. Most of the existing CSS uses `100vw`-based calcs that are mathematically correct at any width, but visually unverified at sizes other than 1140 — expect 2-4 hours of testing + tweaking at a few intermediate breakpoints, plus the 4 zoom presets above and below. The bucket grid in the Custom Banks builder is the highest-risk area to re-verify.
 
+## Audio routing
+
+- **Tape vs App Sound Picker — explicit cable device-pinning (v0.7.0).** Today's audio routing tangle: the macOS "system default" output is shared by BOTH the cable-transmission audio (JP↔JX, must reach the JX) AND every app sound (button/switch clicks, sequencer note previews, Tape Dump Sounds monitor — must reach the user's ears). The user has to pick ONE thing for both, and neither choice is good:
+  - **System default = cable** (what tape-dump users do by necessity): app sounds vanish — they route to the JX, which has no speaker for them. User clicks a switch in the panel UI → silence.
+  - **System default = built-in speakers**: app sounds work, but transmissions blast out the laptop speakers and the JX hears nothing → transfers silently fail.
+
+  No setting today lets the user say "the cable is the cable, my speakers/headphones are where I listen to everything else."
+
+  **The architectural fix — pin transmission via setSinkId (Tape Dump Sounds is the proof-of-concept):**
+
+  We already do this for Tape Dump Sounds (the monitor that plays FSK out the built-in speakers in parallel with the cable). Instead of relying on system default, we explicitly call `setSinkId(builtInSpeakerDeviceId)` to force routing — works because of the allowlist + cable-exclusion guards in `transmission-sounds.js`.
+
+  Mirror the pattern for the cable direction:
+  - Add an explicit cable device-picker to the Send modal (and make the existing one in Record interactive — it's read-only today).
+  - When user picks a device once, `setSinkId(cableDeviceId)` pins transmission to it.
+  - System default can be anything else (speakers, headphones) — your normal listening setup.
+  - App sounds + sequencer previews naturally route to system default → user's ears.
+  - Tape Dump Sounds keeps its existing built-in-speaker routing.
+
+  **User experience after fix:**
+  - User opens Send modal → OUTPUT DEVICE block shows the pinned cable device (interactive picker, remembered across sessions).
+  - System default stays on speakers/headphones — they get all the click/preview/monitor feedback they expect.
+  - Tape Memory transfers always go through the cable, never accidentally through the speakers.
+  - The current amber "that's your built-in speakers, not your cable!" warning in the Send modal becomes obsolete — the picker IS the answer.
+
+  **Communication / UX considerations:**
+  - The device-picker IS the primary communication: surface the routing prominently in Send + Record modals.
+  - Maybe a small status bar / settings popover: "Transmission → KT USB Audio · App sounds → MacBook Pro Speakers (system default)" — answers "where is my audio going?" in one place.
+  - The visible mute-icon idea (treat the symptom) was considered but rejected in favor of the device-picker (fix the disease). A mute icon could still appear for the user-toggled-off case (View menu's Tape Dump Sounds / Button & switch sounds disabled).
+
+  **Implementation:**
+  - Renderer: device-picker UI in Send modal (interactive `<select>` replacing the read-only `.send-jx-device-display`); persist selection in `library.json` under `cableOutputDeviceId`.
+  - Audio playback path: wrap the existing `<audio>` element in a MediaElementSource → setSinkId(cableOutputDeviceId) on Play. Same isolation discipline as `maybePlayTapeDumpSound` — silent-fail with try/catch; bad routing can't corrupt the transfer because there IS no transfer if setSinkId fails (caller would see the failure and abort).
+  - Remove the `.send-jx-output-warning` amber warning (no longer needed).
+  - Audio Diagnostics modal: extend to surface "Transmission output: [selected device]" alongside the existing built-in-speaker check.
+  - Tests: round-trip `setSinkId(cable) → play → JX receives` on real hardware.
+
+  **Effort:** ~3–4 hours including the persistence + UI + tests. Audio-graph rewire is the trickiest part (need MediaElementSource which has historically broken transmission audio in this app — see comments in `startPlayback` about why we avoided AudioContext.destination routing).
+
+  **Related items that this also unlocks:**
+  - **Sequencer note previews** become audible regardless of cable being the default
+  - **Button & switch click sounds** become audible (they're toggled off by default today partly because they're inaudible when cable is default — feature usage goes up if they're not silenced by routing)
+  - **Tape Dump Sounds Record-side UI shared-builder extraction** (currently duplicated inline between Send and Record modals) — clean refactor opportunity when the cable picker lands
+  - **OUTPUT DEVICE amber warning removal** — obsoleted by the picker
+
+  **Why parked**: substantial UX + architectural change; one rev away (v0.7.0 target). v0.6.5 still focuses on jPpS sequence-customName preservation.
+
 ## Blocked
 
 - **MIDI integration (v2).** Full bidirectional CC sync with the JX-3P. Blocked on installing the Series Circuits JX-3P MIDI Upgrade Kit. CC map and architecture are already in the spec doc — see `library-and-midi-spec.md` §Phase 3.
