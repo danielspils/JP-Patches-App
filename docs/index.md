@@ -63,3 +63,5 @@ I've been using JP Patches for the past few weeks. It works fantastic—but it's
 </div>
 
 You’re either a JX-3P owner or terribly bored if you’ve read this far. I’ve never written software, let alone software for a 1983 relic that has somehow held my attention all these years. If it’s not obvious at this point, this is personal passion project (3P!). *— Daniel Spils*
+
+<a href="/feedback/" class="feedback-btn" aria-label="Drop me a line"><svg class="feedback-btn-face" viewBox="0 0 58 58" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="1" y="1" width="56" height="56" fill="#cbc4b4" stroke="#555" stroke-width="1.5" rx="2"/><rect class="feedback-btn-led" x="18" y="1" width="22" height="15" fill="#333" rx="1"/><rect x="18" y="1" width="22" height="4" fill="#dbd4c4"/></svg><svg class="feedback-btn-caret" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polygon points="11,1 11,13 1,7" fill="#5a5a5a"/></svg><span class="feedback-btn-label">Drop me a line</span></a>
