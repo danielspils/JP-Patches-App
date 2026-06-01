@@ -4006,6 +4006,169 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
   confirmBtn.focus();
 }
 
+// Audio Diagnostics — opens via Help > Audio Diagnostics…. One-glance
+// design (Daniel-spec, May 30):
+//   - 'ok'           → green banner: "All systems go!" + matched speaker
+//   - 'no-match'     → amber banner: macOS may have changed the label
+//                      format → "Report this bug" → pre-filled GitHub Issue
+//   - 'no-outputs'   → amber banner: no audio outputs on this Mac
+//                      (still offer Report — could indicate a real bug)
+//   - 'empty-labels' → blue info banner: grant mic perm via Record-from-JX
+//                      (NOT a bug; no Report button)
+// Device list / Copy-button surface intentionally removed — average users
+// don't need it, bug-reporters get the full payload via the Report flow.
+async function showAudioDiagnosticsModal() {
+  if (typeof runAudioDiagnostic !== 'function') return;
+  // Avoid stacking duplicate modals if the user mashes the menu item.
+  if (document.querySelector('.audio-diag-modal')) return;
+
+  const diag = await runAudioDiagnostic();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal audio-diag-modal';
+  // Slightly wider than the default 440 so the longer "no-match" banner
+  // text doesn't wrap into a tall block.
+  modal.style.maxWidth = '480px';
+
+  const closeX = document.createElement('button');
+  closeX.className = 'modal-close-x';
+  closeX.setAttribute('aria-label', 'Close');
+  closeX.textContent = '×';
+
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = 'Audio Diagnostics';
+
+  // Status banner — color-coded by diag.status, with a single primary
+  // message. No device list, no copy button.
+  const banner = document.createElement('div');
+  banner.className = 'audio-diag-banner audio-diag-banner-' + diag.status;
+  const bannerIcon = document.createElement('span');
+  bannerIcon.className = 'audio-diag-banner-icon';
+  const bannerText = document.createElement('span');
+  bannerText.className = 'audio-diag-banner-text';
+
+  // Whether the Report-this-bug action is offered (only when the
+  // diagnostic indicates a likely problem worth reporting). 'empty-labels'
+  // is expected/recoverable, so no report button there.
+  let showReportButton = false;
+
+  if (diag.status === 'ok') {
+    bannerIcon.textContent = '✓';
+    bannerText.innerHTML =
+      '<strong>All systems go!</strong><br>' +
+      'Tape Dump Sounds will play through <em>' +
+      escapeHtml(diag.speakerMatch.label) + '</em>.';
+  } else if (diag.status === 'no-match') {
+    bannerIcon.textContent = '⚠';
+    bannerText.innerHTML =
+      '<strong>The OS may have changed output labels</strong> — ' +
+      'Tape Dump Sounds won’t work.';
+    showReportButton = true;
+  } else if (diag.status === 'no-outputs') {
+    bannerIcon.textContent = '⚠';
+    bannerText.innerHTML =
+      '<strong>No audio outputs detected on this Mac.</strong><br>' +
+      'Tape Dump Sounds is unavailable.';
+    showReportButton = true;
+  } else if (diag.status === 'empty-labels') {
+    bannerIcon.textContent = 'ℹ';
+    bannerText.innerHTML =
+      '<strong>Audio device labels are not yet visible</strong> ' +
+      '(microphone permission required).<br>' +
+      'Use Record-from-JX once to grant the permission, then re-open this dialog.';
+  }
+  banner.appendChild(bannerIcon);
+  banner.appendChild(bannerText);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions audio-diag-actions';
+
+  let reportBtn = null;
+  if (showReportButton) {
+    reportBtn = document.createElement('button');
+    reportBtn.className = 'modal-btn modal-btn-cancel audio-diag-report';
+    reportBtn.textContent = 'Report this bug';
+  }
+
+  const doneBtn = document.createElement('button');
+  doneBtn.className = 'modal-btn modal-btn-confirm';
+  doneBtn.textContent = 'Done';
+
+  if (reportBtn) actions.appendChild(reportBtn);
+  actions.appendChild(doneBtn);
+
+  modal.appendChild(closeX);
+  modal.appendChild(title);
+  modal.appendChild(banner);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // Wire Report-this-bug: gather app/OS metadata via IPC, build the
+  // pre-filled GitHub Issue URL via the pure helper, hand off to the
+  // OS default browser. The main-side openExternal handler is
+  // allowlisted to the JP Patches repo only, so even a corrupted URL
+  // here can't navigate the user elsewhere.
+  if (reportBtn) {
+    reportBtn.addEventListener('click', async () => {
+      reportBtn.disabled = true;
+      const originalLabel = reportBtn.textContent;
+      reportBtn.textContent = 'Opening browser…';
+      try {
+        let appInfo = { appVersion: 'unknown', macOsRelease: 'unknown' };
+        if (window.api && typeof window.api.getAppInfo === 'function') {
+          try { appInfo = await window.api.getAppInfo() || appInfo; } catch {}
+        }
+        const url = buildAudioDiagnosticIssueUrl({
+          diag,
+          appVersion:   appInfo.appVersion,
+          macOsRelease: appInfo.macOsRelease,
+          regexSource:  (window.MAC_SPEAKER_LABEL_RE && window.MAC_SPEAKER_LABEL_RE.source) || '(missing)',
+        });
+        if (window.api && typeof window.api.openExternal === 'function') {
+          const res = await window.api.openExternal(url);
+          if (res && res.ok) {
+            close();
+            return;
+          }
+          reportBtn.textContent = 'Could not open browser';
+          console.warn('[audio-diagnostic] openExternal failed:', res && res.reason);
+        } else {
+          reportBtn.textContent = 'Browser open unavailable';
+        }
+        setTimeout(() => {
+          reportBtn.textContent = originalLabel;
+          reportBtn.disabled = false;
+        }, 2000);
+      } catch (err) {
+        console.warn('[audio-diagnostic] report flow failed:', (err && err.name) || err);
+        reportBtn.textContent = 'Could not open browser';
+        setTimeout(() => {
+          reportBtn.textContent = originalLabel;
+          reportBtn.disabled = false;
+        }, 2000);
+      }
+    });
+  }
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  closeX.addEventListener('click', close);
+  doneBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  doneBtn.focus();
+}
+// (escapeHtml() used by showAudioDiagnosticsModal lives further down,
+//  near the bottom of the file — function declarations are hoisted.)
+
 function buildTrashIcon(idx) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
@@ -9517,6 +9680,15 @@ async function init() {
       if (!library.transmissionSounds) library.transmissionSounds = {};
       library.transmissionSounds.enabled = tapeDumpSoundsEnabled;
       saveLibraryDebounced();
+    });
+  }
+  // Help > Audio Diagnostics… — opens the live diagnostic modal so users
+  // (and bug reporters) can see what enumerateDevices returns against the
+  // Tape Dump Sounds built-in-speaker allowlist. Useful after macOS
+  // updates that may have changed device label formats.
+  if (typeof window.api.onAudioDiagnosticsOpen === 'function') {
+    window.api.onAudioDiagnosticsOpen(() => {
+      if (typeof showAudioDiagnosticsModal === 'function') showAudioDiagnosticsModal();
     });
   }
   // No source label at boot — active C/D banks are unnamed until the user

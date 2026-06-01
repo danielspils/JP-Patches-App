@@ -41,4 +41,16 @@ contextBridge.exposeInMainWorld('api', {
   // sounds — persisted in library.json under transmissionSounds.enabled.
   setTapeDumpSoundsInitial: (enabled) => ipcRenderer.send('tape-dump-sounds-initial', enabled),
   onTapeDumpSoundsChanged: (cb) => ipcRenderer.on('tape-dump-sounds-changed', (_, enabled) => cb(enabled)),
+  // Help > Audio Diagnostics. Main fires this when the menu item is
+  // clicked; renderer opens showAudioDiagnosticsModal(). One-way push,
+  // no payload needed.
+  onAudioDiagnosticsOpen: (cb) => ipcRenderer.on('audio-diagnostics-open', () => cb()),
+  // Open an external URL via the OS default browser. Main-side handler
+  // is allowlisted to the JP Patches GitHub repo only (the only caller
+  // today is the Audio Diagnostics "Report this bug" pre-filled issue
+  // URL). Returns {ok, reason?}.
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // App + OS metadata for diagnostic bug-report URLs.
+  // Returns { appVersion, platform, macOsRelease }.
+  getAppInfo: () => ipcRenderer.invoke('get-app-info'),
 });

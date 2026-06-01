@@ -1783,6 +1783,46 @@ body.seq-dragging-pitch * {
 .seq-modal-name:focus,
 .seq-modal-note:focus { border-color: var(--green-sel-bdr); }
 
+/* Audio Diagnostics modal (Help > Audio Diagnostics…) — one-glance design:
+   single color-coded banner stating the status, plus a Done button (and
+   a "Report this bug" button when the status indicates a likely bug).
+   No device list; the Report flow opens a pre-filled GitHub Issue URL. */
+.audio-diag-modal .modal-title { margin-bottom: 12px; }
+.audio-diag-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+.audio-diag-banner-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1.2;
+  margin-top: 1px;
+}
+.audio-diag-banner-text         { color: var(--text-bright); }
+.audio-diag-banner-text strong  { color: var(--text-bright); font-weight: 600; }
+.audio-diag-banner-text em      { color: var(--text-bright); font-style: italic; }
+/* Color variants — green for OK, amber for warnings, blue for info. */
+.audio-diag-banner-ok           { background: rgba(31, 110, 91, 0.18);  border: 1px solid rgba(31, 110, 91, 0.55); }
+.audio-diag-banner-ok .audio-diag-banner-icon { color: #2a8870; }
+.audio-diag-banner-no-match,
+.audio-diag-banner-no-outputs   { background: rgba(195, 154, 58, 0.16); border: 1px solid rgba(195, 154, 58, 0.55); }
+.audio-diag-banner-no-match .audio-diag-banner-icon,
+.audio-diag-banner-no-outputs .audio-diag-banner-icon { color: #c39a3a; }
+.audio-diag-banner-empty-labels { background: rgba(51, 80, 143, 0.18);  border: 1px solid rgba(51, 80, 143, 0.55); }
+.audio-diag-banner-empty-labels .audio-diag-banner-icon { color: #4264a8; }
+
+/* Actions row: spaces Report-button and Done apart when both are
+   present; otherwise the single Done button centers via modal-actions
+   default (flex-end). */
+.audio-diag-actions:has(.audio-diag-report) { justify-content: space-between; }
+.audio-diag-report { min-width: 140px; }
+
 /* Record-from-JX modal — captures live audio from the Mac's input device
    into a temp WAV that the existing decode pipeline can consume. Mirrors
    the Send-to-JX modal layout: instructions on top, device picker + level

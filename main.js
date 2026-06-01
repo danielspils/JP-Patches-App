@@ -224,6 +224,18 @@ function buildAppMenu() {
           label: 'Check for Updates…',
           click: () => checkForUpdates({ manual: true }),
         },
+        { type: 'separator' },
+        {
+          // Surfaces the live audio-output state vs. the Tape Dump Sounds
+          // built-in-speaker allowlist. Lets a user check whether speakers
+          // are detected without needing to open the Send modal first —
+          // useful after a macOS update may have changed device labels.
+          label: 'Audio Diagnostics…',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+            if (win && win.webContents) win.webContents.send('audio-diagnostics-open');
+          },
+        },
       ],
     },
   ];
@@ -359,6 +371,39 @@ ipcMain.on('tape-dump-sounds-initial', (_e, enabled) => {
   const menu = Menu.getApplicationMenu();
   const item = menu && menu.getMenuItemById('tape-dump-sounds');
   if (item) item.checked = tapeDumpSoundsChecked;
+});
+
+// Renderer-readable app + OS metadata for diagnostic bug-report URLs.
+// Currently only the Audio Diagnostics "Report this bug" flow uses this;
+// kept generic so other diagnostic surfaces can reuse. Darwin kernel
+// version (os.release()) is what gets reported — more accurate than
+// navigator.userAgent which is capped at "Mac OS X 10_15_7" since
+// Catalina (Chromium pins it for compat).
+ipcMain.handle('get-app-info', () => {
+  return {
+    appVersion: app.getVersion(),
+    platform: process.platform,                          // 'darwin' on Mac
+    macOsRelease: process.platform === 'darwin' ? os.release() : null,
+  };
+});
+
+// Open an external URL in the user's default browser. Hardlocked to the
+// danielspils/JP-Patches-App repo on github.com so a renderer-side bug
+// can't be turned into "open arbitrary URLs" (e.g. file://, javascript:,
+// phishing). Currently only the Audio Diagnostics "Report this bug"
+// flow uses it; widen the allowlist if other GitHub-issue prefill links
+// get added later.
+ipcMain.handle('open-external', async (_e, url) => {
+  if (typeof url !== 'string') return { ok: false, reason: 'not-a-string' };
+  if (!url.startsWith('https://github.com/danielspils/JP-Patches-App/')) {
+    return { ok: false, reason: 'not-allowlisted' };
+  }
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: (err && err.message) || 'open-failed' };
+  }
 });
 
 ipcMain.handle('load-patches', () => {

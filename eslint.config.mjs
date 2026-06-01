@@ -94,8 +94,14 @@ export default [
         maybePlayTapeDumpSound:     'readonly',
         setTapeDumpSoundMuted:      'readonly',
         setTapeDumpSoundVolume:     'readonly',
+        startTapeDumpMonitor:       'readonly',
         stopTapeDumpSound:          'readonly',
         MAC_SPEAKER_LABEL_RE:       'readonly',
+
+        // Globals exposed by renderer/audio-diagnostic.js
+        categorizeAudioDiagnostic:   'readonly',
+        runAudioDiagnostic:          'readonly',
+        buildAudioDiagnosticIssueUrl:'readonly',
 
         // Electron-injected globals via preload.js contextBridge
         api:                    'readonly',     // window.api.* — IPC surface
