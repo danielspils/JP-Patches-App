@@ -13,7 +13,8 @@
     "lint:fix": "eslint . --fix",
     "setup-vendor": "./scripts/setup-vendor.sh",
     "dist": "npm run setup-vendor && electron-builder --mac --arm64",
-    "dist:unsigned": "npm run setup-vendor && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64"
+    "dist:unsigned": "npm run setup-vendor && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
+    "stats": "bash scripts/usage.sh"
   },
   "devDependencies": {
     "electron": "^35.0.0",
