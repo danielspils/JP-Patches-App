@@ -127,6 +127,24 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Cancel during playback | audio stops, modal closes | |
 | Sequence variant: Library → Sequences → LOAD a sequence | send modal opens with paired-patch context | |
 
+### 7a. Tape dump sounds (the parallel monitor — requires JX-3P + cable + built-in speakers audible)
+
+> Plays the FSK quietly out the Mac's **built-in speakers** in parallel with the cable, so you *hear* the tape dump. Off by default. **Pre-check:** make sure your built-in-speaker volume isn't at zero (it's independent of the cable output — select MacBook Pro Speakers as output, raise it, switch back to the cable).
+
+| Check | Expected | Result |
+|---|---|---|
+| **View → Tape dump sounds** unchecked → open the send modal → reach the Play step | no "Tape Dump" control in the modal | |
+| Check **View → Tape dump sounds** → reopen the send modal → Play step | "Tape Dump" control visible: label + **?** + slider (starts low) + speaker icon | |
+| With it on + cable as output, click ▶ Play | **transfer succeeds on the JX** AND you faintly hear the FSK out the laptop speakers | |
+| Drag the slider up/down mid-transfer | sound volume changes live; transfer unaffected | |
+| Click the **speaker icon** left of the slider | sound mutes/unmutes live (icon shows slash when muted); transfer unaffected | |
+| Reopen the modal after moving the slider | slider remembers its position (volume persisted) | |
+| Click the **?** | green info popover appears (2 lines + ×) | |
+| Click the **×** (or **?** again) | popover closes | |
+| **Unplug the interface** (or set Output → MacBook Pro Speakers) → open send modal → Play step | **amber warning** appears: "That's your Mac's built-in speakers, not your JX cable…" | |
+| Plug the interface back in / select it as output → reopen | amber warning is gone | |
+| Verify the FSK is **not doubling onto the cable** | the JX still decodes the transfer cleanly (sound goes to speakers only, never the cable) | |
+
 ## 8. Drag-and-drop
 
 | Check | Expected | Result |

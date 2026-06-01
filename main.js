@@ -203,7 +203,7 @@ function buildAppMenu() {
         },
         {
           id: 'tape-dump-sounds',
-          label: 'Play tape dump sounds',
+          label: 'Tape dump sounds',
           type: 'checkbox',
           checked: tapeDumpSoundsChecked,
           click: (item) => setTapeDumpSoundsFromMenu(item.checked),

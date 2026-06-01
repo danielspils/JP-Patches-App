@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   // + persist the new value into library.json.
   setButtonSoundsInitial: (enabled) => ipcRenderer.send('button-sounds-initial', enabled),
   onButtonSoundsChanged: (cb) => ipcRenderer.on('button-sounds-changed', (_, enabled) => cb(enabled)),
-  // View > Play tape dump sounds. Same init/toggle handshake as button
+  // View > Tape dump sounds. Same init/toggle handshake as button
   // sounds — persisted in library.json under transmissionSounds.enabled.
   setTapeDumpSoundsInitial: (enabled) => ipcRenderer.send('tape-dump-sounds-initial', enabled),
   onTapeDumpSoundsChanged: (cb) => ipcRenderer.on('tape-dump-sounds-changed', (_, enabled) => cb(enabled)),

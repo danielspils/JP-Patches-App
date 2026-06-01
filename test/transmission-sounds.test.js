@@ -4,6 +4,7 @@ const test   = require('node:test');
 const assert = require('node:assert/strict');
 const {
   selectTapeDumpSpeaker,
+  isBuiltInSpeakerOutput,
   MAC_SPEAKER_LABEL_RE,
 } = require('../renderer/transmission-sounds.js');
 
@@ -25,16 +26,36 @@ const SPEAKER_LABELS = [
 ];
 
 for (const label of SPEAKER_LABELS) {
-  test(`selectTapeDumpSpeaker — matches "${label}"`, () => {
+  test(`selectTapeDumpSpeaker — matches bare "${label}"`, () => {
     const picked = selectTapeDumpSpeaker([CABLE, out(label)], CABLE.deviceId);
     assert.ok(picked, 'should pick a speaker');
     assert.equal(picked.label, label);
   });
 
-  test(`MAC_SPEAKER_LABEL_RE — accepts "${label}"`, () => {
+  test(`MAC_SPEAKER_LABEL_RE — accepts bare "${label}"`, () => {
     assert.equal(MAC_SPEAKER_LABEL_RE.test(label), true);
   });
+
+  // The REAL Chromium enumerateDevices label carries a " (Built-in)"
+  // transport suffix — this is what we actually receive at runtime.
+  const builtIn = `${label} (Built-in)`;
+  test(`selectTapeDumpSpeaker — matches real label "${builtIn}"`, () => {
+    const picked = selectTapeDumpSpeaker([CABLE, out(builtIn)], CABLE.deviceId);
+    assert.ok(picked, 'should pick the (Built-in) speaker');
+    assert.equal(picked.label, builtIn);
+  });
+
+  test(`MAC_SPEAKER_LABEL_RE — accepts "${builtIn}"`, () => {
+    assert.equal(MAC_SPEAKER_LABEL_RE.test(builtIn), true);
+  });
 }
+
+test('MAC_SPEAKER_LABEL_RE — rejects non-Built-in transport suffixes', () => {
+  // Only "(Built-in)" is allowed; other transports must not slip through.
+  assert.equal(MAC_SPEAKER_LABEL_RE.test('MacBook Pro Speakers (Virtual)'), false);
+  assert.equal(MAC_SPEAKER_LABEL_RE.test('MacBook Pro Speakers (USB)'), false);
+  assert.equal(MAC_SPEAKER_LABEL_RE.test('Studio Display Speakers (USB)'), false);
+});
 
 // ── allowlist: things that must NOT match ──
 
@@ -138,4 +159,32 @@ test('selectTapeDumpSpeaker — undefined cableDeviceId still returns a real spe
   const picked = selectTapeDumpSpeaker([out('MacBook Pro Speakers', 's')], undefined);
   assert.ok(picked);
   assert.equal(picked.deviceId, 's');
+});
+
+// ── isBuiltInSpeakerOutput (the Send-modal "output is your speakers" warning) ──
+
+test('isBuiltInSpeakerOutput — "Default - …(Built-in)" alias is detected', () => {
+  // The system default output is reported with a "Default - " prefix; the
+  // helper must strip it so the warning fires.
+  assert.equal(isBuiltInSpeakerOutput('Default - MacBook Pro Speakers (Built-in)'), true);
+  assert.equal(isBuiltInSpeakerOutput('Default - iMac Speakers (Built-in)'), true);
+});
+
+test('isBuiltInSpeakerOutput — bare built-in speaker label is detected', () => {
+  assert.equal(isBuiltInSpeakerOutput('MacBook Pro Speakers (Built-in)'), true);
+  assert.equal(isBuiltInSpeakerOutput('MacBook Pro Speakers'), true);
+});
+
+test('isBuiltInSpeakerOutput — the cable / interfaces do NOT warn', () => {
+  assert.equal(isBuiltInSpeakerOutput('Default - KT USB Audio (31b2:2024)'), false);
+  assert.equal(isBuiltInSpeakerOutput('KT USB Audio (31b2:2024)'), false);
+  assert.equal(isBuiltInSpeakerOutput('AirPods Pro'), false);
+  assert.equal(isBuiltInSpeakerOutput('Studio Display Speakers (USB)'), false);  // non-Built-in transport
+});
+
+test('isBuiltInSpeakerOutput — empty / non-string input → false', () => {
+  assert.equal(isBuiltInSpeakerOutput(''), false);
+  assert.equal(isBuiltInSpeakerOutput(null), false);
+  assert.equal(isBuiltInSpeakerOutput(undefined), false);
+  assert.equal(isBuiltInSpeakerOutput(42), false);
 });

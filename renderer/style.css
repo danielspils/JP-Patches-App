@@ -1477,6 +1477,16 @@ body.seq-dragging-pitch * {
 .send-jx-modal.step-2 { max-width: 560px; }
 .send-jx-modal .modal-body { text-align: left; }
 .send-jx-status { margin: 12px 0 18px; min-height: 32px; }
+/* Built-in-speaker warning — amber, shown when the Send output device is the
+   Mac's own speakers (almost always wrong: blasts the speakers, JX gets
+   nothing). Set inline in the modal body, under the output-device line. */
+.send-jx-output-warning {
+  margin-top: 8px;
+  color: #c39a3a;                /* warning amber */
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 600;
+}
 .send-jx-status-text {
   font-size: 12px;
   color: var(--text-mid);
@@ -1488,6 +1498,122 @@ body.seq-dragging-pitch * {
      makes a successful click look like it missed the target. */
   min-height: 1.2em;
 }
+
+/* ── Tape-dump-sound control ───────────────────────────────────────────────
+   Label + info 'i' (with popover), then a mute-icon + volume slider. Shown in
+   the Send modal only when View > Tape dump sounds is on. The slider live-
+   adjusts + persists the volume; the left speaker icon is a session mute
+   (.muted swaps waves → slash); the popover's link disables the feature. */
+.send-jx-tds {
+  position: relative;
+  width: fit-content;
+  margin: 10px auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+/* Cursive question under the slider — reframes the control as a listen-only
+   reference ("…sound like?") rather than a transfer level, and is the
+   trigger for the info popover. The 'i' icon sits at the end of the line. */
+.send-jx-tds-q {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #cfc8b8;                 /* cream secondary */
+  font-family: inherit;
+  font-size: 11px;
+  font-style: italic;             /* cursive */
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.send-jx-tds-q:hover         { color: #f7f1e6; }
+.send-jx-tds-q:focus-visible { outline: none; color: #f7f1e6; }
+.send-jx-tds-iicon           { display: block; }
+.send-jx-tds-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.send-jx-tds-mute,
+.send-jx-tds-volicon {
+  display: inline-flex;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #cfc8b8;
+}
+.send-jx-tds-mute            { cursor: pointer; transition: color 0.12s ease; }
+.send-jx-tds-mute:hover      { color: #f7f1e6; }
+.send-jx-tds-mute:active     { transform: translateY(1px); }
+.send-jx-tds-mute svg,
+.send-jx-tds-volicon svg     { display: block; }
+.send-jx-tds-mute .snd-slash { display: none; }
+.send-jx-tds-mute.muted          { color: #6a6a6a; }   /* dimmed when muted */
+.send-jx-tds-mute.muted .snd-wave  { display: none; }
+.send-jx-tds-mute.muted .snd-slash { display: inline; }
+/* Range slider — Roland-red track, cream fill (painted via JS gradient),
+   cream round thumb. */
+.send-jx-tds-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 170px;
+  height: 6px;
+  border-radius: 3px;
+  background: #5a2a20;            /* dark Roland-red track (overridden by JS) */
+  cursor: pointer;
+}
+.send-jx-tds-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #f7f1e6;
+  border: none;
+  cursor: pointer;
+}
+.send-jx-tds-slider:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(247, 241, 230, 0.4); }
+/* Info popover — Roland-green card with antique-white type, anchored under
+   the control. */
+.send-jx-tds-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: 250px;
+  padding: 12px 14px;
+  background: #1f6e5b;           /* Roland green */
+  color: #f7f1e6;                /* vintage cream — antique Roland white */
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+.send-jx-tds-pop-close {
+  position: absolute;
+  top: 4px;
+  right: 7px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #cfc8b8;                /* cream secondary on the green card */
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.send-jx-tds-pop-close:hover { color: #f7f1e6; }
+.send-jx-tds-pop p {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* Leave room for the close 'x' so the first line doesn't run under it. */
+.send-jx-tds-pop p:first-of-type { padding-right: 10px; }
 
 /* 4-segment timeline showing Init / Bank C / Divider / Bank D, with a
    playback indicator that sweeps left → right. Pilot durations are exact
@@ -2071,36 +2197,27 @@ body.seq-dragging-pitch * {
   -webkit-user-drag: none;
 }
 
-/* Play CTA — Send-to-JX modal step 2 (pre-playback). The standard Roland-
-   green confirm button (reused via .modal-btn-confirm, not a bespoke style)
-   sits in the JX-3P logo's slot in the cause→effect row so the layout reads
-   diagram → arrow → Play, with a caption beneath it. On click it's swapped
-   for the logo and the transfer begins (see showSendToJxFlow /
-   startPlayback). In this state the bottom action row is Cancel-only — this
-   is the sole transfer trigger. Visibility is state-driven: hidden by
-   default, shown when sendRow has .play-ready, hidden again once .playing
-   replaces it. */
-.send-jx-play-cta {
+/* Pre-play instruction — Send-to-JX modal step 2, before Play. Sits in the
+   JX-3P logo's slot in the cause→effect row, telling the user to arm the JX
+   first then hit the bottom-row Play. On Play it's swapped for the logo and
+   the transfer begins (see showSendToJxFlow / startPlayback). Visibility is
+   state-driven: hidden by default, shown when sendRow has .play-ready,
+   hidden again once .playing replaces it. */
+.send-jx-play-msg {
   display: none;                 /* shown only via .play-ready below */
   flex: 0 0 180px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  font-size: 12px;               /* match the modal body text */
+  color: #f7f1e6;                /* vintage cream — antique Roland white */
+  text-align: left;
+  line-height: 1.6;              /* match the modal body line-height */
 }
-.record-jx-cal-row.play-ready .send-jx-play-cta { display: flex; }
-.send-jx-play-caption {
-  font-size: 12px;
-  color: #cfc8b8;                /* cream secondary */
-  text-align: center;
-  line-height: 1.35;
-}
-/* Pre-playback: Play takes the logo's slot, so hide the logo until Play.
-   The arrow stays hidden too — it signals live Mac→JX transmission, so it
-   must not appear until the user has armed the JX and clicked Play. It keeps
-   the capture-mode default (opacity:0) and is revealed only by .playing
-   (added in startPlayback), at which point the logo returns + fades in and
-   the arrow starts its march. */
+.record-jx-cal-row.play-ready .send-jx-play-msg { display: block; }
+/* Pre-playback: the message takes the logo's slot, so hide the logo until
+   Play. The arrow stays hidden too — it signals live Mac→JX transmission, so
+   it must not appear until the user has armed the JX and clicked Play. It
+   keeps the capture-mode default (opacity:0) and is revealed only by
+   .playing (added in startPlayback), at which point the logo returns + fades
+   in and the arrow starts its march. */
 .record-jx-cal-row.play-ready .record-jx-jx3p-logo { display: none; }
 
 /* "saving: {package}" / "loading: {package}" label that sits below the

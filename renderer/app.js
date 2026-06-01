@@ -183,12 +183,16 @@ const LED_OFF = '#333';
 // library.json (`buttonSounds`) and pushed from main on change.
 let buttonSoundsEnabled = true;
 
-// Tape Dump Sounds (View > Play tape dump sounds). When on, the Send-to-JX
+// Tape Dump Sounds (View > Tape dump sounds). When on, the Send-to-JX
 // flow plays the FSK quietly out the Mac speakers in parallel with the
 // cable. Off by default; persisted to library.json (transmissionSounds
 // .enabled) and pushed from main on change. The actual playback lives in
 // renderer/transmission-sounds.js and is fully isolated from the transfer.
 let tapeDumpSoundsEnabled = false;
+// Tape-dump-sound playback volume (0..1), persisted in library.json. The
+// Send modal's slider drives it (volume = sliderPos²); default 0.0025 puts
+// the slider at ~5% of travel — just above silent, can't blast on first use.
+let tapeDumpVolume = 0.0025;
 
 // Cache one Audio element per sound (created lazily). Resetting currentTime
 // before each play lets rapid presses retrigger the sound.
@@ -5171,33 +5175,114 @@ function showSendToJxFlow(opts) {
   const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram: _jxKeyDiagram } = buildSendRow(kind, sourceLabel);
   modal.appendChild(sendRow);
 
-  // Play CTA — the focal trigger in step 2. The standard Roland-green
-  // confirm button (reused, not a bespoke style) sits in the cause→effect
-  // row's right slot (where the JX-3P logo fades in once transmission
-  // starts), with a caption beneath it, so the eye travels diagram → arrow
-  // → Play. The bottom action row drops to Cancel-only in step 2 (see
-  // enterPlayState); this button replaces the old bottom-row "▶ Play". On
-  // click it's swapped out for the JX-3P logo and the transfer begins.
-  // Visibility is state-driven via the .play-ready / .playing classes.
-  const playCtaWrap = document.createElement('div');
-  playCtaWrap.className = 'send-jx-play-cta';
-  const playBtn = document.createElement('button');
-  playBtn.type = 'button';
-  playBtn.className = 'modal-btn modal-btn-confirm send-jx-play-btn';
-  playBtn.textContent = '▶ Play';
-  const playCaption = document.createElement('div');
-  playCaption.className = 'send-jx-play-caption';
-  // Two lines: "Press 'Play' to" / "begin data dump" — fixed copy, no user
-  // input, so static innerHTML with the <br> is safe here.
-  playCaption.innerHTML = "Press 'Play' to<br>begin data dump";
-  playCtaWrap.appendChild(playBtn);
-  playCtaWrap.appendChild(playCaption);
-  sendRow.insertBefore(playCtaWrap, sendJxLogo);
+  // Pre-play instruction filling the cause→effect row's right slot (where
+  // the JX-3P logo fades in once transmission starts). Play itself lives in
+  // the bottom action row (the standard position). Shown only in the
+  // .play-ready (pre-Play) state; swapped out for the JX-3P logo on Play.
+  const playReadyMsg = document.createElement('div');
+  playReadyMsg.className = 'send-jx-play-msg';
+  playReadyMsg.innerHTML =
+    'First click JX buttons,<br>then hit Play below<br>to initiate tape dump.';
+  sendRow.insertBefore(playReadyMsg, sendJxLogo);
 
   // Per-segment timeline + indicator + status text. Construction in
   // buildSendStatusSection above. Hidden until enterPlayState (step 2).
   const { status, timeline, segs, indicator, statusText } = buildSendStatusSection(segments);
   modal.appendChild(status);
+
+  // Tape Dump Sounds modal state. Declared here (before the mute toggle that
+  // closes over tapeDumpMuted) to avoid a temporal-dead-zone error.
+  //  - cableDeviceId: the real deviceId behind the system default output
+  //    (resolved in enterPlayState), passed to the sound feature as the
+  //    cable-exclusion guard so the parallel sound is never routed onto the
+  //    device the transfer uses.
+  //  - tapeDumpMuted: per-modal mute (session-local, no library write).
+  let cableDeviceId = null;
+  let tapeDumpMuted = false;
+
+  // Tape-dump-sound control — label + info popover, then a mute-icon +
+  // volume slider. Shown (in enterPlayState) only when tapeDumpSoundsEnabled.
+  // The slider live-adjusts + persists library.transmissionSounds.volume;
+  // the left speaker icon is a session mute (no library write); the info 'i'
+  // toggles a popover whose "mute Tape Dump sounds" link disables the whole
+  // feature (same as unchecking it in the View menu) and hides this control.
+  const SPK   = '<polygon points="3 9 7 9 11 5 11 19 7 15 3 15" fill="currentColor" stroke="none"/>';
+  const WAVE  = '<g class="snd-wave"><path d="M15 9.5a4 4 0 0 1 0 5"/><path d="M17.5 7a7.5 7.5 0 0 1 0 10"/></g>';
+  const SLASH = '<g class="snd-slash"><line x1="15" y1="9" x2="21" y2="15"/><line x1="21" y1="9" x2="15" y2="15"/></g>';
+  const tdsSvg = (inner) =>
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+
+  const tdsCtrl = document.createElement('div');
+  tdsCtrl.className = 'send-jx-tds';
+  tdsCtrl.style.display = 'none';
+  // No "Tape Dump" header — that wording risked reading as the transfer
+  // level going to the JX. Instead, a small cursive question under the
+  // slider ("What does a tape dump sound like?") both labels the control as
+  // a listen-only reference AND is the trigger for the info popover.
+  tdsCtrl.innerHTML =
+    '<div class="send-jx-tds-row">' +
+      '<button type="button" class="send-jx-tds-mute" aria-label="Mute tape dump sound">' + tdsSvg(SPK + WAVE + SLASH) + '</button>' +
+      '<input type="range" class="send-jx-tds-slider" min="0" max="1" step="0.01" aria-label="Tape dump sound volume">' +
+      '<span class="send-jx-tds-volicon" aria-hidden="true">' + tdsSvg(SPK + WAVE) + '</span>' +
+    '</div>' +
+    '<button type="button" class="send-jx-tds-q" aria-label="What does your tape dump sound like?">' +
+      'What does your tape dump sound like?' +
+      '<svg class="send-jx-tds-iicon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">' +
+        '<circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+        '<line x1="8" y1="7.2" x2="8" y2="11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+        '<circle cx="8" cy="4.7" r="0.95" fill="currentColor"/>' +
+      '</svg>' +
+    '</button>' +
+    '<div class="send-jx-tds-pop" role="dialog" style="display:none">' +
+      '<button type="button" class="send-jx-tds-pop-close" aria-label="Close">&times;</button>' +
+      '<p>Does not affect data transfer to JX-3P—sound is for your reference.</p>' +
+      "<p>Plays through your Mac's built-in speakers (check speaker volume if you hear nothing).</p>" +
+    '</div>';
+  status.appendChild(tdsCtrl);
+
+  const tdsMute    = tdsCtrl.querySelector('.send-jx-tds-mute');
+  const tdsSlider  = tdsCtrl.querySelector('.send-jx-tds-slider');
+  const tdsQ       = tdsCtrl.querySelector('.send-jx-tds-q');
+  const tdsPop     = tdsCtrl.querySelector('.send-jx-tds-pop');
+
+  // Slider value v maps to volume v² (more resolution at low/quiet levels);
+  // paint the filled portion of the track to match the thumb position.
+  const paintSlider = () => {
+    const pct = Math.round((parseFloat(tdsSlider.value) || 0) * 100);
+    tdsSlider.style.background =
+      `linear-gradient(to right, #f7f1e6 0%, #f7f1e6 ${pct}%, #5a2a20 ${pct}%, #5a2a20 100%)`;
+  };
+  tdsSlider.value = String(Math.sqrt(Math.max(0, Math.min(1, tapeDumpVolume))));
+  paintSlider();
+
+  const syncTdsMute = () => {
+    tdsMute.classList.toggle('muted', tapeDumpMuted);
+    tdsMute.title = tapeDumpMuted ? 'Unmute tape dump sound' : 'Mute tape dump sound';
+    tdsMute.setAttribute('aria-pressed', String(tapeDumpMuted));
+  };
+  syncTdsMute();
+
+  tdsMute.addEventListener('click', () => {
+    tapeDumpMuted = !tapeDumpMuted;
+    syncTdsMute();
+    if (typeof setTapeDumpSoundMuted === 'function') setTapeDumpSoundMuted(tapeDumpMuted);
+  });
+  tdsSlider.addEventListener('input', () => {
+    const v = parseFloat(tdsSlider.value) || 0;
+    tapeDumpVolume = v * v;                       // quadratic → finer low-end control
+    paintSlider();
+    if (!library.transmissionSounds) library.transmissionSounds = {};
+    library.transmissionSounds.volume = tapeDumpVolume;
+    saveLibraryDebounced();
+    if (typeof setTapeDumpSoundVolume === 'function') setTapeDumpSoundVolume(tapeDumpVolume);
+  });
+  tdsQ.addEventListener('click', () => {
+    tdsPop.style.display = (tdsPop.style.display === 'none') ? '' : 'none';
+  });
+  tdsCtrl.querySelector('.send-jx-tds-pop-close').addEventListener('click', () => {
+    tdsPop.style.display = 'none';
+  });
 
   // Three-button actions row. Construction in buildSendActions above.
   // The primary button cycles through label states ("Send to JX-3P" →
@@ -5213,12 +5298,8 @@ function showSendToJxFlow(opts) {
   let tempPath = null;
   let progressTimer = null;
   let cancelled = false;
-  // Tape Dump Sounds: the real deviceId behind the system default output
-  // (resolved in enterPlayState), passed to the sound feature as the
-  // cable-exclusion guard so the parallel sound is never routed to the
-  // device the transfer is using. (Per-modal mute toggle lands with the
-  // mute icon — wired to `muted` below.)
-  let cableDeviceId = null;
+  // (cableDeviceId + tapeDumpMuted are declared earlier, above the mute
+  // toggle that closes over them — see the Tape Dump Sounds state block.)
 
   // NOTE: We deliberately do NOT route the audio element through an
   // AudioContext + createMediaElementSource for Send-to-JX. That setup
@@ -5297,10 +5378,11 @@ function showSendToJxFlow(opts) {
 
   // Step 2: arm the JX, then click Play to send the audio.
   const enterPlayState = (durationSec) => {
-    // Step 2's bottom action row is Cancel-only — the big PLAY CTA in the
-    // cause→effect row (added above) is the transfer trigger now, replacing
-    // the old small "▶ Play" button.
-    primaryBtn.style.display = 'none';
+    // Bottom action row in step 2 is Cancel + "▶ Play" (Save WAV hidden).
+    // The right slot of the cause→effect row carries the pre-play
+    // instruction message instead of the trigger.
+    primaryBtn.disabled = false;
+    primaryBtn.textContent = '▶ Play';
     saveBtn.style.display = 'none';
     // Widen the modal for step 2 (timeline + sendRow need the room). Step 1
     // is a tighter shell — header + 3 buttons. See .send-jx-modal CSS.
@@ -5318,7 +5400,12 @@ function showSendToJxFlow(opts) {
       // "Send isn't working" cause is the system default output being
       // something other than the cable to the JX (e.g. internal speakers,
       // AirPods). Surfacing the device gives the user a one-glance check.
-      `<p id="send-jx-output-label" style="margin-top: 8px; color: var(--text-mid); font-size: 11px; font-style: italic;">Audio output device: <span style="color: var(--text-bright); font-style: normal;">checking…</span></p>`;
+      `<p id="send-jx-output-label" style="margin-top: 8px; color: var(--text-mid); font-size: 11px; font-style: italic;">Audio output device: <span style="color: var(--text-bright); font-style: normal;">checking…</span></p>` +
+      // Built-in-speaker warning — when the system default output is the Mac's
+      // own speakers (e.g. the audio interface got unplugged), the transfer
+      // blasts the FSK out the speakers AND the JX receives nothing. Hidden
+      // unless the device check below detects that case.
+      `<p id="send-jx-speaker-warning" class="send-jx-output-warning" style="display:none;">⚠ That's your Mac's built-in speakers, not your JX cable — the dump will blast out the speakers at full volume and the JX won't receive it. Plug in and select your audio interface as the output.</p>`;
     statusText.textContent = '';
     segDurations = computeSegDurations(durationSec, segs);
     applySegProportions(segDurations);
@@ -5331,6 +5418,10 @@ function showSendToJxFlow(opts) {
     // it, and hides the JX-3P logo until PLAY is pressed (startPlayback swaps
     // .play-ready → .playing).
     sendRow.classList.add('play-ready');
+    // Surface the tape-dump-sound control only when the feature is on. Reset
+    // the info popover to hidden each time we (re)enter the play state.
+    tdsCtrl.style.display = tapeDumpSoundsEnabled ? '' : 'none';
+    tdsPop.style.display = 'none';
     // Query the OS for the current default audio output and surface its
     // label. enumerateDevices requires a prior getUserMedia grant in some
     // browsers; falls back to a generic label if blocked.
@@ -5347,33 +5438,42 @@ function showSendToJxFlow(opts) {
         // Resolve the REAL device behind the 'default' alias (same groupId)
         // so Tape Dump Sounds can exclude it — the transfer plays out the
         // system default, so that's the "cable" we must never echo onto.
+        let realDefault = null;
         if (def) {
-          const real = outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
-          cableDeviceId = (real && real.deviceId) || def.deviceId || null;
+          realDefault = outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+          cableDeviceId = (realDefault && realDefault.deviceId) || def.deviceId || null;
         }
+        // Warn if the transfer's output IS the Mac's built-in speakers — the
+        // FSK would blast out the speakers and the JX would get nothing.
+        // (isBuiltInSpeakerOutput strips the "Default - " alias prefix and
+        // tests the built-in-speaker allowlist — see transmission-sounds.js.)
+        const outLabel = (realDefault && realDefault.label) || (def && def.label) || '';
+        const isBuiltIn = typeof isBuiltInSpeakerOutput === 'function' && isBuiltInSpeakerOutput(outLabel);
+        const warnEl = document.getElementById('send-jx-speaker-warning');
+        if (warnEl) warnEl.style.display = isBuiltIn ? '' : 'none';
       } catch {}
     })();
   };
 
   const startPlayback = async () => {
-    playBtn.disabled = true;
+    primaryBtn.disabled = true;
     cancelBtn.textContent = 'Cancel';
     statusText.textContent = 'Playing…';
-    // Swap PLAY out for the JX-3P logo: drop .play-ready (hides the CTA,
-    // restores the logo slot) and add .playing (fades the logo in, starts
-    // the arrow march). Done before play() so the visual flips immediately
-    // on click even if play() takes a beat to resolve.
+    // Swap the pre-play instruction out for the JX-3P logo: drop .play-ready
+    // (hides the message, restores the logo slot) and add .playing (fades
+    // the logo in, starts the arrow march). Done before play() so the visual
+    // flips immediately on click even if play() takes a beat to resolve.
     sendRow.classList.remove('play-ready');
     try {
       await audioEl.play();
     } catch (err) {
-      // Re-arm the CTA so the user can retry.
+      // Re-arm: restore the pre-play instruction so the user can retry.
       sendRow.classList.add('play-ready');
-      playBtn.disabled = false;
+      primaryBtn.disabled = false;
       statusText.textContent = `Playback blocked: ${err.message}`;
       return;
     }
-    // Tape Dump Sounds (View > Play tape dump sounds; off by default).
+    // Tape Dump Sounds (View > Tape dump sounds; off by default).
     // Fire-and-forget the parallel low-volume FSK out the Mac speakers.
     // Fully isolated + silent-fail (separate <audio>, never the cable) —
     // not awaited so it can't delay or affect the transfer. Only fires
@@ -5383,8 +5483,9 @@ function showSendToJxFlow(opts) {
         tempWavPath:   'file://' + tempPath,
         cableDeviceId,
         enabled:       tapeDumpSoundsEnabled,
-        muted:         false,   // becomes the per-modal mute-icon state next
-        volume:        0.3,
+        muted:         tapeDumpMuted,
+        volume:        tapeDumpVolume,   // user-set via the modal slider, persisted
+
       });
     }
     // Arrow pulse driven by playback state — not audio analysis. As long
@@ -5405,16 +5506,16 @@ function showSendToJxFlow(opts) {
     }, 100);
   };
 
-  // The Play CTA is the step-2 transfer trigger (the bottom row is
-  // Cancel-only there). It's display:none until enterPlayState arms the row.
-  playBtn.addEventListener('click', () => { startPlayback(); });
-
-  // Step 1 → 2: encode the WAV, then hand off to enterPlayState. After the
-  // transfer completes the primary button reappears as a Done button that
-  // closes the modal (the Play step now lives in the big CTA above).
+  // Step 1 → 2: the primary button cycles "Send to JX-3P" → "▶ Play" →
+  // "Done". Step 1 encodes the WAV + hands off to enterPlayState; the play
+  // state starts the transfer; done closes the modal.
   primaryBtn.addEventListener('click', async () => {
     if (primaryBtn.dataset.state === 'done') {
       await close();
+      return;
+    }
+    if (primaryBtn.dataset.state === 'play') {
+      startPlayback();
       return;
     }
 
@@ -5443,6 +5544,7 @@ function showSendToJxFlow(opts) {
 
     audioEl.addEventListener('loadedmetadata', () => {
       enterPlayState(audioEl.duration);
+      primaryBtn.dataset.state = 'play';
     });
 
     audioEl.addEventListener('ended', () => {
@@ -5464,10 +5566,7 @@ function showSendToJxFlow(opts) {
       const sendLabelEl = sendJxLogo.querySelector('.record-jx-package-label');
       if (sendLabelEl) sendLabelEl.classList.add('complete');
       statusText.textContent = '✓ Complete. Check your JX for confirmation.';
-      // Done is now the only action — it closes the modal. The bottom button
-      // was hidden in enterPlayState (Cancel-only step 2); bring it back as
-      // Done now that the transfer is finished.
-      primaryBtn.style.display = '';
+      // "▶ Play" becomes "Done" — the only remaining action closes the modal.
       primaryBtn.textContent = 'Done';
       primaryBtn.disabled = false;
       primaryBtn.dataset.state = 'done';
@@ -9402,10 +9501,13 @@ async function init() {
       saveLibraryDebounced();
     });
   }
-  // Tape-dump-sounds toggle (View > Play tape dump sounds). Off by default;
+  // Tape-dump-sounds toggle (View > Tape dump sounds). Off by default;
   // same restore / report-initial / react-to-toggle handshake as button
   // sounds, persisted under library.transmissionSounds.enabled.
   tapeDumpSoundsEnabled = !!(library.transmissionSounds && library.transmissionSounds.enabled);
+  if (library.transmissionSounds && typeof library.transmissionSounds.volume === 'number') {
+    tapeDumpVolume = Math.max(0, Math.min(1, library.transmissionSounds.volume));
+  }
   if (typeof window.api.setTapeDumpSoundsInitial === 'function') {
     window.api.setTapeDumpSoundsInitial(tapeDumpSoundsEnabled);
   }

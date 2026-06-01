@@ -36,14 +36,18 @@
 (function () {
   'use strict';
 
-  // Exact-match allowlist for Apple built-in speaker device labels. The
-  // `$ Speakers$` anchor is deliberate: it excludes the enumerateDevices
-  // "Default - MacBook Pro Speakers" duplicate (which carries a
-  // "Default - " prefix) so we never resolve to the ambiguous 'default'
-  // sink. Covers the current Mac lineup; the power-user picker for
-  // headless / external-speaker setups is a deferred phase.
+  // Allowlist for Apple built-in speaker device labels. Anchored to the
+  // model name + " Speakers", with an OPTIONAL " (Built-in)" transport
+  // suffix — which is what Chromium's enumerateDevices actually appends
+  // (e.g. "MacBook Pro Speakers (Built-in)"); the bare form is kept for
+  // the labels-not-yet-revealed edge. The leading anchor excludes the
+  // "Default - …" alias (no 'default' fallback), and restricting the
+  // suffix to exactly "(Built-in)" keeps the cable ("KT USB Audio
+  // (31b2:2024)") and virtual devices ("… (Virtual)") out. Studio Display
+  // / external-monitor speakers (USB transport, not Built-in) are the
+  // deferred power-user-picker case — intentionally not matched here.
   const MAC_SPEAKER_LABEL_RE =
-    /^(MacBook( Pro| Air)?|iMac|Mac mini|Mac Studio|Studio Display) Speakers$/;
+    /^(MacBook( Pro| Air)?|iMac|Mac mini|Mac Studio|Studio Display) Speakers( \(Built-in\))?$/;
 
   /**
    * Pick the eligible Mac built-in speaker to play tape-dump sound out of,
@@ -73,9 +77,37 @@
     return null;
   }
 
+  /**
+   * Is this output-device label one of the Mac's built-in speakers? Used by
+   * the Send modal to warn when the transfer's output IS the speakers (the
+   * FSK would blast out the speakers and the JX would receive nothing — the
+   * classic "interface got unplugged" case). PURE / unit-tested.
+   *
+   * Strips the enumerateDevices "Default - " alias prefix (the default output
+   * is reported as e.g. "Default - MacBook Pro Speakers (Built-in)") so the
+   * allowlist can match the underlying device name.
+   *
+   * @param {string} label  an audiooutput device label
+   * @returns {boolean}
+   */
+  function isBuiltInSpeakerOutput(label) {
+    if (typeof label !== 'string') return false;
+    return MAC_SPEAKER_LABEL_RE.test(label.replace(/^Default - /, ''));
+  }
+
   // Handle to the currently-playing tape-dump <audio>, so stop can pause
   // it. Module-scope single-stream — we only ever play one at a time.
   let activeSound = null;
+  // Base (unmuted) volume + mute state of the active sound, so the live
+  // slider + mute toggle can adjust it mid-transmission. Set per-play from
+  // opts; the initializers are just pre-play placeholders.
+  let activeVolume = 0.0025;
+  let activeMuted = false;
+
+  // Apply the current volume/mute state to the live element (no-op if none).
+  function applyActiveVolume() {
+    if (activeSound) activeSound.volume = activeMuted ? 0 : activeVolume;
+  }
 
   /**
    * Best-effort play the temp WAV out the Mac built-in speakers, quietly,
@@ -91,7 +123,7 @@
    * @param {string | null} opts.cableDeviceId  device Send is using.
    * @param {boolean} opts.enabled       library.transmissionSounds.enabled
    * @param {boolean} [opts.muted=false] per-modal mute toggle state.
-   * @param {number}  [opts.volume=0.3]  playback volume (0..1), low default.
+   * @param {number}  [opts.volume=0.0025]  playback volume (0..1), low default.
    * @returns {Promise<HTMLAudioElement | null>}
    */
   async function maybePlayTapeDumpSound(opts) {
@@ -108,7 +140,9 @@
       if (!speaker) return null;                      // no eligible device → silent skip
 
       const a = new Audio(o.tempWavPath);
-      a.volume = o.muted ? 0 : (typeof o.volume === 'number' ? o.volume : 0.3);
+      activeVolume = (typeof o.volume === 'number' ? o.volume : 0.0025);
+      activeMuted  = !!o.muted;
+      a.volume = activeMuted ? 0 : activeVolume;
 
       // Routing guard: without setSinkId we can't GUARANTEE this goes to
       // the speaker (it would fall to the system default output, which
@@ -122,6 +156,30 @@
     } catch (err) {
       console.warn('[transmission-sounds] skipped:', (err && err.name) || err);
       return null;
+    }
+  }
+
+  /**
+   * Live-mute/unmute the active tape-dump sound (the Send modal's mute
+   * icon toggles this mid-transmission). No-op if nothing is playing.
+   * Silent-fail. @param {boolean} muted
+   */
+  function setTapeDumpSoundMuted(muted) {
+    try { activeMuted = !!muted; applyActiveVolume(); }
+    catch (err) { console.warn('[transmission-sounds] mute toggle failed:', (err && err.name) || err); }
+  }
+
+  /**
+   * Live-set the active tape-dump sound volume (the Send modal's slider
+   * drives this). Respects the current mute state. No-op if nothing is
+   * playing. Silent-fail. @param {number} volume 0..1
+   */
+  function setTapeDumpSoundVolume(volume) {
+    try {
+      if (typeof volume === 'number') activeVolume = Math.max(0, Math.min(1, volume));
+      applyActiveVolume();
+    } catch (err) {
+      console.warn('[transmission-sounds] volume set failed:', (err && err.name) || err);
     }
   }
 
@@ -143,16 +201,22 @@
 
   // Module API — window globals for app.js (loaded after this file).
   if (typeof window !== 'undefined') {
-    window.selectTapeDumpSpeaker  = selectTapeDumpSpeaker;
-    window.maybePlayTapeDumpSound = maybePlayTapeDumpSound;
-    window.stopTapeDumpSound      = stopTapeDumpSound;
-    window.MAC_SPEAKER_LABEL_RE   = MAC_SPEAKER_LABEL_RE;
+    window.selectTapeDumpSpeaker   = selectTapeDumpSpeaker;
+    window.isBuiltInSpeakerOutput  = isBuiltInSpeakerOutput;
+    window.maybePlayTapeDumpSound  = maybePlayTapeDumpSound;
+    window.setTapeDumpSoundMuted   = setTapeDumpSoundMuted;
+    window.setTapeDumpSoundVolume  = setTapeDumpSoundVolume;
+    window.stopTapeDumpSound       = stopTapeDumpSound;
+    window.MAC_SPEAKER_LABEL_RE    = MAC_SPEAKER_LABEL_RE;
   }
-  // Node require() for unit tests (only the pure selector + regex run).
+  // Node require() for unit tests (only the pure helpers + regex run).
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       selectTapeDumpSpeaker,
+      isBuiltInSpeakerOutput,
       maybePlayTapeDumpSound,
+      setTapeDumpSoundMuted,
+      setTapeDumpSoundVolume,
       stopTapeDumpSound,
       MAC_SPEAKER_LABEL_RE,
     };

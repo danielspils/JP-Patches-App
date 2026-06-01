@@ -90,7 +90,10 @@ export default [
 
         // Globals exposed by renderer/transmission-sounds.js
         selectTapeDumpSpeaker:      'readonly',
+        isBuiltInSpeakerOutput:     'readonly',
         maybePlayTapeDumpSound:     'readonly',
+        setTapeDumpSoundMuted:      'readonly',
+        setTapeDumpSoundVolume:     'readonly',
         stopTapeDumpSound:          'readonly',
         MAC_SPEAKER_LABEL_RE:       'readonly',
 
