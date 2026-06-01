@@ -281,6 +281,7 @@ When designing a new modal or panel, the first question to ask: *what would this
 7. **Commit messages** prefixed with `feat:`, `fix:`, `chore:`, `docs:`, `Spec:`, etc. See `git log --oneline` for the style.
 8. **Co-author trailer** on commits: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
 9. **Release notes are user-facing prose** — see Releases on GitHub for the established voice. Mirror that style for new releases.
+10. **Website pushes ship independently of app releases.** Any change under `docs/` that affects the public jx-3p.com site (`index.md`, `_layouts/`, `assets/`, `screenshots/`, `CNAME`, `_config.yml`) commits + pushes immediately on its own — DO NOT bundle with app code changes or hold for the next app release. GitHub Pages auto-deploys site changes in ~30–60 s; the app release cadence is much slower (every few days) and there's no reason a copy fix or a new feedback button should wait. Internal docs (`CLAUDE.md`, `future-features.md`, `smoke-test.md`, `release-notes-*.md`) MAY be bundled with the app commits they describe — they're development-team-facing, not site content.
 
 ## Architecture
 
