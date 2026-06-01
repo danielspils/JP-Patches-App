@@ -534,13 +534,36 @@ ipcMain.handle('record-to-wav', async (_e, { pcm, sampleRate = 44100, channels =
 // the original names instead of falling back to blank slots.
 const JP_CHUNK_ID = 'jPpS';
 
-function embedSlotMetaInWav(wavPath, slotMeta) {
-  if (!slotMeta || typeof slotMeta !== 'object') return;
-  const payload = Buffer.from(JSON.stringify({
-    v:        1,
-    app:      'JP Patches',
-    slotMeta,
-  }), 'utf8');
+// jPpS chunk schema versions:
+//   v:1 — { v: 1, app: 'JP Patches', slotMeta }       (patches only)
+//   v:2 — { v: 2, app: 'JP Patches', slotMeta?,       (either or both fields populated)
+//                                    sequenceMeta? }  (sequenceMeta added 2026-06-02 for v0.6.5)
+// v:1 chunks parse correctly under v:2 readers (sequenceMeta just absent).
+// v:2 chunks parse correctly under v:1 readers IF only slotMeta is populated;
+//   readers from v0.6.4 and earlier ignore unknown fields like sequenceMeta.
+const JP_CHUNK_SCHEMA_VERSION = 2;
+
+// Embed a jPpS metadata chunk into a finished WAV file. Caller passes a
+// `meta` object with optional slotMeta + sequenceMeta fields; only the
+// populated ones land in the chunk. Returns silently with no chunk written
+// when meta has nothing to embed (preserves the pre-v0.6.5 behaviour of
+// embedSlotMetaInWav(null) → no-op).
+function embedJpMetaInWav(wavPath, meta) {
+  meta = meta || {};
+  const hasSlot = meta.slotMeta && typeof meta.slotMeta === 'object'
+                  && Object.keys(meta.slotMeta).length > 0;
+  const hasSeq  = meta.sequenceMeta && typeof meta.sequenceMeta === 'object'
+                  && Object.keys(meta.sequenceMeta).length > 0;
+  if (!hasSlot && !hasSeq) return;
+
+  const payloadObj = {
+    v:   JP_CHUNK_SCHEMA_VERSION,
+    app: 'JP Patches',
+  };
+  if (hasSlot) payloadObj.slotMeta     = meta.slotMeta;
+  if (hasSeq)  payloadObj.sequenceMeta = meta.sequenceMeta;
+
+  const payload = Buffer.from(JSON.stringify(payloadObj), 'utf8');
   const size = payload.length;
   // RIFF requires chunk sizes to be word-aligned; pad with one zero byte if odd.
   const padByte = size & 1 ? 1 : 0;
@@ -577,14 +600,23 @@ function embedSlotMetaInWav(wavPath, slotMeta) {
   }
 }
 
-function readSlotMetaFromWav(wavPath) {
+// Backward-compat alias preserving the pre-v0.6.5 signature for existing
+// callers (and any external code that may have been written against it).
+// Routes through the new embedJpMetaInWav.
+function embedSlotMetaInWav(wavPath, slotMeta) {
+  return embedJpMetaInWav(wavPath, { slotMeta });
+}
+
+// Read the full jPpS chunk from a WAV — returns { slotMeta?, sequenceMeta?,
+// v } shape (or null if the chunk isn't present). Walks top-level RIFF
+// chunks; tolerant of v:1 chunks (where sequenceMeta is absent).
+function readJpMetaFromWav(wavPath) {
   let buf;
   try { buf = fs.readFileSync(wavPath); } catch { return null; }
   if (buf.length < 12) return null;
   if (buf.slice(0, 4).toString('ascii')  !== 'RIFF') return null;
   if (buf.slice(8, 12).toString('ascii') !== 'WAVE') return null;
 
-  // Walk top-level chunks starting at offset 12 looking for ours.
   let off = 12;
   while (off + 8 <= buf.length) {
     const id   = buf.slice(off, off + 4).toString('ascii');
@@ -593,13 +625,26 @@ function readSlotMetaFromWav(wavPath) {
       try {
         const json   = buf.slice(off + 8, off + 8 + size).toString('utf8');
         const parsed = JSON.parse(json);
-        return (parsed && parsed.slotMeta) || null;
+        if (!parsed || typeof parsed !== 'object') return null;
+        const result = { v: (typeof parsed.v === 'number' ? parsed.v : 1) };
+        if (parsed.slotMeta     && typeof parsed.slotMeta === 'object')     result.slotMeta = parsed.slotMeta;
+        if (parsed.sequenceMeta && typeof parsed.sequenceMeta === 'object') result.sequenceMeta = parsed.sequenceMeta;
+        return result;
       } catch { return null; }
     }
     // Skip to next chunk, honouring the trailing pad byte on odd-sized chunks.
     off += 8 + size + (size & 1);
   }
   return null;
+}
+
+// Backward-compat alias preserving the pre-v0.6.5 signature — returns just
+// the slotMeta object (the only field v:1 chunks carried). Routes through
+// readJpMetaFromWav and extracts the field. Returns null when no chunk
+// exists OR when the chunk has only sequenceMeta and no slotMeta.
+function readSlotMetaFromWav(wavPath) {
+  const meta = readJpMetaFromWav(wavPath);
+  return (meta && meta.slotMeta) || null;
 }
 
 // tape-save: SAVE on the JX-3P dumps patch memory OUT of the synth as audio.
@@ -746,13 +791,27 @@ ipcMain.handle('tape-cleanup-temp', async (_e, filePath) => {
 // seq-tape-encode-to-temp: same flow as tape-encode-to-temp but for the
 // sequencer dump WAV (jx3p seq-json-to-wav). Returns a temp WAV path the
 // renderer plays directly to the JX.
+//
+// Renderer may attach `_sequenceMeta` to the export payload so we can
+// preserve customName, originalName, createdAt, patchNote, pairedPatch
+// reference across cross-user WAV sharing (mirrors the _slotMeta pattern
+// for patches — see tape-load). Strip before passing to jx3p (whose
+// sequence schema doesn't know about it), embed after the WAV writes via
+// embedJpMetaInWav's v:2 sequenceMeta field. The chunk is invisible to
+// the JX (ignores unrecognized RIFF chunks) and to non-JP decoders.
 ipcMain.handle('seq-tape-encode-to-temp', async (_e, data) => {
   const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
   const tempWav  = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.wav`);
+  const { _sequenceMeta, ...jx3pData } = data || {};
   try {
-    fs.writeFileSync(tempJson, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${tempWav}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedJpMetaInWav(tempWav, { sequenceMeta: _sequenceMeta }); } catch (e2) {
+      // Best-effort: chunk failure shouldn't break the export. The WAV is
+      // still a valid sequence tape dump without the metadata chunk.
+      console.warn('embedJpMetaInWav(sequenceMeta) failed:', e2 && e2.message);
+    }
     return { ok: true, path: tempWav };
   } catch (err) {
     try { fs.unlinkSync(tempWav); } catch {}
@@ -768,7 +827,13 @@ async function decodeSeqFile(filePath) {
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
     const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-    return { loaded: true, data, path: filePath };
+    // If the WAV carries a jPpS v:2 chunk with sequenceMeta (embedded by
+    // another JP Patches export), surface it alongside the decoded data
+    // so the renderer can restore the original customName, originalName,
+    // createdAt, patchNote, etc.
+    const jpMeta = readJpMetaFromWav(filePath);
+    const sequenceMeta = (jpMeta && jpMeta.sequenceMeta) || null;
+    return { loaded: true, data, sequenceMeta, path: filePath };
   } finally {
     try { fs.unlinkSync(outputPath); } catch {}
   }
@@ -822,6 +887,11 @@ ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
   }
   if (dlg.canceled || !dlg.filePath) return { saved: false };
 
+  // Renderer may attach `_sequenceMeta` for cross-user customName/
+  // originalName/createdAt/etc. preservation — same pattern as tape-load
+  // strips `_slotMeta` for patches. Embed it via jPpS v:2 chunk after the
+  // jx3p encoder writes the WAV.
+  const { _sequenceMeta } = data || {};
   const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
   try {
     // jx3p seq-json-to-wav expects { kind: "sequence", format_version, pages: [...] }.
@@ -834,6 +904,11 @@ ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
     fs.writeFileSync(tempJson, JSON.stringify(payload, null, 2), 'utf8');
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${dlg.filePath}"`;
     await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedJpMetaInWav(dlg.filePath, { sequenceMeta: _sequenceMeta }); } catch (e2) {
+      // Best-effort: chunk failure shouldn't fail the export. The WAV is
+      // still a valid sequence tape dump without the embedded metadata.
+      console.warn('embedJpMetaInWav(sequenceMeta) failed:', e2 && e2.message);
+    }
     return { saved: true, path: dlg.filePath };
   } catch (err) {
     return { saved: false, error: err.stderr || err.message };
