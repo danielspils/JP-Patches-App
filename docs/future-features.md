@@ -162,18 +162,34 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
 
 ## Data interchange
 
-- **Preserve sequence customNames + metadata across cross-user WAV sharing (v0.6.5 target).** Patches already preserve customNames across share via the `jPpS` RIFF chunk (`embedSlotMetaInWav` / `readSlotMetaFromWav` in `main.js` — the chunk holds `{ v, app, slotMeta }`). Sequences DON'T have an equivalent today: share a sequence WAV → recipient's library gets a fresh `JP_sequence_N` defaultName with no customName, no patchNote, no paired-patch reference. The sender's "Friday Morning" name (and any context they attached) is lost.
+- **Preserve original names + creation dates across cross-user WAV sharing — patches + sequences (v0.6.5 target).** Today the `jPpS` RIFF chunk preserves the current `customName` for patches only (`embedSlotMetaInWav` / `readSlotMetaFromWav` in `main.js`, schema v:1). Sequences have nothing equivalent. v0.6.5 extends both directions:
+  - **Sequences get the chunk treatment for the first time** (so customName + patchNote land in the recipient's library).
+  - **Both patches AND sequences also preserve the FIRST creator's original name + creation timestamp** — set once at first export, never overwritten by subsequent renames. Recipients click the 'i' icon and see: `Originally: Spils Sequence · Created: June 1, 2026`.
 
-  **Goal**: extend the existing `jPpS` chunk schema to also carry sequence metadata, so the same cross-user-name-preservation pattern works for both kinds.
+  **Why "original name only" and not a full rename chain?** Daniel and I evaluated a chain design (`Spils Sequence > Mary's > Sunday Funday`) and landed on original-only as better UX:
+  - Captures the real signal — attribution to creator — without growing-chain edge cases (5+ trades make it ugly, easy to forge intermediate steps, more UI surface to design)
+  - Single immutable field, never grows, never decays
+  - Chain feature is a fine v0.7+ enhancement if community trading takes off and the storytelling becomes interesting
 
-  **Schema bump** (backward compatible):
+  **Schema bump** (backward compatible — v:1 chunks parse correctly under v:2 reader, just lack the new fields):
   ```jsonc
   {
     "v": 2,                                  // was 1
     "app": "JP Patches",
-    "slotMeta": { ... },                     // existing — populated for tone WAVs
-    "sequenceMeta": {                        // NEW — populated for sequence WAVs
-      "customName": "Friday Morning",
+    "slotMeta": {                            // existing — EXTENDED with originalName + createdAt
+      "C1": {
+        "customName": "...",                 // existing
+        "defaultName": "...",                // existing
+        "originSlot": "C1",                  // existing
+        "originLibrary": "...",              // existing
+        "originalName": "Warm Pad",          // NEW — first creator's name, set once at first export
+        "createdAt": "2026-06-01T15:30:00Z"  // NEW — first creation timestamp (from package createdAt at first export)
+      }
+    },
+    "sequenceMeta": {                        // NEW (whole field — sequences had nothing before)
+      "customName": "Sunday Funday",         // recipient sees this as the display name
+      "originalName": "Spils Sequence",      // NEW — first creator's name, set once
+      "createdAt": "2026-06-01T12:00:00Z",   // NEW — read from library.sequences[i].createdAt at first export
       "patchNote": "loose chord changes — for the basslines demo",
       "pairedPatch": {                       // OPEN QUESTION — embed full patch params or just name?
         "bank": "C",
@@ -185,26 +201,39 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
   }
   ```
 
-  v: 1 chunks (pure slotMeta, today's tone WAVs) parse correctly under the v: 2 reader — just lack the sequenceMeta field. v: 2 chunks with both populated would happen for nothing in current usage but the schema supports it for future bundled exports.
+  **Rules (uniform across patches + sequences):**
+  - `originalName` + `createdAt`: set ONCE at first export (when chunk has no prior value for that field). Preserved unchanged on every subsequent export forever.
+  - `customName`: refreshed on every export to reflect the current sender's name.
+  - On import: chunk fields land on the library entry; 'i' icon displays current name + originalName (if different) + createdAt.
 
   **Implementation:**
   - `main.js`: extend `embedSlotMetaInWav` → `embedJpMetaInWav({ slotMeta, sequenceMeta })`; update `readSlotMetaFromWav` → `readJpMetaFromWav` returning both shapes.
-  - `seqTapeEncodeToTemp` (sequence WAV export path): pass `sequenceMeta` derived from the library entry being shared.
+  - `seqTapeEncodeToTemp` (sequence WAV export path): pass `sequenceMeta` derived from the library entry. If the entry has no `originalName` (came from a non-jPpS WAV or was just created), set `originalName` = current `customName` at export time.
   - `seqTapeLoad` (sequence WAV import path): surface the embedded `sequenceMeta` in the IPC result.
-  - Renderer: prefer fingerprint-history (the recipient's own remembered names) over chunk customNames — same pattern as today's slotMeta. Falls back to chunk customName when history is silent. Patches already do this; mirror for sequences.
-  - Bump chunk version: `v: 1` → `v: 2`. Old readers gracefully ignore the new field; new readers handle both.
+  - Patch export path (`tapeEncodeToTemp`): similarly populate `originalName` + `createdAt` per slot on first export. For patches `createdAt` is the package's createdAt at first export (slight imprecision — multiple slots in one package share the date — but accurate enough at the per-patch granularity we care about).
+  - Renderer: prefer fingerprint-history (the recipient's own remembered names) over chunk `customName` — same precedence pattern slotMeta already uses. `originalName` + `createdAt` always populate from chunk if present (no local fallback needed — these are immutable historical facts about the file).
+  - 'i' icon: extend the existing patch lineage popover; build the equivalent for sequences if it doesn't exist yet.
+  - Bump chunk version: `v:1` → `v:2`. Old readers gracefully ignore the new fields; new readers handle both.
 
   **Open design questions:**
-  - **Embed pairedPatch.params?** Full 32-byte patch data adds ~80 bytes to the chunk. Recipient could hear the sequence "as the sender intended" if so. Otherwise paired-patch context is name-only (recipient knows which patch but doesn't have it). Recommend: embed params optionally, behind a flag — default off (privacy / size).
-  - **Embed createdAt?** Sequence creation timestamp could be preserved. Marginal value.
-  - **Embed author?** A `{ author: "Daniel Spils" }` field would let recipients see who created it. Privacy implications (some users wouldn't want their name in shared WAVs by default). Recommend: separate Settings preference, default off.
+  - **Embed pairedPatch.params?** Full 32-byte patch data adds ~80 bytes to the chunk. Recipient could hear the sequence "as the sender intended". Otherwise paired-patch context is name-only. Recommend: embed params optionally, default off, surface a Settings toggle.
+  - **Embed author?** A `{ author: "Daniel Spils" }` field would let recipients see who created it. Privacy implications. Recommend: separate Settings preference, default off. Defer entirely if no demand.
 
   **Test plan:**
-  - Round-trip: export sequence WAV from one library, import into another → confirm customName + patchNote land
-  - Backward compat: existing v: 1 tone WAVs still decode correctly after the schema bump
-  - Mixed: a WAV with both slotMeta + sequenceMeta chunks (unlikely in practice, but should be supported by the parser) decodes both
+  - Round-trip: export sequence/patch WAV from one library, import into another → confirm customName + originalName + createdAt land
+  - Re-export from second user: their customName overrides; originalName + createdAt unchanged
+  - Backward compat: existing v:1 tone WAVs still decode correctly after the schema bump
+  - 'i' icon: confirms display order — current customName prominent, originalName + createdAt as secondary lineage info
 
-  **Effort:** 2–3 hours including unit tests. Most of the cost is reading the existing patch path carefully + mirroring it for sequences.
+  **Effort:** ~5 hours focused work including unit tests + UI updates. Breakdown:
+  - Extend `embedSlotMetaInWav` → `embedJpMetaInWav` (both shapes): 30 min
+  - Sequence WAV save/import IPC plumbing: 1 h
+  - Renderer precedence (chunk > local fingerprint > default): 45 min
+  - Patch schema: add `originalName` + `createdAt` to slotMeta: 30 min
+  - Patch 'i' icon: extend existing lineage display: 30 min
+  - Sequence 'i' icon: build if not present + display history: 45 min
+  - Tests (round-trip + backward compat): 45 min
+  - Smoke test rows + CLAUDE.md update: 30 min
 
   **Why parked**: ready for v0.6.5 — explicit feature ask from Daniel. Not blocking v0.6.4 release.
 
