@@ -209,7 +209,7 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
 
 ## Data interchange
 
-- **Preserve original names + creation dates across cross-user WAV sharing — patches + sequences (v0.6.5 target).** Today the `jPpS` RIFF chunk preserves the current `customName` for patches only (`embedSlotMetaInWav` / `readSlotMetaFromWav` in `main.js`, schema v:1). Sequences have nothing equivalent. v0.6.5 extends both directions:
+- **Preserve original names + creation dates across cross-user WAV sharing — patches + sequences, plus paired-patch hint UI (v0.6.5 target, scope locked 2026-06-02).** Today the `jPpS` RIFF chunk preserves the current `customName` for patches only (`embedSlotMetaInWav` / `readSlotMetaFromWav` in `main.js`, schema v:1). Sequences have nothing equivalent. v0.6.5 extends both directions:
   - **Sequences get the chunk treatment for the first time** (so customName + patchNote land in the recipient's library).
   - **Both patches AND sequences also preserve the FIRST creator's original name + creation timestamp** — set once at first export, never overwritten by subsequent renames. Recipients click the 'i' icon and see: `Originally: Spils Sequence · Created: June 1, 2026`.
 
@@ -282,7 +282,62 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
   - Tests (round-trip + backward compat): 45 min
   - Smoke test rows + CLAUDE.md update: 30 min
 
-  **Why parked**: ready for v0.6.5 — explicit feature ask from Daniel. Not blocking v0.6.4 release.
+  ### Paired-patch hint UI (locked 2026-06-02 design session)
+
+  v0.6.5 also adds in-app surfacing for paired-patch context. The full Option D + A design (worked through with Daniel):
+
+  **The user-facing surface:** when a Library sequence with a paired patch is selected, an italicized hint text appears next to the Write button on the PG-200 panel:
+
+  > *"{sequence name} was written with Warm Pad — click Write to add Warm Pad to your library."*
+
+  The hint sits in the open space below the JP PATCHES logo, near the Manual/Write button row. Visible only when the selected sequence has a paired patch AND the patch isn't already in the user's library (fingerprint match).
+
+  **The Write button becomes context-aware** (the only mechanism change):
+  - **Normal context**: Write does what it does today — clones the currently-displayed C/D patch's params into the chosen slot
+  - **Paired-patch-hint context**: Write clones the PAIRED PATCH's params into the chosen slot (not the currently-displayed patch). Slot-picker banner reads "Click a slot to write **Warm Pad**" instead of "...current patch". Confirmation modal reads "Save **Warm Pad** to C7?"
+
+  **What the user does:**
+  1. Library → Sequences → click a sequence with paired-patch metadata
+  2. See the hint next to Write
+  3. Click Write → arms slot picker (with paired-patch-specific banner)
+  4. Click any C/D slot → confirmation modal
+  5. Confirm → paired patch lands in chosen slot
+  6. (Optional) Send Tones → JX gets the bank with paired patch
+  7. (Optional) Send Sequence → JX plays sequence through their now-loaded paired patch
+
+  **What the user does NOT need to do:**
+  - No new modal to learn
+  - No new button to discover (Write is where it always was)
+  - No surprise PG-200 panel changes (panel stays on user's current slot selection)
+  - No destructive auto-mutations
+
+  **What we explicitly DID NOT pick** (for design-trail clarity):
+  - **Option A — minimal**: just preserve metadata, no paired-patch UI. Too thin — leaves paired-patch context as data that goes nowhere.
+  - **Option B — preview mode**: PG-200 panel reflects paired-patch params automatically. Too invasive — surprises user with panel changes.
+  - **Option C — full 2-stage send**: "Send Sequence & Paired Patch to JX" modal with multi-step orchestration. Too complex — the bank-dump nature of the JX tape format makes "send one patch" a misleading framing; user would need slot picker + Memory Protect dance + multi-step transmission UX. The Option D version skips all this by letting the user drive the standard Write + Send-Tones + Send-Sequence flows separately, in their own time.
+  - **Auto-load preview into PG-200 panel + explicit toggle button**: rejected in favor of the hint-text approach, which is less surprising and doesn't change the panel state.
+
+  **Why this design is small implementation-wise:**
+  - PG-200 panel state is unchanged — no new preview-mode plumbing
+  - Write flow infrastructure (slot picker + confirmation modal) is reused as-is
+  - Only the click handler needs context-awareness (check "is paired-patch hint active?" → switch source of params)
+  - The hint text + position is new but small (≤30 lines of CSS + ~30 lines of renderer logic)
+
+  **MIDI future enhancement (Phase 3, not in v0.6.5):**
+  - The same Write → load-paired-patch flow ports cleanly: instead of writing to JP library + tape-dumping later, the MIDI path sends the patch directly to the JX via SysEx Data Set
+  - JX's permanent memory stays untouched (no slot overwrite needed)
+  - "Preview with paired patch" becomes AUDIBLE because JP can drive the JX via MIDI program-change + note messages
+  - The hint text could update to "click Write to send Warm Pad to your JX (no JX-memory overwrite)" in the MIDI world
+
+  **Pre-MIDI honest limitation (worth surfacing in release notes):** JP Patches doesn't synthesize the JX-3P's sound. The paired-patch flow gets the patch INTO the user's library, but to actually HEAR the sequence with that patch, the user has to tape-dump both to the JX and play from the JX. Sequencer note previews in JP remain triangle-wave tones regardless of paired-patch context — they don't reflect patch character. This is an inherent constraint of the tape-only architecture, not a feature limitation.
+
+  **Effort revised** with Option D + A:
+  - Phase A: chunk extension (slotMeta + sequenceMeta, originalName + createdAt) + sequence WAV save/import IPC + pure-logic tests — ~2.5 hr
+  - Phase B: 'i' icon for both patches + sequences (lineage display) + paired-patch hint UI + Write context-awareness — ~2.5 hr
+  - Phase C: smoke-test rows + CLAUDE.md update + manual round-trip verification — ~1 hr
+  - **Total: ~6 hr** (single focused session, or split across two)
+
+  **Why parked**: ready for v0.6.5 — scope locked. Not blocking v0.6.4 release.
 
 - **Visible DUMP PROGRESS bar during *capture***. *Partial — auto-stop in capture mode shipped 2026-05-24; the calibration-mode red gradient progress bar isn't yet reflected in capture.* In capture, the user has the segmented WHAT THE JX-3P SENDS timeline (structural) and the elapsed-time counter, but no dynamic "the dump is N% complete" bar like calibration has. Adding the same `.record-jx-cal-progress-*` bar to capture would give clearer "wait, the JX is still transmitting" feedback. Estimate ~30 min — re-parent / show the existing `calProgressSection` in capture mode and drive it from `totalSignalMs` like calibration already does.
 
