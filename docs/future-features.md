@@ -162,6 +162,52 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
 
 ## Data interchange
 
+- **Preserve sequence customNames + metadata across cross-user WAV sharing (v0.6.5 target).** Patches already preserve customNames across share via the `jPpS` RIFF chunk (`embedSlotMetaInWav` / `readSlotMetaFromWav` in `main.js` — the chunk holds `{ v, app, slotMeta }`). Sequences DON'T have an equivalent today: share a sequence WAV → recipient's library gets a fresh `JP_sequence_N` defaultName with no customName, no patchNote, no paired-patch reference. The sender's "Friday Morning" name (and any context they attached) is lost.
+
+  **Goal**: extend the existing `jPpS` chunk schema to also carry sequence metadata, so the same cross-user-name-preservation pattern works for both kinds.
+
+  **Schema bump** (backward compatible):
+  ```jsonc
+  {
+    "v": 2,                                  // was 1
+    "app": "JP Patches",
+    "slotMeta": { ... },                     // existing — populated for tone WAVs
+    "sequenceMeta": {                        // NEW — populated for sequence WAVs
+      "customName": "Friday Morning",
+      "patchNote": "loose chord changes — for the basslines demo",
+      "pairedPatch": {                       // OPEN QUESTION — embed full patch params or just name?
+        "bank": "C",
+        "slot": 5,
+        "patchName": "Warm Pad",
+        "params": { /* 32-byte patch */ }    // optional; only if we want recipient to hear it "as intended"
+      }
+    }
+  }
+  ```
+
+  v: 1 chunks (pure slotMeta, today's tone WAVs) parse correctly under the v: 2 reader — just lack the sequenceMeta field. v: 2 chunks with both populated would happen for nothing in current usage but the schema supports it for future bundled exports.
+
+  **Implementation:**
+  - `main.js`: extend `embedSlotMetaInWav` → `embedJpMetaInWav({ slotMeta, sequenceMeta })`; update `readSlotMetaFromWav` → `readJpMetaFromWav` returning both shapes.
+  - `seqTapeEncodeToTemp` (sequence WAV export path): pass `sequenceMeta` derived from the library entry being shared.
+  - `seqTapeLoad` (sequence WAV import path): surface the embedded `sequenceMeta` in the IPC result.
+  - Renderer: prefer fingerprint-history (the recipient's own remembered names) over chunk customNames — same pattern as today's slotMeta. Falls back to chunk customName when history is silent. Patches already do this; mirror for sequences.
+  - Bump chunk version: `v: 1` → `v: 2`. Old readers gracefully ignore the new field; new readers handle both.
+
+  **Open design questions:**
+  - **Embed pairedPatch.params?** Full 32-byte patch data adds ~80 bytes to the chunk. Recipient could hear the sequence "as the sender intended" if so. Otherwise paired-patch context is name-only (recipient knows which patch but doesn't have it). Recommend: embed params optionally, behind a flag — default off (privacy / size).
+  - **Embed createdAt?** Sequence creation timestamp could be preserved. Marginal value.
+  - **Embed author?** A `{ author: "Daniel Spils" }` field would let recipients see who created it. Privacy implications (some users wouldn't want their name in shared WAVs by default). Recommend: separate Settings preference, default off.
+
+  **Test plan:**
+  - Round-trip: export sequence WAV from one library, import into another → confirm customName + patchNote land
+  - Backward compat: existing v: 1 tone WAVs still decode correctly after the schema bump
+  - Mixed: a WAV with both slotMeta + sequenceMeta chunks (unlikely in practice, but should be supported by the parser) decodes both
+
+  **Effort:** 2–3 hours including unit tests. Most of the cost is reading the existing patch path carefully + mirroring it for sequences.
+
+  **Why parked**: ready for v0.6.5 — explicit feature ask from Daniel. Not blocking v0.6.4 release.
+
 - **Visible DUMP PROGRESS bar during *capture***. *Partial — auto-stop in capture mode shipped 2026-05-24; the calibration-mode red gradient progress bar isn't yet reflected in capture.* In capture, the user has the segmented WHAT THE JX-3P SENDS timeline (structural) and the elapsed-time counter, but no dynamic "the dump is N% complete" bar like calibration has. Adding the same `.record-jx-cal-progress-*` bar to capture would give clearer "wait, the JX is still transmitting" feedback. Estimate ~30 min — re-parent / show the existing `calProgressSection` in capture mode and drive it from `totalSignalMs` like calibration already does.
 
 ## Library metadata

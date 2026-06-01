@@ -184,6 +184,81 @@
   }
 
   /**
+   * Live-monitor a capture graph out the Mac built-in speakers — the
+   * Record-from-JX counterpart: hear the dump coming IN from the JX. Taps the
+   * given AudioNode (the capture session's gain node), routes a volume-
+   * controlled copy through a MediaStreamDestination → a separate <audio>
+   * element → setSinkId(built-in speaker). SILENT-FAIL.
+   *
+   * Built-in-speaker routing is MANDATORY here, not just nice: during Record
+   * the KT is the INPUT but also a possible OUTPUT, so monitoring via the
+   * system default could feed audio back into the JX's tape input mid-dump.
+   * selectTapeDumpSpeaker's allowlist guarantees we only ever hit the Mac's
+   * own speakers — never the cable. The tap also never touches the capture's
+   * own nodes beyond adding one outgoing connection we later disconnect, so
+   * it cannot affect capture quality.
+   *
+   * Browser-only (Web Audio + Audio); not exercised by the Node tests.
+   *
+   * @param {Object} opts
+   * @param {AudioContext} opts.audioContext  the capture session's context
+   * @param {AudioNode}    opts.sourceNode    node to tap (the gain node)
+   * @param {string|null}  opts.cableDeviceId belt-and-suspenders exclusion
+   * @param {boolean}      opts.enabled
+   * @param {boolean}      [opts.muted=false]
+   * @param {number}       [opts.volume=0.0025]
+   * @returns {Promise<{stop:Function,setVolume:Function,setMuted:Function}|null>}
+   */
+  async function startTapeDumpMonitor(opts) {
+    const o = opts || {};
+    if (!o.enabled) return null;
+    try {
+      const ctx = o.audioContext;
+      if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
+      if (typeof navigator === 'undefined'
+          || !navigator.mediaDevices
+          || typeof navigator.mediaDevices.enumerateDevices !== 'function') return null;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const speaker = selectTapeDumpSpeaker(devices, o.cableDeviceId);
+      if (!speaker) return null;                          // no eligible speaker → silent skip
+
+      let vol   = (typeof o.volume === 'number' ? o.volume : 0.0025);
+      let muted = !!o.muted;
+      const monGain = ctx.createGain();
+      monGain.gain.value = muted ? 0 : vol;
+      const dest = ctx.createMediaStreamDestination();
+      o.sourceNode.connect(monGain);
+      monGain.connect(dest);
+
+      const a = new Audio();
+      a.srcObject = dest.stream;
+      a.volume = 1;                                       // level controlled by monGain
+      // Routing guard: without setSinkId we can't guarantee built-in speakers
+      // (it'd fall to the system default, which might be the KT → feedback).
+      if (typeof a.setSinkId !== 'function') {
+        try { o.sourceNode.disconnect(monGain); } catch {}
+        return null;
+      }
+      await a.setSinkId(speaker.deviceId);                // throws → caught → cleaned up below
+      await a.play();
+
+      const apply = () => { monGain.gain.value = muted ? 0 : vol; };
+      return {
+        stop() {
+          try { a.pause(); a.srcObject = null; } catch {}
+          try { monGain.disconnect(); } catch {}
+          try { o.sourceNode.disconnect(monGain); } catch {}
+        },
+        setVolume(v) { if (typeof v === 'number') vol = Math.max(0, Math.min(1, v)); apply(); },
+        setMuted(m)  { muted = !!m; apply(); },
+      };
+    } catch (err) {
+      console.warn('[transmission-sounds] monitor skipped:', (err && err.name) || err);
+      return null;
+    }
+  }
+
+  /**
    * Stop + release the active tape-dump sound, if any. Silent-fail.
    */
   function stopTapeDumpSound() {
@@ -206,6 +281,7 @@
     window.maybePlayTapeDumpSound  = maybePlayTapeDumpSound;
     window.setTapeDumpSoundMuted   = setTapeDumpSoundMuted;
     window.setTapeDumpSoundVolume  = setTapeDumpSoundVolume;
+    window.startTapeDumpMonitor    = startTapeDumpMonitor;
     window.stopTapeDumpSound       = stopTapeDumpSound;
     window.MAC_SPEAKER_LABEL_RE    = MAC_SPEAKER_LABEL_RE;
   }
@@ -217,6 +293,7 @@
       maybePlayTapeDumpSound,
       setTapeDumpSoundMuted,
       setTapeDumpSoundVolume,
+      startTapeDumpMonitor,
       stopTapeDumpSound,
       MAC_SPEAKER_LABEL_RE,
     };

@@ -114,6 +114,37 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Sequence capture: Tape Memory → Sequencer → Save from JX-3P | same flow as tones; save-sequence modal appears | |
 | Recalibrate path: trigger a "didn't decode cleanly" failure, click Recalibrate | calibration modal opens with PRIOR gain (not 1×) | |
 
+### v0.6.4 additions (Record-from-JX modal cleanup)
+
+| Check | Expected | Result |
+|---|---|---|
+| Open Record-from-JX (Sequence) | title reads **"Import sequence from JX-3P"** (NO "Step 2 of 2" prefix) | |
+| Open Record-from-JX (Tone) | title reads **"Import C/D banks from JX-3P"** | |
+| First-time-on-a-new-device path (rare): open Record-from-JX with no calibrated gain | title reads **"Calibrate volume"** (no Step prefix) | |
+| Capture mode initial state (before pressing Save on JX) | JX-key diagram **centered** in the row, NO JP logo, NO arrow visible | |
+| Press Save on JX → signal arrives | JP logo + arrow fade in over ~0.5 s, diagram shifts right to make room | |
+| Engineer a clipping capture (crank input gain or use a hot signal) | warning shows three buttons: **Try again** (green) / **Calibrate** (blue) / **Use anyway** (red) | |
+| Click Calibrate from the warning | modal returns to calibration screen with gain knob + level meter; saved gain cleared | |
+| Click Use anyway from the warning | red color signals "are you sure"; capture proceeds | |
+| Sequence default name after capture (no prior `JP_sequence_*` entries) | save modal defaults to `JP_sequence_1` | |
+| Capture another sequence | save modal defaults to `JP_sequence_2` (counter increments) | |
+| Rename `JP_sequence_2` to something custom, then capture another | next defaults to `JP_sequence_3` (counter reads defaultName, not customName) | |
+| **No `PROMISE Cannot access 'tapeDumpMuted' before initialization` error banner** on any Record-from-JX open | (regression catch — TDZ bug hit in pre-release testing) | |
+
+### 6a. Tape dump sounds (Record-side — hear incoming dump)
+
+> Same as §7a but the OPPOSITE direction: hear the JX dump **coming IN** through your Mac speakers during Record. Built-in-speaker routing is forced (mandatory, not just nice — monitoring via system default could feed audio back into the JX during capture). **Pre-check:** Audio Diagnostics modal (Help > Audio Diagnostics) shows green.
+
+| Check | Expected | Result |
+|---|---|---|
+| **View → Tape dump sounds** unchecked → open Record-from-JX → reach capture mode | NO Tape Dump control in the modal | |
+| Check **View → Tape dump sounds** → reopen Record-from-JX → capture mode | Tape Dump control visible (slider + mute icon + "What does my tape dump sound like?" link) | |
+| With feature on, press Save on JX → signal arrives | hear the incoming FSK through laptop speakers in parallel with the capture | |
+| Drag the slider mid-capture | live volume change; capture unaffected | |
+| Click the mute icon mid-capture | sound mutes/unmutes live; capture unaffected | |
+| Click the "What does my tape dump sound like?" info ⓘ | green popover appears opening **UPWARD** (Record modal is taller than Send — popover would otherwise overflow the viewport) | |
+| Calibration mode (rare path) | Tape Dump control is **hidden** (calibration is about measuring source, not monitor playback) | |
+
 ## 7. Send-to-JX-3P (requires JX-3P + cable)
 
 | Check | Expected | Result |
@@ -126,6 +157,22 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Save WAV branch: click "Save WAV file" instead | file dialog → confirms saved | |
 | Cancel during playback | audio stops, modal closes | |
 | Sequence variant: Library → Sequences → LOAD a sequence | send modal opens with paired-patch context | |
+
+### v0.6.4 additions (Send-to-JX modal cleanup)
+
+| Check | Expected | Result |
+|---|---|---|
+| Open Send-to-JX (Sequence) with no source label | title reads **"Send sequence to JX-3P"** | |
+| Open Send-to-JX (Tones) with no source label | title reads **"Send C/D banks to JX-3P"** | |
+| Open Send-to-JX with a named library package (e.g. Spils Sounds) | title reads `Send` *Spils Sounds* `to JX-3P` — package name italic + muted grey (NOT quoted, NOT bold) | |
+| Send-modal body copy | **centered**, single instruction line `On the JX-3P click Tape Memory → Load, then hit Play below.` | |
+| Memory Protect hint visible below instruction | italic sub-line: *Make sure Memory Protect is off on the JX-3P.* | |
+| NO time-estimate paragraph ("Transfer takes about Xs…") | removed | |
+| NO "(button 13)" / "(button 16)" parenthetical in the instruction | removed | |
+| NO pre-play "First click JX buttons, then hit Play below" message | removed | |
+| OUTPUT DEVICE block sits **between cause→effect row and timeline** | labeled "OUTPUT DEVICE:" + boxed display with current system default | |
+| If output IS your Mac speakers (unplug interface as a test) | amber warning appears below the OUTPUT DEVICE box | |
+| Transfer completes | label under JX-3P logo changes from `loading: ` *name* to `✓ complete:` *name* | |
 
 ### 7a. Tape dump sounds (the parallel monitor — requires JX-3P + cable + built-in speakers audible)
 
@@ -180,6 +227,24 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Help → GitHub link | browser opens repo | |
 | JP Patches → Check for Updates… (dev / `npm start`) | "Updates unavailable in development" dialog — no crash | |
 | Cmd+W | window closes (app stays in dock) | |
+| View → Tape dump sounds (uncheck) | menu item state toggles + persists | |
+| View → Tape dump sounds (re-check) | toggles back | |
+
+### 10a. Audio Diagnostics (Help menu, v0.6.4)
+
+> Surfaces whether the Tape Dump Sounds built-in-speaker allowlist matches your live audio device labels. Primary use: catching the macOS-update regression where speaker label format changes and `setSinkId` silently stops routing.
+
+| Check | Expected | Result |
+|---|---|---|
+| Help → Audio Diagnostics… | modal opens, title "Audio Diagnostics" | |
+| Normal state (MacBook with built-in speakers detected) | **green** banner: "✓ All systems go! Tape Dump Sounds will play through *MacBook Pro Speakers (Built-in)*" + Done button (NO Report button) | |
+| Close button (×) and Done button both dismiss the modal | works | |
+| Esc key dismisses | works | |
+| Engineered no-match state (rare — would require macOS changing label format) | amber banner: "OS may have changed output labels…" + **Report this bug** button (left) + Done (right) | |
+| Click **Report this bug** | default browser opens to a pre-filled GitHub Issue on `danielspils/JP-Patches-App` with title, app version, macOS Darwin release, allowlist regex, full device list embedded — paste-and-go | |
+| Modal closes after successful Report (browser opened) | confirms the openExternal IPC returned ok | |
+| Engineered no-outputs state (extremely rare — Mac with no audio outputs at all) | amber banner: "No audio outputs detected on this Mac" + Report button | |
+| Engineered empty-labels state (fresh install, mic permission not yet granted) | **blue** info banner: "Audio device labels are not yet visible (microphone permission required)" + NO Report button | |
 
 ## 11. Persistence check
 

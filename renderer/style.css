@@ -1443,6 +1443,15 @@ body.seq-dragging-pitch * {
   margin-bottom: 14px;
   text-align: center;
 }
+/* Inline <em> inside a modal title (currently: source-package name in the
+   Send modal — `Send <em>Spils Sounds</em> to JX-3P`). Stays bold (inherits
+   the title's 600 weight) but switches to italic + the subdued body-text
+   color (var(--text-mid)) so the name visually separates from the
+   surrounding bright verb + suffix without dropping in weight. */
+.modal-title em {
+  font-style: italic;
+  color: var(--text-mid);
+}
 /* When a subtitle is present, pull the title and subtitle together so they
    read as a single header block. */
 .modal.has-subtitle .modal-title { margin-bottom: 4px; }
@@ -1475,7 +1484,7 @@ body.seq-dragging-pitch * {
    .step-2 class is added by enterPlayState in app.js. */
 .send-jx-modal { max-width: 420px; }
 .send-jx-modal.step-2 { max-width: 560px; }
-.send-jx-modal .modal-body { text-align: left; }
+.send-jx-modal .modal-body { text-align: center; }
 .send-jx-status { margin: 12px 0 18px; min-height: 32px; }
 /* Built-in-speaker warning — amber, shown when the Send output device is the
    Mac's own speakers (almost always wrong: blasts the speakers, JX gets
@@ -1486,6 +1495,35 @@ body.seq-dragging-pitch * {
   font-size: 11px;
   line-height: 1.4;
   font-weight: 600;
+}
+
+/* OUTPUT DEVICE section in the Send modal step 2 — visual parallel to
+   the INPUT DEVICE block in the Save modal (.record-jx-device*). Sits
+   between the cause→effect row and the timeline. Read-only display
+   (no picker today; the transfer uses the system default output) styled
+   to match the Save modal's picker so the two modals read consistently.
+   The built-in-speaker warning lives inside this section. */
+.send-jx-device-section {
+  margin: 0 0 16px;
+}
+.send-jx-device-label {
+  display: block;
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+}
+.send-jx-device-display {
+  width: 100%;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  box-sizing: border-box;
 }
 .send-jx-status-text {
   font-size: 12px;
@@ -1592,6 +1630,15 @@ body.seq-dragging-pitch * {
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   text-align: center;
+}
+/* Record-from-JX modal is taller than Send (more content above the tdsCtrl
+   slot), so the default below-trigger popover overflows past the viewport.
+   Flip it to open UPWARD inside the Record modal — it covers the slider
+   briefly, but the slider isn't the focus when the user just clicked the
+   info trigger. Send modal keeps the downward-opening (no overflow there). */
+.record-jx-modal .send-jx-tds-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 .send-jx-tds-pop-close {
   position: absolute;
@@ -2238,26 +2285,15 @@ body.seq-dragging-pitch * {
 }
 
 /* Pre-play instruction — Send-to-JX modal step 2, before Play. Sits in the
-   JX-3P logo's slot in the cause→effect row, telling the user to arm the JX
-   first then hit the bottom-row Play. On Play it's swapped for the logo and
-   the transfer begins (see showSendToJxFlow / startPlayback). Visibility is
-   state-driven: hidden by default, shown when sendRow has .play-ready,
-   hidden again once .playing replaces it. */
-.send-jx-play-msg {
-  display: none;                 /* shown only via .play-ready below */
-  flex: 0 0 180px;
-  font-size: 12px;               /* match the modal body text */
-  color: #f7f1e6;                /* vintage cream — antique Roland white */
-  text-align: left;
-  line-height: 1.6;              /* match the modal body line-height */
-}
-.record-jx-cal-row.play-ready .send-jx-play-msg { display: block; }
-/* Pre-playback: the message takes the logo's slot, so hide the logo until
-   Play. The arrow stays hidden too — it signals live Mac→JX transmission, so
-   it must not appear until the user has armed the JX and clicked Play. It
-   keeps the capture-mode default (opacity:0) and is revealed only by
-   .playing (added in startPlayback), at which point the logo returns + fades
-   in and the arrow starts its march. */
+   Pre-playback: hide the JX-3P logo until Play. The arrow stays hidden too —
+   it signals live Mac→JX transmission, so it must not appear until the user
+   has armed the JX and clicked Play. It keeps the capture-mode default
+   (opacity:0) and is revealed only by .playing (added in startPlayback), at
+   which point the logo returns + fades in and the arrow starts its march.
+   (Removed 2026-05-30: .send-jx-play-msg + its .play-ready show rule —
+   the "First click JX buttons, then hit Play below" message that used to
+   fill the logo's slot in the pre-play state. The title + body copy
+   already say this; the message was duplicate instruction.) */
 .record-jx-cal-row.play-ready .record-jx-jx3p-logo { display: none; }
 
 /* "saving: {package}" / "loading: {package}" label that sits below the
@@ -2341,20 +2377,34 @@ body.seq-dragging-pitch * {
    In CALIBRATION mode the knob + meter are ALWAYS visible, otherwise the
    user can't dial up gain to even reach the signal-detection threshold
    when the JX is naturally quiet at 1× (chicken-and-egg). Arrow in
-   calibration is also always visible since it's part of the row layout. */
+   calibration is also always visible since it's part of the row layout.
+
+   2026-05-30: changed from opacity:0-still-in-layout to display:none-
+   removed-from-layout so the diagram CENTERS in the empty pre-signal
+   row and visually SHIFTS when the logo + arrow re-enter layout on
+   signal detection. (Matches the Send modal's "buttons centered →
+   shift left to make room for logo" pattern Daniel praised.) The
+   fade-in is preserved via a keyframe animation triggered on the
+   display change. */
 .record-jx-cal-row.capture-mode .record-jx-cal-arrow,
 .record-jx-cal-row.capture-mode .record-jx-jx3p-logo,
 .record-jx-cal-row.capture-mode .record-jx-jp-logo {
-  opacity: 0;
-  transition: opacity 0.5s ease;
+  display: none;
+}
+/* Brief fade-in on reveal — gentler than a hard snap. animation rather
+   than transition because display:none → display:flex isn't transitionable. */
+@keyframes cal-row-element-reveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .record-jx-cal-row.capture-mode.playing .record-jx-cal-arrow {
-  opacity: 1;
-  transition: opacity 0.15s ease;   /* arrow appears nearly immediately */
+  display: flex;
+  animation: cal-row-element-reveal 0.15s ease;  /* arrow appears nearly immediately */
 }
 .record-jx-cal-row.capture-mode.playing .record-jx-jx3p-logo,
 .record-jx-cal-row.capture-mode.playing .record-jx-jp-logo {
-  opacity: 1;
+  display: flex;
+  animation: cal-row-element-reveal 0.5s ease;   /* logo a touch slower */
 }
 /* Diagram dims to 50% on .playing in BOTH calibration and capture modes
    — the user has already pressed the JX button, instructional purpose

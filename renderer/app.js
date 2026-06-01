@@ -5263,7 +5263,7 @@ function showSendToJxModal(exportData, sourceLabel) {
     kind: 'patches',
     encodeApi: 'tapeEncodeToTemp',
     saveApi:   'tapeLoad',
-    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span> (button 16), then hit Play below.',
+    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span>, then hit Play below.<br><em>Make sure Memory Protect is off on the JX-3P.</em>',
     segments:  [
       { kind: 'init',    label: 'Init',    pilot: true  },
       { kind: 'bank-c',  label: 'Bank C',  pilot: false },
@@ -5280,7 +5280,7 @@ function showSendSequenceToJxModal(exportData, sourceLabel) {
     kind: 'sequence',
     encodeApi: 'seqTapeEncodeToTemp',
     saveApi:   'seqTapeLoad',
-    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span> (button 13), then hit Play below.',
+    jxStep2:   'On the JX-3P click <span class="btn-hint">Tape Memory</span> → <span class="btn-hint">Load</span>, then hit Play below.<br><em>Make sure Memory Protect is off on the JX-3P.</em>',
     segments:  [
       { kind: 'init',     label: 'Init',     pilot: true  },
       { kind: 'sequence', label: 'Sequence', pilot: false },
@@ -5317,9 +5317,14 @@ function showSendToJxFlow(opts) {
   const h = document.createElement('h2');
   h.className = 'modal-title';
   const fallback = kind === 'sequence' ? 'Send sequence to JX-3P' : 'Send C/D banks to JX-3P';
-  h.textContent = sourceLabel
-    ? `Send "${sourceLabel}" to JX-3P`
-    : fallback;
+  // sourceLabel renders italicized (no quotes — typographic convention for
+  // a name). Use innerHTML + escapeHtml so a malicious package name can't
+  // inject markup; fallback is a known literal so it's safe as-is.
+  if (sourceLabel) {
+    h.innerHTML = `Send <em>${escapeHtml(sourceLabel)}</em> to JX-3P`;
+  } else {
+    h.textContent = fallback;
+  }
   modal.appendChild(h);
 
   // Empty body element kept in DOM so enterPlayState (step 2) can populate
@@ -5338,15 +5343,42 @@ function showSendToJxFlow(opts) {
   const { sendRow, sendArrow, sendJxLogo, jxKeyDiagram: _jxKeyDiagram } = buildSendRow(kind, sourceLabel);
   modal.appendChild(sendRow);
 
-  // Pre-play instruction filling the cause→effect row's right slot (where
-  // the JX-3P logo fades in once transmission starts). Play itself lives in
-  // the bottom action row (the standard position). Shown only in the
-  // .play-ready (pre-Play) state; swapped out for the JX-3P logo on Play.
-  const playReadyMsg = document.createElement('div');
-  playReadyMsg.className = 'send-jx-play-msg';
-  playReadyMsg.innerHTML =
-    'First click JX buttons,<br>then hit Play below<br>to initiate tape dump.';
-  sendRow.insertBefore(playReadyMsg, sendJxLogo);
+  // (Removed 2026-05-30: pre-play "First click JX buttons, then hit Play
+  // below to initiate tape dump." instruction that used to fill the
+  // cause→effect row's right slot in the .play-ready state. The body
+  // copy ("On the JX-3P click [Tape Memory] → [Load], then hit Play
+  // below.") + the title already convey this — the playReadyMsg was
+  // duplicating instruction. The .play-ready / .playing state machine
+  // still gates the JX-3P logo's reveal on the Play click.)
+
+  // Output-device section — visual parallel to the Save modal's INPUT
+  // DEVICE block (see record-jx-device-* in showRecordFromJxModal). Read-
+  // only display of the system default output device, plus a hidden
+  // "that's your built-in speakers" warning that shows when the resolved
+  // default IS the Mac's own speakers (interface got unplugged → FSK
+  // would blast the speakers and the JX would receive nothing).
+  // Created here so the DOM order is title → instruction-body → sendRow
+  // → outputDeviceSection → status(timeline). Hidden until step 2.
+  const outputDeviceSection = document.createElement('div');
+  outputDeviceSection.className = 'send-jx-device-section';
+  outputDeviceSection.style.display = 'none';
+  const outputDeviceLabel = document.createElement('label');
+  outputDeviceLabel.className = 'send-jx-device-label';
+  outputDeviceLabel.textContent = 'OUTPUT DEVICE:';
+  const outputDeviceDisplay = document.createElement('div');
+  outputDeviceDisplay.id = 'send-jx-output-display';
+  outputDeviceDisplay.className = 'send-jx-device-display';
+  outputDeviceDisplay.textContent = 'checking…';
+  const speakerWarning = document.createElement('div');
+  speakerWarning.id = 'send-jx-speaker-warning';
+  speakerWarning.className = 'send-jx-output-warning';
+  speakerWarning.style.display = 'none';
+  speakerWarning.textContent =
+    '⚠ That’s your Mac’s built-in speakers, not your JX cable — the dump will blast out the speakers at full volume and the JX won’t receive it. Plug in and select your audio interface as the output.';
+  outputDeviceSection.appendChild(outputDeviceLabel);
+  outputDeviceSection.appendChild(outputDeviceDisplay);
+  outputDeviceSection.appendChild(speakerWarning);
+  modal.appendChild(outputDeviceSection);
 
   // Per-segment timeline + indicator + status text. Construction in
   // buildSendStatusSection above. Hidden until enterPlayState (step 2).
@@ -5389,8 +5421,8 @@ function showSendToJxFlow(opts) {
       '<input type="range" class="send-jx-tds-slider" min="0" max="1" step="0.01" aria-label="Tape dump sound volume">' +
       '<span class="send-jx-tds-volicon" aria-hidden="true">' + tdsSvg(SPK + WAVE) + '</span>' +
     '</div>' +
-    '<button type="button" class="send-jx-tds-q" aria-label="What does your tape dump sound like?">' +
-      'What does your tape dump sound like?' +
+    '<button type="button" class="send-jx-tds-q" aria-label="What does my tape dump sound like?">' +
+      'What does my tape dump sound like?' +
       '<svg class="send-jx-tds-iicon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">' +
         '<circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
         '<line x1="8" y1="7.2" x2="8" y2="11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
@@ -5550,25 +5582,21 @@ function showSendToJxFlow(opts) {
     // Widen the modal for step 2 (timeline + sendRow need the room). Step 1
     // is a tighter shell — header + 3 buttons. See .send-jx-modal CSS.
     modal.classList.add('step-2');
-    // Header is kind-aware so users sending a sequence vs patches
-    // get the right context. (Was a generic "Ready to send" before
-    // 2026-05-26; "Tape dump audio is ready" lead-line dropped at
-    // the same time — redundant given the rest of the body text.)
-    h.textContent = kind === 'sequence' ? 'Ready to send sequence' : 'Ready to send patches';
-    const dur = durationSec ? `${Math.ceil(durationSec)} seconds` : 'about 25 seconds';
-    body.innerHTML =
-      `<p>${jxStep2}</p>` +
-      `<p style="margin-top: 8px; color: var(--text-mid); font-size: 12px;">Transfer takes about ${dur}. Don't switch apps or generate audio during transfer.</p>` +
-      // Output-device label — shows where the audio is going. Most common
-      // "Send isn't working" cause is the system default output being
-      // something other than the cable to the JX (e.g. internal speakers,
-      // AirPods). Surfacing the device gives the user a one-glance check.
-      `<p id="send-jx-output-label" style="margin-top: 8px; color: var(--text-mid); font-size: 11px; font-style: italic;">Audio output device: <span style="color: var(--text-bright); font-style: normal;">checking…</span></p>` +
-      // Built-in-speaker warning — when the system default output is the Mac's
-      // own speakers (e.g. the audio interface got unplugged), the transfer
-      // blasts the FSK out the speakers AND the JX receives nothing. Hidden
-      // unless the device check below detects that case.
-      `<p id="send-jx-speaker-warning" class="send-jx-output-warning" style="display:none;">⚠ That's your Mac's built-in speakers, not your JX cable — the dump will blast out the speakers at full volume and the JX won't receive it. Plug in and select your audio interface as the output.</p>`;
+    // Header from Step 1 carries through unchanged — it's already in the
+    // `Send [thing] to JX-3P` family pattern AND preserves the source
+    // label if one was provided (e.g. `Send "Spils Sounds" to JX-3P`).
+    // (Historical: Step 2 used to override with "Ready to send sequence"
+    // / "Ready to send patches" — dropped 2026-05-30 to (a) unify all
+    // four modals in the Save/Send + Sequence/Tones matrix under the
+    // same title pattern and (b) preserve the source label across steps.)
+    // Body: just the primary instruction (jxStep2). The previous "transfer
+    // takes about Xs / don't switch apps / generate audio" advisory was
+    // dropped 2026-05-30 — the segmented timeline below already
+    // communicates duration visually, and the "don't generate audio"
+    // caveat reads as paranoid for a one-click flow. The output-device
+    // label + speaker-warning moved into their own section between
+    // sendRow and the timeline (see outputDeviceSection above).
+    body.innerHTML = `<p>${jxStep2}</p>`;
     statusText.textContent = '';
     segDurations = computeSegDurations(durationSec, segs);
     applySegProportions(segDurations);
@@ -5577,6 +5605,7 @@ function showSendToJxFlow(opts) {
     // is when the user actually needs to know which key to press and watch
     // the output level during playback.
     sendRow.style.display = '';
+    outputDeviceSection.style.display = '';
     // Arm the row: reveals the big PLAY CTA + the (static) arrow pointing at
     // it, and hides the JX-3P logo until PLAY is pressed (startPlayback swaps
     // .play-ready → .playing).
@@ -5593,10 +5622,9 @@ function showSendToJxFlow(opts) {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
         const def     = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-        const labelEl = document.getElementById('send-jx-output-label');
-        if (labelEl) {
-          const span = labelEl.querySelector('span');
-          if (span) span.textContent = (def && def.label) || 'System default (label unavailable)';
+        const displayEl = document.getElementById('send-jx-output-display');
+        if (displayEl) {
+          displayEl.textContent = (def && def.label) || 'System default (label unavailable)';
         }
         // Resolve the REAL device behind the 'default' alias (same groupId)
         // so Tape Dump Sounds can exclude it — the transfer plays out the
@@ -5726,8 +5754,15 @@ function showSendToJxFlow(opts) {
       // JX-3P logo — the shimmer effect on the package name lives in
       // CSS keyed on parent .playing class and a .complete class on
       // the label itself. See style.css `.record-jx-package-label`.
+      // Also swap the prefix verb "loading:" → "complete:" so the label
+      // confirms the transfer ended (rather than reading as still
+      // in-progress because it kept the active-state verb).
       const sendLabelEl = sendJxLogo.querySelector('.record-jx-package-label');
-      if (sendLabelEl) sendLabelEl.classList.add('complete');
+      if (sendLabelEl) {
+        sendLabelEl.classList.add('complete');
+        const prefixEl = sendLabelEl.querySelector('.record-jx-package-label-prefix');
+        if (prefixEl) prefixEl.textContent = '✓ complete:';
+      }
       statusText.textContent = '✓ Complete. Check your JX for confirmation.';
       // "▶ Play" becomes "Done" — the only remaining action closes the modal.
       primaryBtn.textContent = 'Done';
@@ -5814,7 +5849,12 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
     });
     return;
   }
-  presentSequenceSaveModal(result.data, tempWavPath);
+  // Pass null for sourcePath — the temp WAV's filename (jp_seq_record_
+  // {timestamp}) would otherwise leak through labelFromPath() as the
+  // initial sequence name. Null forces the fallback to
+  // sequenceDefaultName(new Date()) which gives a human-readable
+  // "Sequence June 1, 2026" instead.
+  presentSequenceSaveModal(result.data, null);
 }
 
 // Shared post-decode handler: opens the Save Sequence modal for naming +
@@ -6361,6 +6401,100 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // capture). Lives at modal level since meterSection was removed.
   modal.appendChild(gainSection);
   modal.appendChild(timelineSection);
+
+  // Tape Dump Sounds state — MUST be declared before the tdsCtrl block
+  // below, because the initial syncTdsMuteRec() call reads tapeDumpMuted
+  // synchronously during modal construction. Mirrors the Send-modal
+  // pattern (showSendToJxFlow declares cableDeviceId + tapeDumpMuted
+  // immediately before its tdsCtrl block for the same reason).
+  let tapeDumpMonitor = null;       // live speaker monitor (created post-capture-start by startTapeDumpMonitor)
+  let tapeDumpMuted = false;        // per-modal mute toggle (session-local, no library write)
+
+  // Tape Dump Sounds control — mirrors the Send-modal tdsCtrl. Mute
+  // toggle + volume slider + info popover. Reuses the .send-jx-tds CSS
+  // classes (named for historical reasons; the styling is generic to
+  // the tape-dump-sounds control surface and works for both Send and
+  // Record modals). Hidden by default; revealed when entering capture-
+  // mode AND tapeDumpSoundsEnabled (see configureForCurrentDevice).
+  // Live mute/volume changes call tapeDumpMonitor?.setMuted/setVolume
+  // (optional chaining — monitor doesn't exist until startTapeDumpMonitor
+  // resolves after capture starts; slider still updates persisted volume
+  // before then so the monitor inherits the right value on launch).
+  const tdsSpkRec  = '<polygon points="3 9 7 9 11 5 11 19 7 15 3 15" fill="currentColor" stroke="none"/>';
+  const tdsWaveRec = '<g class="snd-wave"><path d="M15 9.5a4 4 0 0 1 0 5"/><path d="M17.5 7a7.5 7.5 0 0 1 0 10"/></g>';
+  const tdsSlashRec = '<g class="snd-slash"><line x1="15" y1="9" x2="21" y2="15"/><line x1="21" y1="9" x2="15" y2="15"/></g>';
+  const tdsSvgRec = (inner) =>
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+  const tdsCtrl = document.createElement('div');
+  tdsCtrl.className = 'send-jx-tds';
+  tdsCtrl.style.display = 'none';
+  tdsCtrl.innerHTML =
+    '<div class="send-jx-tds-row">' +
+      '<button type="button" class="send-jx-tds-mute" aria-label="Mute tape dump sound">' + tdsSvgRec(tdsSpkRec + tdsWaveRec + tdsSlashRec) + '</button>' +
+      '<input type="range" class="send-jx-tds-slider" min="0" max="1" step="0.01" aria-label="Tape dump sound volume">' +
+      '<span class="send-jx-tds-volicon" aria-hidden="true">' + tdsSvgRec(tdsSpkRec + tdsWaveRec) + '</span>' +
+    '</div>' +
+    '<button type="button" class="send-jx-tds-q" aria-label="What does my tape dump sound like?">' +
+      'What does my tape dump sound like?' +
+      '<svg class="send-jx-tds-iicon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">' +
+        '<circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+        '<line x1="8" y1="7.2" x2="8" y2="11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+        '<circle cx="8" cy="4.7" r="0.95" fill="currentColor"/>' +
+      '</svg>' +
+    '</button>' +
+    '<div class="send-jx-tds-pop" role="dialog" style="display:none">' +
+      '<button type="button" class="send-jx-tds-pop-close" aria-label="Close">&times;</button>' +
+      '<p>Does not affect data captured from the JX-3P—sound is for your reference.</p>' +
+      "<p>Plays through your Mac's built-in speakers (check speaker volume if you hear nothing).</p>" +
+    '</div>';
+  modal.appendChild(tdsCtrl);
+
+  const tdsMuteRec   = tdsCtrl.querySelector('.send-jx-tds-mute');
+  const tdsSliderRec = tdsCtrl.querySelector('.send-jx-tds-slider');
+  const tdsQRec      = tdsCtrl.querySelector('.send-jx-tds-q');
+  const tdsPopRec    = tdsCtrl.querySelector('.send-jx-tds-pop');
+
+  const paintTdsSliderRec = () => {
+    const pct = Math.round((parseFloat(tdsSliderRec.value) || 0) * 100);
+    tdsSliderRec.style.background =
+      `linear-gradient(to right, #f7f1e6 0%, #f7f1e6 ${pct}%, #5a2a20 ${pct}%, #5a2a20 100%)`;
+  };
+  tdsSliderRec.value = String(Math.sqrt(Math.max(0, Math.min(1, tapeDumpVolume))));
+  paintTdsSliderRec();
+
+  const syncTdsMuteRec = () => {
+    tdsMuteRec.classList.toggle('muted', tapeDumpMuted);
+    tdsMuteRec.title = tapeDumpMuted ? 'Unmute tape dump sound' : 'Mute tape dump sound';
+    tdsMuteRec.setAttribute('aria-pressed', String(tapeDumpMuted));
+  };
+  syncTdsMuteRec();
+
+  tdsMuteRec.addEventListener('click', () => {
+    tapeDumpMuted = !tapeDumpMuted;
+    syncTdsMuteRec();
+    if (tapeDumpMonitor && typeof tapeDumpMonitor.setMuted === 'function') {
+      try { tapeDumpMonitor.setMuted(tapeDumpMuted); } catch {}
+    }
+  });
+  tdsSliderRec.addEventListener('input', () => {
+    const v = parseFloat(tdsSliderRec.value) || 0;
+    tapeDumpVolume = v * v;
+    paintTdsSliderRec();
+    if (!library.transmissionSounds) library.transmissionSounds = {};
+    library.transmissionSounds.volume = tapeDumpVolume;
+    saveLibraryDebounced();
+    if (tapeDumpMonitor && typeof tapeDumpMonitor.setVolume === 'function') {
+      try { tapeDumpMonitor.setVolume(tapeDumpVolume); } catch {}
+    }
+  });
+  tdsQRec.addEventListener('click', () => {
+    tdsPopRec.style.display = (tdsPopRec.style.display === 'none') ? '' : 'none';
+  });
+  tdsCtrl.querySelector('.send-jx-tds-pop-close').addEventListener('click', () => {
+    tdsPopRec.style.display = 'none';
+  });
+
   modal.appendChild(actions);
   overlay.appendChild(modal);
   // NOTE: document.body.appendChild(overlay) happens further down, AFTER
@@ -6389,6 +6523,8 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   let captureSession = null;
   let audioContext = null;          // mirror of session.audioContext; read at WAV-write time for the sampleRate header
   let gainNode     = null;          // mirror of session.gainNode; slider listener writes .gain.value here
+  // (tapeDumpMonitor + tapeDumpMuted are declared earlier, above the tdsCtrl
+  // block that closes over them — see the Tape Dump Sounds state block.)
   let captured     = [];            // mirror of session.captured (the live PCM buffer); concatenated by stopRecording
   let fskPeak      = 0;             // mirror from captureState.fskPeak each raf tick; read by calibration math
   let runningPeak  = 0;             // mirror from captureState.runningPeak; read by the onCaptured handoff. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
@@ -6701,8 +6837,8 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     if (cal) {
       isCalibrating = false;
       h.textContent = kind === 'sequence'
-        ? 'Step 2 of 2: Sequence data dump from JX-3P'
-        : 'Step 2 of 2: Data dump from JX-3P';
+        ? 'Import sequence from JX-3P'
+        : 'Import C/D banks from JX-3P';
       // Capture-mode layout: show the cal-row with the GAIN column hidden
       // (gain is already calibrated, no user input needed) — leaving the
       // [diagram | arrow | level meter] cause→effect visual intact. The
@@ -6713,6 +6849,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
       }
       timelineSection.style.display = '';
+      // Tape Dump Sounds control: visible in capture mode when feature enabled.
+      tdsCtrl.style.display = tapeDumpSoundsEnabled ? '' : 'none';
+      tdsPopRec.style.display = 'none';         // reset popover on each enter
       // In capture mode statusText lives inside the timeline header so
       // the elapsed counter sits to the right of "WHAT THE JX-3P SENDS:".
       // (Moves back to the modal-level slot in calibration — see below.)
@@ -6766,7 +6905,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       gainValueLabel.textContent = formatGain(startGain);
       if (gainNode) gainNode.gain.value = startGain;
       gainKnob.setGain(startGain);
-      h.textContent = 'Step 1 of 2: Calibrate volume';
+      h.textContent = 'Calibrate volume';
       // Calibration layout: show the cal-row with BOTH columns (gain knob
       // + level meter). Remove .capture-mode so the .cal-gain-col CSS rule
       // un-hides the gain column. Hide the segmented timeline.
@@ -6777,6 +6916,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         calRow.insertBefore(jxKeyDiagram, calRow.firstChild);
       }
       timelineSection.style.display = 'none';
+      // Tape Dump Sounds control: hidden in calibration mode (calibration is
+      // about measuring source level, not playing back monitor audio).
+      tdsCtrl.style.display = 'none';
       // Hide the Stop button — calibration is fully hands-free now.
       // Auto-stop triggers when the dump-progress bar fills (cumulative
       // signal hits the expected duration) or when end-of-dump silence
@@ -6824,6 +6966,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // full cleanup path. Idempotent.
   const stopCapture = () => {
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+    // Stop the tape-dump speaker monitor before tearing down the audio graph
+    // it taps (no-op if the feature was off / no eligible speaker).
+    if (tapeDumpMonitor) { try { tapeDumpMonitor.stop(); } catch {} tapeDumpMonitor = null; }
     if (captureSession) { captureSession.stop(); captureSession = null; }
     // captureSession.stop() handles raf cancel + node disconnect + audio
     // context close. mediaStream stays the modal's responsibility — the
@@ -7032,6 +7177,21 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     audioContext = captureSession.audioContext;
     gainNode     = captureSession.gainNode;
     captured     = captureSession.captured;
+
+    // Tape Dump Sounds (View > Tape dump sounds; off by default) — monitor the
+    // incoming dump out the Mac's built-in speakers so the user HEARS it come
+    // in. Fully isolated + silent-fail; built-in-speaker routing is forced so
+    // it can never feed back into the JX. Uses the shared persisted volume.
+    if (tapeDumpSoundsEnabled && typeof startTapeDumpMonitor === 'function') {
+      startTapeDumpMonitor({
+        audioContext: captureSession.audioContext,
+        sourceNode:   captureSession.gainNode,
+        cableDeviceId: null,                 // allowlist already excludes the KT (not a built-in speaker)
+        enabled:      true,
+        muted:        tapeDumpMuted,         // inherit current modal mute state
+        volume:       tapeDumpVolume,        // inherit current modal volume (persisted)
+      }).then((m) => { tapeDumpMonitor = m; }).catch(() => {});
+    }
 
     stopBtn.disabled = false;
     statusText.style.color = '';
@@ -7293,18 +7453,30 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       return;
     }
 
-    // Quiet or clipping — sticky warning with two explicit choices:
-    //   Try again    (reset to a fresh recording attempt, same device)
-    //   Use anyway   (proceed with decode on this capture)
+    // Quiet or clipping — sticky warning with three explicit choices:
+    //   Try again   (green)  — re-record with the SAME gain; default action,
+    //                          covers transient clipping that won't recur
+    //   Calibrate   (blue)   — clear the saved gain + re-enter calibration
+    //                          mode so the user can dial gain down. Used
+    //                          when the warning's "consider lowering gain
+    //                          next time" actually applies (gain is too
+    //                          hot for THIS device + signal level).
+    //   Use anyway  (red)    — accept the marginal capture; red signals
+    //                          "this isn't recommended" (vs. the prior
+    //                          blue treatment which read as a safe alt).
     // (Bail-out path: close-X in the modal's upper-right corner.)
     stopBtn.style.display = 'none';
     const tryAgainBtn = document.createElement('button');
-    tryAgainBtn.className = 'modal-btn modal-btn-confirm';  // green — recommended action (re-record cleanly)
+    tryAgainBtn.className = 'modal-btn modal-btn-confirm';  // green
     tryAgainBtn.textContent = 'Try again';
+    const calibrateBtn = document.createElement('button');
+    calibrateBtn.className = 'modal-btn modal-btn-alt';     // blue
+    calibrateBtn.textContent = 'Calibrate';
     const useBtn = document.createElement('button');
-    useBtn.className = 'modal-btn modal-btn-alt';           // blue — risky alternative (proceed with marginal capture)
+    useBtn.className = 'modal-btn modal-btn-danger';        // red — "are you sure?"
     useBtn.textContent = 'Use anyway';
     actions.appendChild(tryAgainBtn);
+    actions.appendChild(calibrateBtn);
     actions.appendChild(useBtn);
     useBtn.addEventListener('click', () => {
       // Route through close() (not raw overlay.remove()) so the
@@ -7321,8 +7493,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
         });
       }
     });
-    tryAgainBtn.addEventListener('click', () => {
+    // Shared cleanup for Try Again + Calibrate — both reset the post-
+    // capture UI back to a fresh-recording state. Calibrate does extra
+    // work after this (clear gain + re-enter calibration mode).
+    const resetPostCaptureUi = () => {
       try { actions.removeChild(tryAgainBtn); } catch {}
+      try { actions.removeChild(calibrateBtn); } catch {}
       try { actions.removeChild(useBtn); } catch {}
       stopBtn.style.display = '';
       stopBtn.disabled = true;
@@ -7331,8 +7507,25 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       statusText.style.color = '';
       segs.forEach((s) => s.el.classList.remove('active'));
       timeline.classList.remove('complete');
+    };
+    tryAgainBtn.addEventListener('click', () => {
+      resetPostCaptureUi();
       state = 'recording';
       guardAsync(startRecording(), 'Restart recording (Try Again)');
+    });
+    calibrateBtn.addEventListener('click', () => {
+      resetPostCaptureUi();
+      // Clear the saved gain for this device so configureForCurrentDevice
+      // takes the calibration branch (gain knob + level meter visible)
+      // rather than re-using the high gain that caused the clipping
+      // warning. The user dials the knob down while watching the meter,
+      // then presses Save on the JX again to run a fresh calibration.
+      // After calibration auto-completes, the modal transitions back to
+      // capture mode and the next Save press runs the actual capture.
+      if (calibrationDeviceId) clearCalibratedGain(calibrationDeviceId);
+      configureForCurrentDevice();
+      state = 'recording';
+      guardAsync(startRecording(), 'Restart recording (Calibrate)');
     });
   };
 
@@ -7433,9 +7626,40 @@ function handleSequencerLoad() {
   renderPatchList();
 }
 
-function sequenceDefaultName(date) {
-  const ds = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  return `Sequence ${ds}`;
+// Scan library.sequences[].defaultName for the JP_sequence_N pattern and
+// return max+1 (or 1 if no matches). Scans defaultName ONLY, not customName
+// — because defaultName is what we set (we know the pattern); customName
+// is user-set (could be anything). So even if the user renames
+// JP_sequence_3 to "Friday Morning" via customName, defaultName still
+// reads "JP_sequence_3" and the next capture correctly increments to 4.
+function nextSequenceCounter() {
+  const sequences = (typeof library === 'object' && Array.isArray(library?.sequences)) ? library.sequences : [];
+  let max = 0;
+  for (const s of sequences) {
+    const dn = s && s.defaultName;
+    if (typeof dn !== 'string') continue;
+    const m = dn.match(/^JP_sequence_(\d+)$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return max + 1;
+}
+
+// Default name for a newly captured/saved sequence. Returns "JP_sequence_N"
+// where N is the next unused integer in library.sequences[].defaultName
+// (see nextSequenceCounter). The `date` parameter is kept for callsite-
+// compatibility but ignored — counter-based is more grokable than the
+// prior "Sequence June 1, 2026" format for the kind of user who'll have
+// dozens of captures (you can see "JP_sequence_47" and know it's the
+// 47th, vs scanning a wall of similar dates).
+//
+// Pre-existing entries with date-based defaultNames stay as-is — the
+// counter starts at 1 (or wherever the highest existing N + 1 lands)
+// when this code first runs in a given library.
+function sequenceDefaultName(/* date — kept for callsite compat; ignored */) {
+  return `JP_sequence_${nextSequenceCounter()}`;
 }
 
 // (wireTapeButtons replaced by setupInteraction's button delegation.)
