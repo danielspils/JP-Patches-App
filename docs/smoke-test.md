@@ -204,8 +204,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | NO time-estimate paragraph ("Transfer takes about Xs…") | removed | |
 | NO "(button 13)" / "(button 16)" parenthetical in the instruction | removed | |
 | NO pre-play "First click JX buttons, then hit Play below" message | removed | |
-| OUTPUT DEVICE block sits **between cause→effect row and timeline** | labeled "OUTPUT DEVICE:" + boxed display with current system default | |
-| If output IS your Mac speakers (unplug interface as a test) | amber warning appears below the OUTPUT DEVICE box | |
+| OUTPUT DEVICE block sits **between cause→effect row and timeline** | labeled "OUTPUT DEVICE:" + an interactive `<select>` (was read-only display pre-v0.7.0) | |
 | Transfer completes | label under JX-3P logo changes from `loading: ` *name* to `✓ complete:` *name* | |
 
 ### 7a. Tape dump sounds (the parallel monitor — requires JX-3P + cable + built-in speakers audible)
@@ -222,9 +221,34 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Reopen the modal after moving the slider | slider remembers its position (volume persisted) | |
 | Click the **?** | green info popover appears (2 lines + ×) | |
 | Click the **×** (or **?** again) | popover closes | |
-| **Unplug the interface** (or set Output → MacBook Pro Speakers) → open send modal → Play step | **amber warning** appears: "That's your Mac's built-in speakers, not your JX cable…" | |
-| Plug the interface back in / select it as output → reopen | amber warning is gone | |
 | Verify the FSK is **not doubling onto the cable** | the JX still decodes the transfer cleanly (sound goes to speakers only, never the cable) | |
+
+### 7b. Cable device picker (v0.7.0)
+
+> Replaces the read-only OUTPUT DEVICE display + amber "speakers warning" with an interactive `<select>`. User picks the cable device once; selection persists in `library.cableOutputDeviceId` and is applied via `setSinkId` on every Send. Lets the user leave macOS system default on their speakers/headphones while transmissions still route to the cable. Requires audio interface (or any non-built-in audio output) connected.
+
+| Check | Expected | Result |
+|---|---|---|
+| Fresh library (or `cableOutputDeviceId: null`) → open Send modal → reach play state | picker shows `(system default — <label>)` selected as first option | |
+| Dropdown lists every connected audio output device, with the system default option at the top | yes | |
+| Pick a non-default device (e.g. KT USB Audio) | selection persists immediately to `library.json` (`cableOutputDeviceId: "<id>"`) | |
+| Click ▶ Play with explicit device picked | transfer succeeds; **JX receives** the dump (proves `setSinkId` to the picked device worked) | |
+| Reopen modal | picker pre-selects the same device | |
+| Reload renderer (Cmd+R) → reopen | selection persists across reloads | |
+| Quit + relaunch app → reopen | selection persists across restarts | |
+| Unplug the picked device → reopen modal | picker falls back to `(system default)` (the stale id is cleared from library) | |
+| With system default = built-in speakers (no picker pick) → ▶ Play | transfer routes to speakers — **JX does NOT receive** (proves nothing pinned; current pre-v0.7 behavior) | |
+| With system default = built-in speakers + picker pinned to KT → ▶ Play | transfer routes to KT — **JX receives** AND app sounds (clicks/previews) still play through speakers (the win of v0.7.0) | |
+| Picker selection doesn't break Tape Dump Sounds cable-exclusion | parallel monitor still plays out built-in speakers; cable still receives only the FSK once | |
+
+### 7c. Audio Diagnostics — cable transmission line (v0.7.0)
+
+| Check | Expected | Result |
+|---|---|---|
+| Help → Audio Diagnostics… | modal shows the existing speaker-banner AND a new line below: `Transmission output: <device>` | |
+| With no picker pick (cableOutputDeviceId = null) | line reads `Transmission output: (system default)` | |
+| After picking KT USB Audio in the Send modal → reopen Audio Diagnostics | line reads `Transmission output: KT USB Audio (…)` | |
+| With a stale id (picked device unplugged before Audio Diagnostics opens, before Send modal had a chance to clean up) | line reads `Transmission output: (unknown device — id <prefix>…)` | |
 
 ## 8. Drag-and-drop
 
