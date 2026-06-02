@@ -4634,6 +4634,29 @@ function showSequenceInfo(idx) {
   });
 }
 
+// Build the _sequenceMeta payload that rides along with sequence WAV
+// exports — main.js extracts the field and embeds it as a jPpS v:2 chunk
+// for cross-user customName/originalName/createdAt/etc. preservation.
+// Mirrors what _slotMeta does for patches.
+//
+// pairedPatch is embedded FULL (including params) so the recipient's
+// paired-patch hint UI (Phase B) can populate the panel when the user
+// clicks Write to add the patch to their library. Note: this is the only
+// path today by which a paired-patch's full params get shared cross-user
+// — preserves the "as the creator intended" listening context.
+function buildSequenceMetaForExport(seq) {
+  if (!seq) return null;
+  const meta = {};
+  if (seq.customName)   meta.customName   = seq.customName;
+  if (seq.originalName) meta.originalName = seq.originalName;
+  if (seq.createdAt)    meta.createdAt    = seq.createdAt;
+  if (seq.app) {
+    if (seq.app.patchNote) meta.patchNote = seq.app.patchNote;
+    if (seq.app.pairedPatch) meta.pairedPatch = { ...seq.app.pairedPatch };
+  }
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
 function handleSendSequenceToJX() {
   if (selSequence === null) return;
   const seq = library.sequences[selSequence];
@@ -4651,13 +4674,31 @@ function handleSendSequenceToJX() {
     });
     return;
   }
+  // Lazy-migrate originalName: set ONCE if missing, persist for future
+  // exports. Honors the "set once at first export, never overwritten" rule
+  // for the jPpS v:2 sequenceMeta.originalName field. Once set, even
+  // renames via customName don't change it — preserves attribution to the
+  // original creator across cross-user trades.
+  if (!seq.originalName) {
+    const initialName = seq.customName || seq.defaultName || null;
+    if (initialName) {
+      seq.originalName = initialName;
+      saveLibraryDebounced();
+    }
+  }
   const label = seq.customName || seq.defaultName || null;
   // jx3p seq-json-to-wav validates kind: "sequence" + format_version; the
   // saved seq.tape only carries `pages`, so wrap it here.
+  //
+  // _sequenceMeta is stripped by main.js before passing to jx3p; embedded
+  // via the jPpS v:2 chunk for cross-user customName/originalName/etc.
+  // preservation. See main.js embedJpMetaInWav + docs/future-features.md
+  // "v0.6.5 final scope" entry.
   const exportData = {
     format_version: '1.0',
     kind: 'sequence',
     pages: seq.tape.pages,
+    _sequenceMeta: buildSequenceMetaForExport(seq),
   };
   // 2026-05-24: the paired-patch / notes intro block + the 3-step setup
   // instructions were removed from this modal (per Daniel) — the title is
@@ -5810,7 +5851,7 @@ async function doSequencerSaveFromFile() {
     if (result && result.error) console.error('Sequencer save (import) error:', result.error);
     return;
   }
-  presentSequenceSaveModal(result.data, result.path);
+  presentSequenceSaveModal(result.data, result.path, result.sequenceMeta || null);
 }
 
 async function applySequencerCapture(tempWavPath, deviceInfo) {
@@ -5854,22 +5895,32 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
   // initial sequence name. Null forces the fallback to
   // sequenceDefaultName(new Date()) which gives a human-readable
   // "Sequence June 1, 2026" instead.
-  presentSequenceSaveModal(result.data, null);
+  // Record-from-JX captures never have a sequenceMeta chunk (the JX
+  // doesn't embed RIFF chunks), so we pass null.
+  presentSequenceSaveModal(result.data, null, null);
 }
 
 // Shared post-decode handler: opens the Save Sequence modal for naming +
-// optional note, then persists to library.sequences[]. Used by both the
-// file-dialog Save and the live-record Save.
-function presentSequenceSaveModal(tapeData, sourcePath) {
+// optional note, then persists to library.sequences[]. Used by file-
+// dialog Save, the live-record Save, and (separately) the drag-drop
+// import path which calls showSaveSequenceModal directly with the same
+// shape.
+//
+// sequenceMeta carries the jPpS v:2 chunk fields (customName, originalName,
+// createdAt, patchNote, pairedPatch) when the imported WAV came from
+// another JP Patches user. Null when not present.
+function presentSequenceSaveModal(tapeData, sourcePath, sequenceMeta) {
   showSaveSequenceModal({
     tapeData,
     sourcePath,
+    sequenceMeta,
     onConfirm: ({ patchNote, defaultName, customName }) => {
       saveSequenceEntry({
         tapeData,
         patchNote,
         defaultName,
         customName,
+        sequenceMeta,
       });
     },
   });
@@ -5892,14 +5943,20 @@ function summarizeSeqTape(data) {
   return { pagesWithContent, activeSteps };
 }
 
-function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
+function showSaveSequenceModal({ tapeData, sourcePath, sequenceMeta, onConfirm }) {
   const summary = summarizeSeqTape(tapeData);
-  // Pre-fill the name field with the source filename (sans extension); fall
-  // back to a date-stamped default if for some reason the path can't be
-  // parsed. We track the initial value so we can tell whether the user
-  // actually edited it — if not, we store an empty customName so the entry
-  // stays cleanly date/file-named with no redundant override.
-  const initialName = labelFromPath(sourcePath) || sequenceDefaultName(new Date());
+  // Pre-fill the name field with (in priority order):
+  //   1. customName from jPpS v:2 chunk — the original creator's name, when
+  //      the imported WAV came from another JP Patches user
+  //   2. labelFromPath(sourcePath) — filename minus extension, for plain
+  //      WAV files (no chunk) that the user dropped in or opened
+  //   3. sequenceDefaultName(...) — the JP_sequence_N counter fallback
+  // Track the initial value so we can tell whether the user actually edited
+  // it — if not, we store an empty customName so the entry stays cleanly
+  // chunk/file/default-named with no redundant override.
+  const initialName = (sequenceMeta && sequenceMeta.customName)
+    || labelFromPath(sourcePath)
+    || sequenceDefaultName(new Date());
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -5940,6 +5997,9 @@ function showSaveSequenceModal({ tapeData, sourcePath, onConfirm }) {
   noteInput.rows = 2;
   noteInput.maxLength = 200;
   noteInput.placeholder = 'e.g. tempo at 40%, turn Attack knob for drama!';
+  // Pre-fill note from the jPpS v:2 chunk if the import carried one (the
+  // original creator's annotation). User can edit before saving.
+  if (sequenceMeta && sequenceMeta.patchNote) noteInput.value = sequenceMeta.patchNote;
   noteSec.appendChild(noteLabel);
   noteSec.appendChild(noteInput);
 
@@ -7566,10 +7626,25 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   guardAsync(startRecording(), 'Start recording');
 }
 
-function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '' } = {}) {
+function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '', sequenceMeta = null } = {}) {
   if (!library) return;
   const now = new Date();
-  const { bank, slot } = activeBankSelection();
+  // pairedPatch precedence: chunk wins (the original creator's intended
+  // patch) over current active C/D selection (which was the right default
+  // for Record-from-JX before chunk-import existed, but is irrelevant when
+  // a chunk carries the actual paired patch).
+  let pairedPatch;
+  if (sequenceMeta && sequenceMeta.pairedPatch) {
+    pairedPatch = { ...sequenceMeta.pairedPatch };
+  } else {
+    const { bank, slot } = activeBankSelection();
+    pairedPatch = {
+      bank,
+      slot,
+      params:    JSON.parse(JSON.stringify(activeBankPatch() || {})),
+      patchName: patchName(bank, slot),
+    };
+  }
   const entry = {
     id: now.toISOString(),
     // Prefer a name derived from the source filename ("Sequence 2", etc.) so
@@ -7580,18 +7655,20 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null
     // when the user edits the pre-filled name. Empty = no override, display
     // shows defaultName.
     customName: customName || '',
+    // originalName: from chunk if present (preserves attribution to the
+    // FIRST creator across cross-user trades); else derive lazily from
+    // customName / defaultName at first export (see handleSendSequenceToJX).
+    originalName: (sequenceMeta && sequenceMeta.originalName) || '',
+    // createdAt: from chunk if present (preserves the FIRST creation date
+    // across trades); else now (this is a new entry created in our library).
+    createdAt: (sequenceMeta && sequenceMeta.createdAt) || now.toISOString(),
     savedAt: now.toISOString(),
     tape: {
       pages: tapeData && Array.isArray(tapeData.pages) ? tapeData.pages : null,
     },
     app: {
       patchNote: patchNote || '',
-      pairedPatch: {
-        bank,
-        slot,
-        params:    JSON.parse(JSON.stringify(activeBankPatch() || {})),
-        patchName: patchName(bank, slot),
-      },
+      pairedPatch,
     },
   };
   if (!Array.isArray(library.sequences)) library.sequences = [];
@@ -9575,12 +9652,14 @@ async function handleSequenceDropImport(filePath) {
   showSaveSequenceModal({
     tapeData: result.data,
     sourcePath: filePath,
+    sequenceMeta: result.sequenceMeta || null,
     onConfirm: ({ patchNote, defaultName, customName }) => {
       saveSequenceEntry({
         tapeData: result.data,
         patchNote,
         defaultName,
         customName,
+        sequenceMeta: result.sequenceMeta || null,
       });
     },
   });
