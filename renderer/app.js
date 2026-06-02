@@ -240,6 +240,19 @@ let selPackage = null;     // selected index in library.packages   (Tones sub-ta
 let selSequence = null;    // selected index in library.sequences  (Sequences sub-tab)
 let selSeqVizPage = null;  // null = show all 8 pages overview; 0–7 = zoom into one page
 
+// Paired-patch preview state (v0.6.5). When set, the PG-200 panel renders
+// these params + name INSTEAD of the active C/D slot — a temporary view
+// of a paired patch from a Library sequence. Cleared automatically when
+// the user selects any C/D slot (selectPatch on bank C/D). Knob/switch
+// edits in preview mode mutate currentPreviewPatch.params (ephemeral —
+// lost on preview exit unless user clicks Write to commit to a C/D slot).
+// The Patch parallelogram readout shows "Preview: {name}" + a small
+// visual marker class on the SVG to communicate the non-slot state.
+//
+// Shape: { params: {...32-byte patch...}, name: 'Warm Pad',
+//          sourceLabel: 'Sequence "Friday Morning"' } | null
+let currentPreviewPatch = null;
+
 // Drag-to-change-pitch state for the sequencer visualizer. seqDragState
 // is non-null only while a drag is in progress (set by mousedown on a
 // playable note in single-page view, cleared by mouseup). The document-
@@ -2528,9 +2541,40 @@ function migrateSequenceShape(seq) {
 }
 
 function currentPatch() {
+  // Paired-patch preview (v0.6.5): when a Library sequence with paired-
+  // patch metadata is selected, the panel + Write source pull from the
+  // preview slot instead of the active C/D slot. Other code that needs
+  // the actual C/D slot identity (e.g. modified-dot tracking, slotMeta
+  // lookups) uses activeBankSelection() / slotMeta arrays directly and
+  // is unaffected by this preview indirection.
+  if (currentPreviewPatch) return currentPreviewPatch.params;
   if (!patches || !Array.isArray(patches.banks) || selBank === 'L') return null;
   const bankIdx = selBank === 'D' ? 1 : 0;
   return patches.banks[bankIdx] && patches.banks[bankIdx][selSlot] || null;
+}
+
+// Enter paired-patch preview mode — panel displays these params + name
+// instead of the active C/D slot. Used by v0.6.5 paired-patch auto-load
+// when user selects a Library sequence with paired-patch metadata.
+function enterPreviewMode(params, name, sourceLabel) {
+  if (!params || typeof params !== 'object') return;
+  currentPreviewPatch = {
+    params,
+    name: name || '(unnamed patch)',
+    sourceLabel: sourceLabel || null,
+  };
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
+}
+
+// Exit preview mode → panel returns to active C/D slot display. Called
+// automatically when user selects any C/D slot (selectPatch), or when
+// switching to a sequence without paired-patch metadata.
+function exitPreviewMode() {
+  if (!currentPreviewPatch) return;
+  currentPreviewPatch = null;
+  updateSvgPatchName();
+  updateAllControls(currentPatch());
 }
 
 // Returns the bank+slot of the patch the SVG panel is visibly showing. On a
@@ -2574,8 +2618,21 @@ function updateSvgPatchName() {
   // text content here.
   const prefixSpan = svgPatchNameEl.querySelector('.patch-readout-prefix');
   const nameSpan   = svgPatchNameEl.querySelector('.patch-readout-name');
-  const prefix = `${slotKey(selBank, selSlot)}: `;
-  const name   = patchName(selBank, selSlot) || patchPlaceholder(selBank, selSlot);
+  // v0.6.5 paired-patch preview: when active, the parallelogram shows
+  // "Preview: {paired patch name}" instead of "{slot}: {name}". A CSS
+  // class on the SVG element styles the preview state distinctly (the
+  // existing two-tone tspans stay; just the text content changes). Class
+  // toggle communicates the non-slot state via panel styling.
+  let prefix, name;
+  if (currentPreviewPatch) {
+    prefix = 'Preview: ';
+    name   = currentPreviewPatch.name || '(unnamed patch)';
+    svgPatchNameEl.classList.add('patch-readout-preview');
+  } else {
+    prefix = `${slotKey(selBank, selSlot)}: `;
+    name   = patchName(selBank, selSlot) || patchPlaceholder(selBank, selSlot);
+    svgPatchNameEl.classList.remove('patch-readout-preview');
+  }
   if (prefixSpan) prefixSpan.textContent = prefix;
   if (nameSpan)   nameSpan  .textContent = name;
   // Truncate the NAME portion (never the prefix) with an ellipsis if the
@@ -4348,6 +4405,19 @@ function renderSequencesList(list) {
         selSequence = idx;
         selSeqVizPage = null;     // reset zoom when switching sequences
         clearSequenceSelection(); // selection is per-sequence
+        // v0.6.5: paired-patch auto-load. If the selected sequence has
+        // paired-patch metadata with params, flip the PG-200 panel into
+        // preview mode showing those params + name. Otherwise exit any
+        // active preview (e.g. user switched from a paired sequence to
+        // a non-paired one).
+        const selectedSeq = library && library.sequences && library.sequences[idx];
+        const pp = selectedSeq && selectedSeq.app && selectedSeq.app.pairedPatch;
+        if (pp && pp.params && typeof pp.params === 'object') {
+          const seqLabel = selectedSeq.customName || selectedSeq.defaultName || 'sequence';
+          enterPreviewMode(pp.params, pp.patchName, `Paired patch from ${seqLabel}`);
+        } else {
+          exitPreviewMode();
+        }
         renderPatchList();
         renderCustomBuilder();    // refresh the visualizer for the newly-selected sequence
       });
@@ -4746,6 +4816,12 @@ function selectPatch(slot, opts) {
     } else {
       rangeAnchor = { bank: selBank, slot };
       selectedRange = null;
+    }
+    // v0.6.5: selecting any C/D slot exits paired-patch preview mode —
+    // the user has explicitly chosen to view a real slot, so the panel
+    // returns to that slot's params + the slot-prefixed parallelogram.
+    if (currentPreviewPatch) {
+      currentPreviewPatch = null;   // direct clear (updateSvgPatchName + updateAllControls happen below)
     }
   } else {
     // Library tab — no range selection in the library list.

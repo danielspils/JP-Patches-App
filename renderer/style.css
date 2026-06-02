@@ -2698,6 +2698,21 @@ body.seq-dragging-pitch * {
   max-width: none;
 }
 
+/* Paired-patch preview state (v0.6.5) — when active, the Patch parallelogram
+   readout switches to "Preview: {name}" with the prefix in Roland warning
+   amber + both pieces italicized. Distinguishes the non-slot preview state
+   from the normal "{slot}: {name}" display. The SVG tspan fill attributes
+   are inline, so we use !important here to override the inline values
+   without rewriting panel.svg. Class is toggled on the parent <text> via
+   updateSvgPatchName in app.js. */
+.patch-readout-preview .patch-readout-prefix {
+  fill: #c39a3a !important;   /* design-system warning amber */
+  font-style: italic;
+}
+.patch-readout-preview .patch-readout-name {
+  font-style: italic;
+}
+
 /* Knob numeric value tooltip + edit overlay (2026-05-25).
    Logic-style: hover a smooth knob to see its current uint8 value
    (0–255) in a small floating tooltip. Double-click to swap the
