@@ -2713,6 +2713,53 @@ body.seq-dragging-pitch * {
   font-style: italic;
 }
 
+/* Paired-patch hint text below the JP PATCHES logo — appears only when
+   preview mode is active. Lives inside an SVG <foreignObject> so HTML
+   word-wrap handles the multi-line layout naturally (vs manual <tspan>
+   line breaks that would have to be re-balanced for every name length).
+   Cream-italic styling matches the design-system supportive-prose look. */
+.paired-patch-hint {
+  font-family: Helvetica, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.4;
+  color: #f7f1e6;                /* vintage cream */
+  text-align: left;
+  padding: 0 8px;
+}
+/* Sequence name renders italic; rest of "sequence:" label stays
+   upright. Patch name is italic + bold to draw the eye (it's the
+   subject of the Write action the next line invites). */
+.paired-patch-hint i {
+  font-style: italic;
+}
+.paired-patch-hint .paired-patch-hint-name {
+  font-weight: 700;
+  color: #c39a3a;                /* same warning amber as Paired Patch Preview readout */
+}
+/* Labels ("sequence:", "paired patch:", "notes:") and the CTA bottom
+   line dim to --text-mid — same supportive-prose pattern modal-body
+   uses (bright title/value + dim chrome). Values stay in the base
+   cream color so the eye lands on the data first. */
+.paired-patch-hint .paired-patch-hint-label,
+.paired-patch-hint .paired-patch-hint-cta {
+  color: var(--text-mid);
+}
+/* Notes line clamps to 2 lines max with an ellipsis tail. Keeps the
+   hint block from overflowing into the Manual / Write button row no
+   matter how long the sequence author's patchNote is. Hanging indent
+   (padding-left + negative text-indent) makes the wrapped second line
+   align with the note text rather than the "notes:" label. */
+.paired-patch-hint .paired-patch-hint-notes {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding-left: 46px;          /* width of "notes: " at 15px Helvetica */
+  text-indent: -46px;
+}
+
 /* Knob numeric value tooltip + edit overlay (2026-05-25).
    Logic-style: hover a smooth knob to see its current uint8 value
    (0–255) in a small floating tooltip. Double-click to swap the

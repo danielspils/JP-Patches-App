@@ -2625,8 +2625,12 @@ function updateSvgPatchName() {
   // toggle communicates the non-slot state via panel styling.
   let prefix, name;
   if (currentPreviewPatch) {
-    prefix = 'Preview: ';
-    name   = currentPreviewPatch.name || '(unnamed patch)';
+    // Preview mode: the section label above the parallelogram swaps to
+    // "Paired Patch Preview" (announces the mode), and the parallelogram
+    // shows the actual patch name in amber italic (via the prefix tspan,
+    // which carries the .patch-readout-preview styling).
+    prefix = currentPreviewPatch.name || '(unnamed patch)';
+    name   = '';
     svgPatchNameEl.classList.add('patch-readout-preview');
   } else {
     prefix = `${slotKey(selBank, selSlot)}: `;
@@ -2635,6 +2639,15 @@ function updateSvgPatchName() {
   }
   if (prefixSpan) prefixSpan.textContent = prefix;
   if (nameSpan)   nameSpan  .textContent = name;
+  // Swap the section label above the parallelogram to match the mode.
+  const sectionLabel = (svgPatchNameEl.ownerSVGElement || svgPatchNameEl.closest('svg'))
+    ?.querySelector('#svg-patch-section-label');
+  if (sectionLabel) {
+    sectionLabel.textContent = currentPreviewPatch ? 'Paired Patch Preview' : 'Patch';
+  }
+  // Always refresh the paired-patch hint alongside the parallelogram —
+  // both react to the same preview-state change.
+  updateSvgPairedPatchHint();
   // Truncate the NAME portion (never the prefix) with an ellipsis if the
   // rendered text would extend past the red parallelogram's slanted right
   // edge at the text baseline.
@@ -2644,6 +2657,100 @@ function updateSvgPatchName() {
          nameSpan && nameSpan.textContent.length > 4) {
     nameSpan.textContent = nameSpan.textContent.slice(0, -2) + '…';
   }
+}
+
+// Paired-patch hint text below the JP PATCHES logo — visible only when
+// in preview mode (paired patch auto-loaded from a Library sequence).
+// Implementation: a runtime-created SVG foreignObject hosting an HTML
+// <div> so word-wrapping works naturally instead of needing manual
+// <tspan dy=...> line breaks. JP logo is at y=188..348 in the 1050×620
+// viewBox, so the hint slot below it sits at y≈360-470 with comfortable
+// margin before the Sustain/Release/Manual/Write row.
+function updateSvgPairedPatchHint() {
+  if (!svgPatchNameEl) return;
+  const svg = svgPatchNameEl.ownerSVGElement || svgPatchNameEl.closest('svg');
+  if (!svg) return;
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const XHTMLNS = 'http://www.w3.org/1999/xhtml';
+  let hintFo = svg.querySelector('foreignObject.paired-patch-hint-fo');
+  if (!hintFo) {
+    // Build on first use — kept out of panel.svg per the "don't modify
+    // the locked SVG" convention. Positioned visually below the JP logo.
+    hintFo = document.createElementNS(SVGNS, 'foreignObject');
+    hintFo.setAttribute('class', 'paired-patch-hint-fo');
+    hintFo.setAttribute('x', '755');
+    hintFo.setAttribute('y', '358');
+    hintFo.setAttribute('width', '280');
+    hintFo.setAttribute('height', '115');
+    const div = document.createElement('div');
+    div.setAttribute('xmlns', XHTMLNS);
+    div.className = 'paired-patch-hint';
+    hintFo.appendChild(div);
+    svg.appendChild(hintFo);
+  }
+  const div = hintFo.querySelector('.paired-patch-hint');
+  if (!currentPreviewPatch || !div) {
+    hintFo.style.display = 'none';
+    return;
+  }
+  // Derive the selected-sequence label for the hint copy. selSequence is
+  // set by the row click handler; library.sequences[selSequence] is the
+  // entry whose paired patch is currently previewed.
+  const selectedSeq = (typeof selSequence === 'number' && library && library.sequences)
+    ? library.sequences[selSequence]
+    : null;
+  const seqLabel = (selectedSeq && (selectedSeq.customName || selectedSeq.defaultName)) || 'this sequence';
+  const patchLabel = currentPreviewPatch.name || 'this patch';
+  const noteLabel  = (selectedSeq && selectedSeq.app && selectedSeq.app.patchNote || '').trim();
+  // Label/value layout — labels dim (modal-body pattern), values bright:
+  //   sequence: {italic seqLabel}
+  //   paired patch: {bold italic amber patchLabel}
+  //   notes: {italic noteLabel}            (optional)
+  //   click Write to save paired patch     (dim — CTA, not data)
+  // Built via DOM (names are user data — avoid innerHTML). Each line is
+  // its own <div> for clean stacking and left-alignment of the labels.
+  div.textContent = '';
+  const mkLabel = (text) => {
+    const s = document.createElement('span');
+    s.className = 'paired-patch-hint-label';
+    s.textContent = text;
+    return s;
+  };
+
+  const line1 = document.createElement('div');
+  line1.appendChild(mkLabel('sequence: '));
+  const seqI = document.createElement('i');
+  seqI.textContent = seqLabel;
+  line1.appendChild(seqI);
+
+  const line2 = document.createElement('div');
+  line2.appendChild(mkLabel('written with: '));
+  const patchI = document.createElement('i');
+  patchI.className = 'paired-patch-hint-name';
+  patchI.textContent = patchLabel;
+  line2.appendChild(patchI);
+
+  div.appendChild(line1);
+  div.appendChild(line2);
+
+  // Optional notes line — only render when the sequence carries a
+  // non-empty patchNote. Sits between paired patch and the call-to-
+  // action so the user reads context before deciding to Write.
+  if (noteLabel) {
+    const lineN = document.createElement('div');
+    lineN.className = 'paired-patch-hint-notes';
+    lineN.appendChild(mkLabel('notes: '));
+    const noteI = document.createElement('i');
+    noteI.textContent = noteLabel;
+    lineN.appendChild(noteI);
+    div.appendChild(lineN);
+  }
+
+  const lineCTA = document.createElement('div');
+  lineCTA.className = 'paired-patch-hint-cta';
+  lineCTA.textContent = 'click Write to save paired patch';
+  div.appendChild(lineCTA);
+  hintFo.style.display = '';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3288,7 +3395,12 @@ function renderPatchList() {
   if (writePending) {
     const banner = document.createElement('div');
     banner.className = 'write-banner';
-    banner.textContent = 'Click a slot to write current patch (Esc to cancel)';
+    // Preview-mode write surfaces the paired patch name in the banner so
+    // the user knows which patch is about to land in the slot they pick.
+    const previewName = currentPreviewPatch && currentPreviewPatch.name;
+    banner.textContent = previewName
+      ? `Click a slot to write "${previewName}" (Esc to cancel)`
+      : 'Click a slot to write current patch (Esc to cancel)';
     list.appendChild(banner);
   }
 
@@ -4838,6 +4950,18 @@ function selectPatch(slot, opts) {
 // shown patch's params into that slot. Esc cancels. App-side only — does
 // not touch the real synth (Phase 3 / MIDI concern).
 function enterWriteMode() {
+  // Paired-patch preview path (v0.6.5): user is on the Library tab with a
+  // paired-patch preview loaded onto the panel. Auto-switch to Bank C so
+  // the slot-picker becomes available — currentPatch() already returns
+  // the preview params, so commitWriteTo/doWriteTo write the paired
+  // patch into the chosen slot without further plumbing.
+  if (currentPreviewPatch && selBank === 'L') {
+    selBank = 'C';
+    selSlot = 0;
+    document.querySelectorAll('.tab').forEach((t) => {
+      t.classList.toggle('active', t.dataset.bank === 'C');
+    });
+  }
   if (selBank === 'L') return;        // no concept of "current patch" in Library
   if (!currentPatch()) return;
   writePending = true;
@@ -4860,11 +4984,20 @@ function commitWriteTo(destBank, destSlot) {
     return;
   }
   const destKey = slotKey(destBank, destSlot);
+  // Paired-patch preview path (v0.6.5): name the patch in the title.
+  // Body copy is shared across both paths — same overwrite-and-sync
+  // story regardless of source.
+  const previewName = currentPreviewPatch && currentPreviewPatch.name;
+  const title = previewName
+    ? `Save "${previewName}" to ${destKey}?`
+    : `Save this new patch to ${destKey}?`;
+  const body =
+    `This will overwrite the current patch in JP Patches. ` +
+    `Your JX-3P ${destKey} patch is unchanged. ` +
+    `To push the updated bank to the synth, use the Load to JX-3P button.`;
   showConfirmModal({
-    title: `Save this new patch to ${destKey}?`,
-    body:
-      `This saves the patch in the app only — your JX-3P's ${destKey} is unchanged. ` +
-      `To push the updated bank to the synth, click Load to JX-3P afterward.`,
+    title,
+    body,
     confirmLabel: 'Save',
     onConfirm: () => doWriteTo(destBank, destSlot),
     // Cancel on this modal should exit Write mode entirely — otherwise
@@ -4881,12 +5014,29 @@ function doWriteTo(destBank, destSlot) {
   const destIdx = destBank === 'D' ? 1 : 0;
   if (!patches.banks[destIdx]) return;
   patches.banks[destIdx][destSlot] = JSON.parse(JSON.stringify(src));
+  // Also clone the patch name into slotMeta for the destination so the
+  // patch list shows the paired-patch name instead of staying blank /
+  // showing the old name. Only do this in preview mode — non-preview
+  // Write doesn't have an authoritative name to set.
+  if (currentPreviewPatch && currentPreviewPatch.name) {
+    const meta = slotMetaArr(destBank);
+    if (meta && meta[destSlot]) {
+      meta[destSlot].name = currentPreviewPatch.name;
+    }
+  }
   // Write IS the user committing a new clean state to the destination
   // slot — update its baseline so the modified-indicator reads "clean."
   snapshotCleanParamsAt(destBank, destSlot);
   saveLibraryDebounced();   // persist active state across restarts
   writePending = false;
   lightButton('write', false);
+  // Exit preview mode now that the paired patch has a real home — the
+  // panel should show the destination slot's params (which are now the
+  // ex-preview params, but via the C/D slot, not via the preview slot).
+  // Without this, currentPatch() would keep returning preview and the
+  // post-write renderPatchList/updateAllControls would re-show preview
+  // styling on the parallelogram instead of the new slot's normal view.
+  currentPreviewPatch = null;
   // Navigate to the destination so the user sees the result.
   selBank = destBank;
   selSlot = destSlot;

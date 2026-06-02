@@ -415,7 +415,7 @@
   </g>
 
   <!-- RIGHT PANEL: Patch readout aligned with Mode switch (abs y=85..133) -->
-  <text x="1008" y="76" text-anchor="end" fill="#f7f1e6" font-size="14">Patch</text>
+  <text id="svg-patch-section-label" x="1008" y="76" text-anchor="end" fill="#f7f1e6" font-size="14">Patch</text>
   <polygon points="790,85 1018,85 994,133 766,133" fill="#b94a2e"/>
   <text x="800" y="118" text-anchor="start" font-size="18" font-weight="600"><tspan class="patch-readout-prefix" fill="#f7f1e6">C5: </tspan><tspan class="patch-readout-name" fill="#f7f1e6">Saw Wave Goodbye</tspan></text>
   <image href="assets/jp-logo.png" x="770" y="188" width="248" height="160" preserveAspectRatio="xMidYMid meet"/>
