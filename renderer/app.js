@@ -9830,6 +9830,18 @@ function setupTabs() {
         // gotcha where users would click Library expecting tone
         // packages and land on whatever sub-tab they last touched.
         if (selBank === 'L') selLibTab = 'tones';
+        // v0.6.5 Option B: tab switch exits paired-patch preview so the
+        // panel reflects the new bank's selected slot — keeps the
+        // mental model honest ("I see what I selected") and prevents
+        // the modified-dot indicator from comparing against preview
+        // params instead of the slot's actual contents. Suspended
+        // during writePending so the Write flow (which auto-switches
+        // to Bank C while keeping preview active) still works, and
+        // mid-write tab clicks let the user pick a destination on a
+        // different bank.
+        if (currentPreviewPatch && !writePending) {
+          currentPreviewPatch = null;
+        }
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         renderPatchList();
