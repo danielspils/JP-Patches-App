@@ -50,6 +50,40 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Click ⓘ | modal shows paired patch + note + save date | |
 | Click 🗑 trash icon on a sequence | confirm modal → delete | |
 
+### 3a. Paired-patch preview (v0.6.5)
+
+> The jPpS RIFF chunk now carries sequence metadata (customName, originalName, createdAt, patchNote, **and** the full paired patch with params) so cross-user WAV sharing preserves attribution AND lets the recipient see / Write the paired patch. When a Library sequence with a paired patch is selected, the panel auto-loads the patch as a non-destructive preview with a hint block under the JP logo. Requires at least one Library sequence with a paired patch — pair one to a C/D slot via the existing pairing flow first if you don't have one.
+
+| Check | Expected | Result |
+|---|---|---|
+| Click a Library sequence with a paired patch | parallelogram swaps to **"Paired Patch Preview" / patch name** in amber italic; section label above swaps from "Patch" to "Paired Patch Preview" | |
+| PG-200 knobs reflect the paired patch's params (not the previous C/D selection) | knobs animate to paired-patch positions | |
+| Hint block appears below JP logo: `sequence: {name}` / `written with: {patch}` (amber bold) / `notes: …` (if patchNote present, 2-line clamp w/ hanging indent) / `click [Write] to save paired patch` | labels dim, values bright, "Write" rendered in mini panel-button cap | |
+| Click a Library sequence with NO paired patch | preview does not activate; parallelogram + label return to normal slot view; hint hidden | |
+| Click a C or D **slot** in the patch list while previewing | preview exits — panel reflects the clicked slot, hint hides | |
+| Click a Bank C/D **tab** while previewing (no slot click) | preview exits — panel snaps to that bank's slot 0 (Option B behavior) | |
+| Click **Write** while previewing on Library | auto-switches to Bank C; slot-picker banner reads `Click a slot to write "{patch}" (Esc to cancel)` | |
+| Mid-write, click Bank D tab | preview persists (writePending guards the auto-exit); banner stays | |
+| Click any destination slot during Write | confirm modal title `Save "{patch}" to {destKey}?`; body simplified (overwrites in JP Patches; JX-3P {destKey} patch unchanged) | |
+| Confirm Save | params + paired-patch name land in destination slotMeta; panel exits preview onto new slot; parallelogram reads `{destKey}: {patch}` | |
+| Cancel modal | exits Write mode entirely (no slot-picker loop) | |
+| Click **Load to JX-3P** (Sequencer hardware button OR Tape Memory Sequencer Load) while previewing | hint fades to opacity 0 over ~200 ms; Send modal opens **after** the fade completes; parallelogram snaps to last C/D slot mid-fade | |
+| ⓘ info popover on the sequence shows `Paired patch: {bank}{slot} / {name}` + `Notes: …` + `Saved: {date}` | all fields present (even when sequence was imported from another machine) | |
+
+### 3b. Cross-user WAV round-trip (v0.6.5)
+
+> The whole point of the chunk extension: a sequence WAV emailed/airdropped to another JP Patches user lands with all the metadata intact. This row exercises it locally (export → re-import on same machine), but the chunk shape is identical for cross-machine.
+
+| Check | Expected | Result |
+|---|---|---|
+| Pick a sequence with a customName, patchNote, AND paired patch | confirm all three present in ⓘ popover | |
+| Send to JX-3P → Save WAV file to `~/Desktop/roundtrip.wav` | file written; size ~1 MB | |
+| Inspect chunk: `python3 -c "import struct;d=open('/Users/$USER/Desktop/roundtrip.wav','rb').read();i=12\nwhile i<len(d)-8:\n cid=d[i:i+4];sz=struct.unpack('<I',d[i+4:i+8])[0]\n if cid==b'jPpS':print(d[i+8:i+8+sz].decode());break\n i+=8+sz+(sz%2)"` | JSON with `v: 2`, `sequenceMeta: { customName, originalName, createdAt, patchNote, pairedPatch: { bank, slot, patchName, params } }` | |
+| Drag the WAV back into the Library Sequences sub-tab | save modal opens with customName + patchNote pre-filled from the chunk | |
+| Save (keep pre-fill values) | new sequence entry appears with originalName, createdAt, patchNote, pairedPatch all preserved | |
+| Click the re-imported sequence | preview activates with the paired patch (proves params + name traveled in the chunk) | |
+| Write the previewed patch to a fresh C/D slot | params + name land correctly (same as section 3a row) | |
+
 ## 4. Sequencer editor (new in v0.6.0)
 
 **Critical:** this is the major new feature surface. Every encoding path was empirically validated end-to-end on real JX hardware May 26, but UI flows haven't burned in across releases yet. Run all rows; skip the JX round-trip if no JX is connected.
