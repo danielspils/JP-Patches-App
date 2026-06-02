@@ -1489,20 +1489,13 @@ body.seq-dragging-pitch * {
 /* Built-in-speaker warning — amber, shown when the Send output device is the
    Mac's own speakers (almost always wrong: blasts the speakers, JX gets
    nothing). Set inline in the modal body, under the output-device line. */
-.send-jx-output-warning {
-  margin-top: 8px;
-  color: #c39a3a;                /* warning amber */
-  font-size: 11px;
-  line-height: 1.4;
-  font-weight: 600;
-}
-
 /* OUTPUT DEVICE section in the Send modal step 2 — visual parallel to
    the INPUT DEVICE block in the Save modal (.record-jx-device*). Sits
-   between the cause→effect row and the timeline. Read-only display
-   (no picker today; the transfer uses the system default output) styled
-   to match the Save modal's picker so the two modals read consistently.
-   The built-in-speaker warning lives inside this section. */
+   between the cause→effect row and the timeline. As of v0.7.0 the
+   read-only display + amber built-in-speaker warning were replaced
+   with an interactive picker (.send-jx-device-select below) — the
+   picker IS the routing answer, no warning needed because the user
+   explicitly chose the cable device. */
 .send-jx-device-section {
   margin: 0 0 16px;
 }
@@ -1524,6 +1517,29 @@ body.seq-dragging-pitch * {
   font-size: 12px;
   padding: 6px 10px;
   box-sizing: border-box;
+}
+/* v0.7.0 cable device picker — interactive replacement for the
+   read-only .send-jx-device-display. Same visual footprint so step-2
+   layout stays put; just adds an arrow on the right (default <select>
+   chrome) signaling it's clickable. The picker IS the answer to "where
+   is my transmission going?" — explicit setSinkId target persisted in
+   library.cableOutputDeviceId. */
+.send-jx-device-select {
+  width: 100%;
+  background: #0e0e0e;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  color: var(--text-bright);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  appearance: auto;              /* keep the system disclosure arrow */
+  cursor: pointer;
+}
+.send-jx-device-select:focus {
+  outline: 1px solid var(--text-mid);
+  outline-offset: 0;
 }
 .send-jx-status-text {
   font-size: 12px;

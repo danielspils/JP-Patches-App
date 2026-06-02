@@ -1865,6 +1865,12 @@ function ensureLibraryShape() {
   if (!library) library = {};
   if (!library.history || typeof library.history !== 'object') library.history = {};
   if (!library.slotMeta || typeof library.slotMeta !== 'object') library.slotMeta = {};
+  // v0.7.0: pinned cable-transmission output device. null = fall back to
+  // system default (current pre-v0.7 behavior). String = setSinkId target
+  // for the Send-to-JX audio playback. Lets the user set system default
+  // to their speakers/headphones AND have transmissions still route to
+  // the cable device, no more shared-default conflict.
+  if (!('cableOutputDeviceId' in library)) library.cableOutputDeviceId = null;
   const legacy = library.names || {};
   ['C', 'D'].forEach((bank) => {
     if (!Array.isArray(library.slotMeta[bank])) library.slotMeta[bank] = [];
@@ -5733,20 +5739,33 @@ function showSendToJxFlow(opts) {
   const outputDeviceLabel = document.createElement('label');
   outputDeviceLabel.className = 'send-jx-device-label';
   outputDeviceLabel.textContent = 'OUTPUT DEVICE:';
-  const outputDeviceDisplay = document.createElement('div');
-  outputDeviceDisplay.id = 'send-jx-output-display';
-  outputDeviceDisplay.className = 'send-jx-device-display';
-  outputDeviceDisplay.textContent = 'checking…';
-  const speakerWarning = document.createElement('div');
-  speakerWarning.id = 'send-jx-speaker-warning';
-  speakerWarning.className = 'send-jx-output-warning';
-  speakerWarning.style.display = 'none';
-  speakerWarning.textContent =
-    '⚠ That’s your Mac’s built-in speakers, not your JX cable — the dump will blast out the speakers at full volume and the JX won’t receive it. Plug in and select your audio interface as the output.';
+  // v0.7.0: interactive output-device picker (was read-only display
+  // pre-v0.7). User picks the cable device once; selection persists in
+  // library.cableOutputDeviceId and is applied via setSinkId on play.
+  // Empty value = "(system default)" — keeps current behavior for users
+  // who haven't picked. The picker IS the routing answer; the old
+  // built-in-speaker amber warning is obsolete (you can't accidentally
+  // route to speakers if your cable device is explicitly selected).
+  const outputDeviceSelect = document.createElement('select');
+  outputDeviceSelect.id = 'send-jx-output-select';
+  outputDeviceSelect.className = 'send-jx-device-select';
+  // Placeholder option while enumerateDevices is loading.
+  const loadingOpt = document.createElement('option');
+  loadingOpt.value = '';
+  loadingOpt.textContent = 'checking…';
+  outputDeviceSelect.appendChild(loadingOpt);
   outputDeviceSection.appendChild(outputDeviceLabel);
-  outputDeviceSection.appendChild(outputDeviceDisplay);
-  outputDeviceSection.appendChild(speakerWarning);
+  outputDeviceSection.appendChild(outputDeviceSelect);
   modal.appendChild(outputDeviceSection);
+  // Persist on user pick.
+  outputDeviceSelect.addEventListener('change', () => {
+    library.cableOutputDeviceId = outputDeviceSelect.value || null;
+    saveLibraryDebounced();
+    // Resolve cableDeviceId (used by Tape Dump Sounds cable-exclusion
+    // guard) to the freshly-picked device, so a mid-playback device
+    // change doesn't echo onto the new cable.
+    cableDeviceId = library.cableOutputDeviceId;
+  });
 
   // Per-segment timeline + indicator + status text. Construction in
   // buildSendStatusSection above. Hidden until enterPlayState (step 2).
@@ -5982,34 +6001,62 @@ function showSendToJxFlow(opts) {
     // the info popover to hidden each time we (re)enter the play state.
     tdsCtrl.style.display = tapeDumpSoundsEnabled ? '' : 'none';
     tdsPop.style.display = 'none';
-    // Query the OS for the current default audio output and surface its
-    // label. enumerateDevices requires a prior getUserMedia grant in some
-    // browsers; falls back to a generic label if blocked.
+    // v0.7.0: populate the output-device picker with the OS's available
+    // audio outputs. enumerateDevices requires a prior getUserMedia grant
+    // in some browsers (the Mac mic permission for Record-from-JX usually
+    // suffices); silent-fail to the placeholder if blocked.
     (async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        const def     = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-        const displayEl = document.getElementById('send-jx-output-display');
-        if (displayEl) {
-          displayEl.textContent = (def && def.label) || 'System default (label unavailable)';
+        const selectEl = document.getElementById('send-jx-output-select');
+        if (!selectEl) return;
+        // Clear placeholder + previous options.
+        selectEl.textContent = '';
+        // First option: system default (null) — current pre-v0.7 routing.
+        const sysOpt = document.createElement('option');
+        sysOpt.value = '';
+        // Surface what the system default resolves to, so the user sees
+        // what they'd get without an explicit pick.
+        const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
+        const defLabel = (def && def.label) || 'unknown';
+        sysOpt.textContent = `(system default — ${defLabel})`;
+        selectEl.appendChild(sysOpt);
+        // One option per non-default audio output device.
+        outputs.forEach((d) => {
+          if (d.deviceId === 'default' || !d.deviceId) return;
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
+          selectEl.appendChild(opt);
+        });
+        // Pre-select saved cableOutputDeviceId if it's still available.
+        // If saved device is gone (e.g. user unplugged the interface),
+        // fall back to system default — better than silently routing to
+        // a missing device on play().
+        const saved = library.cableOutputDeviceId;
+        if (saved && outputs.some((d) => d.deviceId === saved)) {
+          selectEl.value = saved;
+        } else {
+          selectEl.value = '';
+          if (saved) {
+            // Clear the stale id so we don't try to setSinkId to a
+            // disconnected device. User can re-pick from the dropdown.
+            library.cableOutputDeviceId = null;
+            saveLibraryDebounced();
+          }
         }
-        // Resolve the REAL device behind the 'default' alias (same groupId)
-        // so Tape Dump Sounds can exclude it — the transfer plays out the
-        // system default, so that's the "cable" we must never echo onto.
-        let realDefault = null;
-        if (def) {
-          realDefault = outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
-          cableDeviceId = (realDefault && realDefault.deviceId) || def.deviceId || null;
+        // Resolve cableDeviceId (Tape Dump Sounds cable-exclusion guard).
+        // When system default is selected, resolve to the REAL device
+        // behind the 'default' alias (same groupId) — the transfer plays
+        // out the system default, so that's the "cable" we must never
+        // echo onto.
+        if (selectEl.value) {
+          cableDeviceId = selectEl.value;
+        } else {
+          const realDefault = def && outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+          cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
         }
-        // Warn if the transfer's output IS the Mac's built-in speakers — the
-        // FSK would blast out the speakers and the JX would get nothing.
-        // (isBuiltInSpeakerOutput strips the "Default - " alias prefix and
-        // tests the built-in-speaker allowlist — see transmission-sounds.js.)
-        const outLabel = (realDefault && realDefault.label) || (def && def.label) || '';
-        const isBuiltIn = typeof isBuiltInSpeakerOutput === 'function' && isBuiltInSpeakerOutput(outLabel);
-        const warnEl = document.getElementById('send-jx-speaker-warning');
-        if (warnEl) warnEl.style.display = isBuiltIn ? '' : 'none';
       } catch {}
     })();
   };
@@ -6023,6 +6070,23 @@ function showSendToJxFlow(opts) {
     // the logo in, starts the arrow march). Done before play() so the visual
     // flips immediately on click even if play() takes a beat to resolve.
     sendRow.classList.remove('play-ready');
+    // v0.7.0: pin transmission to the picked cable device. If null (user
+    // hasn't picked), leave the audio element on its default sink (current
+    // pre-v0.7 behavior = system default). Direct setSinkId call on the
+    // audio element — no AudioContext / MediaElementSource needed (and
+    // explicitly avoided per the comment block above; the rewire would
+    // silence transmission audio).
+    if (library.cableOutputDeviceId && typeof audioEl.setSinkId === 'function') {
+      try {
+        await audioEl.setSinkId(library.cableOutputDeviceId);
+      } catch (err) {
+        // setSinkId rejected (device gone, permission denied, etc.).
+        // Don't abort — fall through to default routing rather than
+        // failing the whole transfer. User will hear via Tape Dump Sounds
+        // if enabled, OR catch it via the JX not receiving anything.
+        console.warn('JP: setSinkId(cable) failed, using default sink:', err && err.message);
+      }
+    }
     try {
       await audioEl.play();
     } catch (err) {
