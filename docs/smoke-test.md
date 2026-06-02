@@ -167,7 +167,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 
 ### 6a. Tape dump sounds (Record-side — hear incoming dump)
 
-> Same as §7a but the OPPOSITE direction: hear the JX dump **coming IN** through your Mac speakers during Record. Built-in-speaker routing is forced (mandatory, not just nice — monitoring via system default could feed audio back into the JX during capture). **Pre-check:** Audio Diagnostics modal (Help > Audio Diagnostics) shows green.
+> Same as §7a but the OPPOSITE direction: hear the JX dump **coming IN** through your Mac speakers during Record. Built-in-speaker routing is forced (mandatory, not just nice — monitoring via system default could feed audio back into the JX during capture). **Pre-check (v0.7.1+):** open Audio Settings (gear icon, top-right of panel) — no amber/blue canary section at the bottom means built-in speakers are detected by the allowlist.
 
 | Check | Expected | Result |
 |---|---|---|
@@ -204,7 +204,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | NO time-estimate paragraph ("Transfer takes about Xs…") | removed | |
 | NO "(button 13)" / "(button 16)" parenthetical in the instruction | removed | |
 | NO pre-play "First click JX buttons, then hit Play below" message | removed | |
-| OUTPUT DEVICE block sits **between cause→effect row and timeline** | labeled "OUTPUT DEVICE:" + an interactive `<select>` (was read-only display pre-v0.7.0) | |
+| OUTPUT DEVICE block sits **between cause→effect row and timeline** | labeled "OUTPUT DEVICE:" + a read-only status line showing the current tape dump routing target (set in Audio Settings gear modal — v0.7.0 had an interactive picker here, v0.7.1 made it read-only since the gear modal owns this setting) | |
 | Transfer completes | label under JX-3P logo changes from `loading: ` *name* to `✓ complete:` *name* | |
 
 ### 7a. Tape dump sounds (the parallel monitor — requires JX-3P + cable + built-in speakers audible)
@@ -223,60 +223,71 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Click the **×** (or **?** again) | popover closes | |
 | Verify the FSK is **not doubling onto the cable** | the JX still decodes the transfer cleanly (sound goes to speakers only, never the cable) | |
 
-### 7b. Cable device picker (v0.7.0)
+### 7b. Audio Settings modal (gear icon, v0.7.1)
 
-> Replaces the read-only OUTPUT DEVICE display + amber "speakers warning" with an interactive `<select>`. User picks the cable device once; selection persists in `library.cableOutputDeviceId` and is applied via `setSinkId` on every Send. Lets the user leave macOS system default on their speakers/headphones while transmissions still route to the cable. Requires audio interface (or any non-built-in audio output) connected.
-
-| Check | Expected | Result |
-|---|---|---|
-| Fresh library (or `cableOutputDeviceId: null`) → open Send modal → reach play state | picker shows `(system default — <label>)` selected as first option | |
-| Dropdown lists every connected audio output device, with the system default option at the top | yes | |
-| Pick a non-default device (e.g. KT USB Audio) | selection persists immediately to `library.json` (`cableOutputDeviceId: "<id>"`) | |
-| Click ▶ Play with explicit device picked | transfer succeeds; **JX receives** the dump (proves `setSinkId` to the picked device worked) | |
-| Reopen modal | picker pre-selects the same device | |
-| Reload renderer (Cmd+R) → reopen | selection persists across reloads | |
-| Quit + relaunch app → reopen | selection persists across restarts | |
-| Unplug the picked device → reopen modal | picker falls back to `(system default)` (the stale id is cleared from library) | |
-| With system default = built-in speakers (no picker pick) → ▶ Play | transfer routes to speakers — **JX does NOT receive** (proves nothing pinned; current pre-v0.7 behavior) | |
-| With system default = built-in speakers + picker pinned to KT → ▶ Play | transfer routes to KT — **JX receives** AND app sounds (clicks/previews) still play through speakers (the win of v0.7.0) | |
-| Picker selection doesn't break Tape Dump Sounds cable-exclusion | parallel monitor still plays out built-in speakers; cable still receives only the FSK once | |
-
-### 7b.1. Cable picker safety belt (v0.7.0)
-
-> Prevents the head-blast bug: if picker's resolved target IS the built-in speakers (explicit pick OR "(system default)" resolving to them), pop a modal warning + disable ▶ Play until user changes selection.
+> Gear icon top-right of the panel red strip opens the modal. Single source of truth for: tape dump sounds toggle, button/switch sounds toggle, In-app audio device, Tape dump routing device, Record from JX-3P routing device, "How routing works" disclosure, and the macOS speaker-detection canary (only shown when the allowlist doesn't match — folded in from the removed Audio Diagnostics modal).
 
 | Check | Expected | Result |
 |---|---|---|
-| Set macOS Sound output → MacBook Pro Speakers → open Send modal → reach play state | modal warning pops: *"Heads up — your selected output is your speakers"* with single **OK, got it** button; ▶ Play is disabled | |
-| Dismiss the modal | ▶ Play stays disabled (warning was the alert, disabling is the actual prevention) | |
-| Pick KT USB Audio in the dropdown | ▶ Play re-enables; no modal | |
-| Pick MacBook Pro Speakers explicitly from the dropdown | modal pops again; ▶ Play disables | |
-| Pick KT again, then re-pick speakers a third time | modal pops every time (re-arms when user changes back to a non-speaker device) | |
+| Panel red strip has a small white gear icon top-right | yes — scales with panel zoom, sits inside the 24px-tall strip | |
+| Click gear | Audio settings modal opens with 5 rows + collapsed "How routing works" + Done | |
+| Modal fits at 100% zoom without scroll | yes (scrollable cap at 85vh kicks in only at smaller zooms / with disclosure expanded) | |
+| Toggle "Tape dump sounds" | persists to `library.transmissionSounds.enabled`; Send/Record modals reflect the toggle next open | |
+| Toggle "Button and switch sounds" | persists to `library.buttonSounds`; click any panel button to verify | |
+| In-app audio dropdown → pick KT USB Audio | persists to `library.appSoundDeviceId` + `library.appSoundDeviceLabel`; setPreviewSink fires for sequencer previews; next click sound plays through KT | |
+| Tape dump routing dropdown → pick KT | persists to `library.cableOutputDeviceId` + `library.cableOutputDeviceLabel` | |
+| Record from JX-3P routing dropdown → pick KT (input device) | persists to `library.record.preferredInputDeviceId` + `library.record.preferredInputDeviceLabel` | |
+| Expand "How routing works" | 4-row table appears: in-app clicks/previews, Tape Dump Sounds monitor (always built-in speakers), outgoing tape dumps, incoming tape dumps | |
+| Close + reopen modal | all picks persist, toggles persist, disclosure resets to collapsed | |
+| Quit + relaunch app + reopen modal | all picks persist across restart | |
 
-### 7c. Audio Diagnostics — cable transmission line (v0.7.0)
+### 7b.1. Ghost devices (v0.7.1)
 
-| Check | Expected | Result |
-|---|---|---|
-| Help → Audio Diagnostics… | modal shows the existing speaker-banner AND a new line below: `Transmission output: <device>` | |
-| With no picker pick (cableOutputDeviceId = null) | line reads `Transmission output: (system default)` | |
-| After picking KT USB Audio in the Send modal → reopen Audio Diagnostics | line reads `Transmission output: KT USB Audio (…)` | |
-| With a stale id (picked device unplugged before Audio Diagnostics opens, before Send modal had a chance to clean up) | line reads `Transmission output: (unknown device — id <prefix>…)` | |
-
-### 7d. App-sound picker — top-right of panel (v0.7.0)
-
-> Always-visible chrome picker that pins button clicks, switch clicks, and sequencer note previews to an explicit output device via `setSinkId`. Independent of the cable picker and macOS system default. Persists to `library.appSoundDeviceId`.
+> When a saved device is unplugged, the picker shows it as the SELECTED value with a "(unavailable, plug it in!)" suffix — not silently fallback to system default. Replug → ghost disappears, real device pre-selected automatically.
 
 | Check | Expected | Result |
 |---|---|---|
-| App launches | small dropdown in top-right of panel: speaker icon + `app sound:` label + `<select>` with `(system default — <label>)` selected | |
-| View → Button & switch sounds ON, click any panel button while picker = `(system default)` | sound plays through macOS system default output (unchanged pre-v0.7 behavior) | |
-| Set macOS Sound output → KT USB Audio (the cable) → click a panel button | sound plays through KT (audible to JX, not to user — proves it follows system default when picker is unset) | |
-| Pick MacBook Pro Speakers in the chrome picker → click a panel button | sound plays through speakers regardless of macOS system default (the v0.7.0 win) | |
-| Library → Sequences → click any note on the visualizer | preview tone plays through the chrome picker's selected device (the synth-preview AudioContext is pinned via setPreviewSink) | |
-| Reload renderer (Cmd+R) | picker pre-selects the previously-picked device | |
-| Quit + relaunch app | selection persists across restarts | |
-| Unplug the picked device → relaunch | picker falls back to `(system default)`; stale id cleared from library.json | |
-| Chrome picker = MacBook Pro Speakers + cable picker = KT USB Audio + macOS Sound output = anything | tape transfer reaches JX (via KT) AND clicks audible (via speakers) — JP Patches routes everything itself, system default is irrelevant | |
+| Pick KT in In-app audio + Tape dump routing + Record from JX-3P routing → close modal | all three saved to library with labels cached | |
+| Unplug KT → reopen Audio settings | all three dropdowns show `KT USB Audio (31b2:2024) (unavailable, plug it in!)` as the visible selected value | |
+| Open one of the dropdowns | ghost is the first option (selected), then "(system default — …)", then other connected devices | |
+| Replug KT (modal stays open) | within ~1s all three dropdowns live-update: ghost gone, KT becomes the live selected option (no manual interaction needed) | |
+| Quit, relaunch, reopen modal (KT still unplugged) | ghost label persists across restart (cached labels in library) | |
+| Without ever picking a device → unplug something else | no ghost option appears (no saved id to be unavailable) | |
+
+### 7b.2. Send modal — missing-device safety (v0.7.1)
+
+> Builds on v0.7.0's speaker safety belt: now ALSO refuses to fall through to system default when the saved tape dump device is missing. Send modal blocks Play with a warning until user replugs or picks a different device.
+
+| Check | Expected | Result |
+|---|---|---|
+| Pick KT for Tape dump routing → unplug KT → open Send modal → reach play state | display reads `KT USB Audio (31b2:2024) — unavailable, plug it in!`; ▶ Play is disabled | |
+| Warning modal pops: *"Tape Dump device unavailable — Your selected tape dump device (KT USB Audio) isn't connected. Plug it back in, or open Audio Setting (gear icon, top-right of the panel) and pick a different device. JP Patches won't fail back to your speakers (that would be painfully loud!). Your last device is remembered—plug it back in to restore it."* | yes, single OK button | |
+| Dismiss warning | ▶ Play stays disabled | |
+| Replug KT (Send modal still open) | display reactively updates to `KT USB Audio (31b2:2024)`; ▶ Play re-enables; no further warning | |
+| With macOS system default = built-in speakers + ghost = KT | safety analysis returns 'missing' (not 'speakers'); the missing warning fires (not the speakers one) | |
+| Click ▶ Play after replug | transfer routes to KT; JX receives | |
+
+### 7b.3. Send modal cable picker safety belt (v0.7.0 → v0.7.1 refined)
+
+> When effective routing IS built-in speakers (saved device is speakers, OR no save + system default resolves to speakers), pop the speaker warning + disable Play. Refined in v0.7.1: copy points users to the gear icon (was: a now-removed in-modal dropdown).
+
+| Check | Expected | Result |
+|---|---|---|
+| Set macOS Sound output → MacBook Pro Speakers + no Tape dump routing pick → open Send modal → play state | modal warning: *"Heads up — your tape dump routing is your speakers"* + body pointing at Audio Settings gear icon; ▶ Play disabled | |
+| Open gear modal → pick KT for Tape dump routing → close gear modal → back to Send modal | display + Play recovers (no speaker warning) | |
+| Explicitly pick MacBook Pro Speakers as Tape dump routing in gear modal | safety belt fires next time Send modal opens (selecting speakers as cable is a foot-gun in any path) | |
+
+### 7c. Audio Settings — canary (v0.7.1; folded in from removed Audio Diagnostics modal)
+
+> Hidden when everything's healthy. Shows up at the bottom of the Audio Settings modal when the Tape Dump Sounds allowlist can't find a present built-in speaker (the macOS-update label-regression canary).
+
+| Check | Expected | Result |
+|---|---|---|
+| Normal state (built-in speakers detected by allowlist) | NO canary section in the modal — modal ends with the "How routing works" disclosure + Done | |
+| Help menu | **no** "Audio Diagnostics…" item (removed in v0.7.1; the canary lives inline in the gear modal now) | |
+| Engineered no-match state (would require macOS changing speaker label format — can also be simulated by temporarily editing `MAC_SPEAKER_LABEL_RE` to a non-matching regex) | amber canary section: *"Tape Dump Sounds may not work. The macOS speaker label format looks unfamiliar — likely a recent OS update changed it."* + "Report this bug" button | |
+| Click "Report this bug" | default browser opens to a pre-filled GitHub Issue on `danielspils/JP-Patches-App` with title, app version, macOS Darwin release, allowlist regex, full device list embedded | |
+| Engineered empty-labels state (fresh install, mic permission not yet granted) | blue info canary: *"Audio device labels not yet visible (microphone permission required)…"* + NO Report button | |
 
 ## 8. Drag-and-drop
 
@@ -316,21 +327,9 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | View → Tape dump sounds (uncheck) | menu item state toggles + persists | |
 | View → Tape dump sounds (re-check) | toggles back | |
 
-### 10a. Audio Diagnostics (Help menu, v0.6.4)
+### 10a. Audio Diagnostics — REMOVED in v0.7.1
 
-> Surfaces whether the Tape Dump Sounds built-in-speaker allowlist matches your live audio device labels. Primary use: catching the macOS-update regression where speaker label format changes and `setSinkId` silently stops routing.
-
-| Check | Expected | Result |
-|---|---|---|
-| Help → Audio Diagnostics… | modal opens, title "Audio Diagnostics" | |
-| Normal state (MacBook with built-in speakers detected) | **green** banner: "✓ All systems go! Tape Dump Sounds will play through *MacBook Pro Speakers (Built-in)*" + Done button (NO Report button) | |
-| Close button (×) and Done button both dismiss the modal | works | |
-| Esc key dismisses | works | |
-| Engineered no-match state (rare — would require macOS changing label format) | amber banner: "OS may have changed output labels…" + **Report this bug** button (left) + Done (right) | |
-| Click **Report this bug** | default browser opens to a pre-filled GitHub Issue on `danielspils/JP-Patches-App` with title, app version, macOS Darwin release, allowlist regex, full device list embedded — paste-and-go | |
-| Modal closes after successful Report (browser opened) | confirms the openExternal IPC returned ok | |
-| Engineered no-outputs state (extremely rare — Mac with no audio outputs at all) | amber banner: "No audio outputs detected on this Mac" + Report button | |
-| Engineered empty-labels state (fresh install, mic permission not yet granted) | **blue** info banner: "Audio device labels are not yet visible (microphone permission required)" + NO Report button | |
+> Folded into the Audio Settings modal (gear icon → see §7c above). Help menu no longer has an "Audio Diagnostics…" item.
 
 ## 11. Persistence check
 
