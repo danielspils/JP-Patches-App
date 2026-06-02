@@ -5759,9 +5759,7 @@ function showSendToJxFlow(opts) {
   // pre-v0.7). User picks the cable device once; selection persists in
   // library.cableOutputDeviceId and is applied via setSinkId on play.
   // Empty value = "(system default)" — keeps current behavior for users
-  // who haven't picked. The picker IS the routing answer; the old
-  // built-in-speaker amber warning is obsolete (you can't accidentally
-  // route to speakers if your cable device is explicitly selected).
+  // who haven't picked.
   const outputDeviceSelect = document.createElement('select');
   outputDeviceSelect.id = 'send-jx-output-select';
   outputDeviceSelect.className = 'send-jx-device-select';
@@ -5773,7 +5771,56 @@ function showSendToJxFlow(opts) {
   outputDeviceSection.appendChild(outputDeviceLabel);
   outputDeviceSection.appendChild(outputDeviceSelect);
   modal.appendChild(outputDeviceSection);
-  // Persist on user pick.
+
+  // v0.7.0 safety net: if the picker's resolved target is the Mac's
+  // built-in speakers (either picked explicitly OR "(system default)"
+  // resolving to them), disable Play and pop a modal warning. Prevents
+  // the full-volume blast that hits when setSinkId routes the FSK to
+  // the laptop speakers. Discovered 2026-06-01 when Daniel changed his
+  // macOS Sound output to speakers per the v0.7.0 docs and the picker's
+  // default selection routed the transmission to speakers — head got
+  // blasted off. This belt fires before any play() can route to the
+  // wrong sink.
+  //
+  // outputDevices is cached so the change handler + safety check can
+  // look up labels without re-running enumerateDevices on every click.
+  let outputDevices = [];
+  let safetyModalShown = false;     // only pop once until selection changes back to non-speaker
+  const isSpeakerSelection = () => {
+    const val = outputDeviceSelect.value;
+    let label = '';
+    if (val) {
+      const dev = outputDevices.find((d) => d.deviceId === val);
+      label = (dev && dev.label) || '';
+    } else {
+      const def  = outputDevices.find((d) => d.deviceId === 'default') || outputDevices[0];
+      const real = def && outputDevices.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+      label = (real && real.label) || (def && def.label) || '';
+    }
+    return typeof isBuiltInSpeakerOutput === 'function' && isBuiltInSpeakerOutput(label);
+  };
+  const applySafetyCheck = () => {
+    if (isSpeakerSelection()) {
+      primaryBtn.disabled = true;
+      if (!safetyModalShown) {
+        safetyModalShown = true;
+        showConfirmModal({
+          title: 'Heads up — your selected output is your speakers',
+          body:
+            "Sending a tape dump to your Mac's built-in speakers will play the FSK at full volume — loud and unpleasant — and the JX-3P won't receive anything (it's not connected to your speakers). " +
+            "Pick your audio interface (the device connected to the JX-3P's tape input) from the OUTPUT DEVICE dropdown.",
+          confirmLabel: 'OK, got it',
+          hideCancel: true,
+          onConfirm: () => {},
+        });
+      }
+    } else {
+      primaryBtn.disabled = false;
+      safetyModalShown = false;    // re-arm — if user goes back to speakers, warn again
+    }
+  };
+
+  // Persist on user pick + re-run safety check.
   outputDeviceSelect.addEventListener('change', () => {
     library.cableOutputDeviceId = outputDeviceSelect.value || null;
     saveLibraryDebounced();
@@ -5781,6 +5828,7 @@ function showSendToJxFlow(opts) {
     // guard) to the freshly-picked device, so a mid-playback device
     // change doesn't echo onto the new cable.
     cableDeviceId = library.cableOutputDeviceId;
+    applySafetyCheck();
   });
 
   // Per-segment timeline + indicator + status text. Construction in
@@ -6025,6 +6073,7 @@ function showSendToJxFlow(opts) {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
+        outputDevices = outputs;   // cache for safety check + change handler
         const selectEl = document.getElementById('send-jx-output-select');
         if (!selectEl) return;
         // Clear placeholder + previous options.
@@ -6073,6 +6122,12 @@ function showSendToJxFlow(opts) {
           const realDefault = def && outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
           cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
         }
+        // v0.7.0 safety: fire the speaker check now that the picker is
+        // populated + a value is selected. If the resolved target is
+        // built-in speakers (e.g. user has macOS Sound output set to
+        // MacBook Pro Speakers + picker defaulted to "(system default)"),
+        // this pops the warning modal + disables ▶ Play.
+        applySafetyCheck();
       } catch {}
     })();
   };
