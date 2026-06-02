@@ -10671,7 +10671,7 @@ function showAudioSettingsModal() {
   // Build the four rows.
   const tdsRow = mkToggleRow(
     'Tape dump sounds',
-    'reference audio only',
+    'allows you to hear what your tape dumps sounds like (without affecting the actual transfer of data between JX and JP)',
     tapeDumpSoundsEnabled,
     (on) => {
       tapeDumpSoundsEnabled = on;
@@ -10688,7 +10688,7 @@ function showAudioSettingsModal() {
 
   const bsRow = mkToggleRow(
     'Button and switch sounds',
-    'PG-200',
+    'bring the PG-200 dashboard to life!',
     buttonSoundsEnabled,
     (on) => {
       buttonSoundsEnabled = on;
@@ -10702,7 +10702,7 @@ function showAudioSettingsModal() {
 
   const inAppRow = mkSelectRow(
     'In-app audio',
-    'where you send tape dumps sound, button and switch sounds, and sequencer editor sounds',
+    'where you hear tape dump, button and switch, sequencer editor sounds',
     library.appSoundDeviceId,
     (id) => {
       library.appSoundDeviceId = id;
