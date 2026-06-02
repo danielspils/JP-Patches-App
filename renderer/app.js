@@ -10631,7 +10631,7 @@ function showAudioSettingsModal() {
 
   const inAppRow = mkSelectRow(
     'In-app audio',
-    'where you hear tape dump, button and switch, sequencer editor sounds',
+    'where you hear tape dump, button, switch, and sequence editor sounds',
     library.appSoundDeviceId,
     (id, label) => {
       library.appSoundDeviceId    = id;
