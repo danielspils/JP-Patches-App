@@ -5107,6 +5107,15 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
       // been overwritten by a different import) and the user sees a
       // misleading "imported as X from <stale library>" line.
       m.sourceLabel = sourceLabel || null;
+      // jPpS v:2 chunk additions — preserve the original creator's
+      // attribution + first-creation date across cross-user WAV trades.
+      // Precedence: chunk wins for these (they're historical facts about
+      // the file; the recipient's own remembered fingerprint history
+      // doesn't carry them). Set only when the chunk has the field;
+      // otherwise leave whatever the slot's previous value was.
+      if (embedded && embedded.originalName)  m.originalName  = embedded.originalName;
+      if (embedded && embedded.originLibrary) m.originLibrary = embedded.originLibrary;
+      if (embedded && embedded.createdAt)     m.createdAt     = embedded.createdAt;
     });
   });
   // Fresh capture / import = fresh clean baseline for modified-indicator.
@@ -5260,6 +5269,44 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
   });
 }
 
+// Walk library.slotMeta and lazy-set originalName + createdAt on entries
+// that don't have them — honors the "set once at first export, never
+// overwritten" rule for the jPpS v:2 chunk's slotMeta fields. originalName
+// is already populated for most slots via the package-load path (see line
+// ~3815), this catches any that slipped through. createdAt is derived from
+// the slot's origin package's createdAt when discoverable; else falls back
+// to now (best-effort — older slots predating this field have no clear
+// real creation timestamp, and the chunk surfacing "Created: today" is
+// less misleading than no date at all).
+function lazyMigrateSlotMetaForExport(slotMeta) {
+  if (!slotMeta || typeof slotMeta !== 'object') return false;
+  const packagesByLabel = new Map();
+  const packages = (library && Array.isArray(library.packages)) ? library.packages : [];
+  for (const pkg of packages) {
+    if (!pkg) continue;
+    const key = pkg.customName || pkg.defaultName;
+    if (key) packagesByLabel.set(key, pkg);
+  }
+  const nowIso = new Date().toISOString();
+  let dirty = false;
+  for (const bank of ['C', 'D']) {
+    const arr = slotMeta[bank] || [];
+    for (const m of arr) {
+      if (!m || typeof m !== 'object') continue;
+      if (!m.originalName && m.name) {
+        m.originalName = m.name;
+        dirty = true;
+      }
+      if (!m.createdAt) {
+        const pkg = m.originLibrary ? packagesByLabel.get(m.originLibrary) : null;
+        m.createdAt = (pkg && pkg.createdAt) || nowIso;
+        dirty = true;
+      }
+    }
+  }
+  return dirty;
+}
+
 async function handleToneLoad() {
   // SIMPLIFIED 2026-05-24: Always send the active C/D banks. The previous
   // behavior — sending a library package directly when one was selected in
@@ -5282,6 +5329,12 @@ async function handleToneLoad() {
   // will restore the name no matter what slot they come back in.
   recordAllNamedToHistory();
   saveLibraryDebounced();
+  // Lazy-migrate originalName + createdAt on slotMeta entries — v0.6.5
+  // jPpS v:2 chunk fields, set ONCE at first export, preserved across
+  // recipient libraries forever after. See lazyMigrateSlotMetaForExport.
+  if (slotMeta && lazyMigrateSlotMetaForExport(slotMeta)) {
+    saveLibraryDebounced();
+  }
   // Attach the slot metadata under a private key so main.js can pull it out
   // and embed it in the output WAV's RIFF "jPpS" chunk. The underscore
   // prefix marks it as our own extension; main.js strips it before passing
