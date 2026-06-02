@@ -10564,96 +10564,226 @@ async function init() {
   });
 }
 
-// v0.7.0 — chrome-level app-sound picker. Always-visible dropdown in the
-// top-right of the panel host, controls where button clicks, switch
-// clicks, and sequencer note previews play. Independent of the cable
-// picker (Send modal) and macOS system default. Persists to
-// library.appSoundDeviceId; pushed to synth-preview.js via
-// setPreviewSink and to makeSoundPlayer Audio elements via their own
-// per-play change detection.
+// v0.7.0 — gear icon in the panel's red header strip (top-right). Opens
+// a Settings modal with toggles for button/switch + tape-dump sounds
+// AND device pickers for app audio routing + tape dump routing. Replaces
+// the earlier always-visible chrome dropdown — less panel clutter,
+// single point of audio configuration.
 function setupAppSoundPicker() {
   const host = document.getElementById('panel-host');
   if (!host) return;
-  if (document.getElementById('app-sound-picker')) return;   // idempotent
+  if (document.getElementById('app-settings-gear')) return;    // idempotent
 
-  const wrap = document.createElement('div');
-  wrap.id = 'app-sound-picker';
-  wrap.className = 'app-sound-picker';
-  // Reuses the speaker + wave icons from the Tape Dump Sounds control
-  // — same design-system primitive. No slash variant here (the control
-  // doesn't mute).
-  wrap.innerHTML =
-    '<svg class="app-sound-picker-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-      '<polygon points="3 9 7 9 11 5 11 19 7 15 3 15" fill="currentColor" stroke="none"/>' +
-      '<path d="M15 9.5a4 4 0 0 1 0 5"/>' +
-      '<path d="M17.5 7a7.5 7.5 0 0 1 0 10"/>' +
-    '</svg>' +
-    '<span class="app-sound-picker-label">app sound:</span>' +
-    '<select class="app-sound-picker-select" aria-label="App sound output device"></select>';
-  host.appendChild(wrap);
+  const gear = document.createElement('button');
+  gear.id = 'app-settings-gear';
+  gear.className = 'app-settings-gear';
+  gear.type = 'button';
+  gear.setAttribute('aria-label', 'Open audio settings');
+  gear.title = 'Audio settings';
+  // Solid-fill cog icon (Material-style). More white-on-red mass than the
+  // outline variant — reads cleanly at the small rendered size in the
+  // panel header strip.
+  gear.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">' +
+      '<path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>' +
+    '</svg>';
+  host.appendChild(gear);
 
-  const selectEl = wrap.querySelector('select');
+  gear.addEventListener('click', () => {
+    if (typeof showAudioSettingsModal === 'function') showAudioSettingsModal();
+  });
+}
 
-  // Initial placeholder — same UX as the Send modal picker while
-  // enumerateDevices is in flight.
-  const loadingOpt = document.createElement('option');
-  loadingOpt.value = '';
-  loadingOpt.textContent = 'checking…';
-  selectEl.appendChild(loadingOpt);
+// v0.7.0 — Audio Settings modal. Single point of audio configuration:
+// two on/off toggles (tape dump sounds + button/switch sounds) and two
+// device routing dropdowns (in-app audio + tape dump cable routing).
+// Replaces the View-menu toggles (single source of truth) and the
+// always-visible chrome dropdown. Wording per Daniel's 2026-06-02 call.
+function showAudioSettingsModal() {
+  if (document.querySelector('.audio-settings-modal')) return;   // idempotent
 
-  // Persist + propagate on user change.
-  selectEl.addEventListener('change', () => {
-    const id = selectEl.value || null;
-    library.appSoundDeviceId = id;
-    saveLibraryDebounced();
-    // Push to the sequencer-preview AudioContext.
-    if (typeof setPreviewSink === 'function') {
-      setPreviewSink(id);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal audio-settings-modal';
+  modal.style.maxWidth = '520px';
+
+  const closeX = document.createElement('button');
+  closeX.className = 'modal-close-x';
+  closeX.setAttribute('aria-label', 'Close');
+  closeX.textContent = '×';
+
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = 'Audio settings';
+
+  // Row builders.
+  const mkLabelBlock = (header, subtext) => {
+    const lbl = document.createElement('div');
+    lbl.className = 'settings-row-label';
+    const h = document.createElement('div');
+    h.className = 'settings-row-header';
+    h.textContent = header;
+    const s = document.createElement('div');
+    s.className = 'settings-row-subtext';
+    s.textContent = subtext;
+    lbl.appendChild(h);
+    lbl.appendChild(s);
+    return lbl;
+  };
+
+  const mkToggleRow = (header, subtext, initial, onChange) => {
+    const row = document.createElement('div');
+    row.className = 'settings-row settings-row-toggle';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'settings-row-checkbox';
+    cb.checked = !!initial;
+    cb.addEventListener('change', () => onChange(cb.checked));
+    const labelEl = document.createElement('label');
+    labelEl.className = 'settings-row-toggle-label';
+    labelEl.appendChild(cb);
+    labelEl.appendChild(mkLabelBlock(header, subtext));
+    row.appendChild(labelEl);
+    return row;
+  };
+
+  const mkSelectRow = (header, subtext, savedId, onChange) => {
+    const row = document.createElement('div');
+    row.className = 'settings-row settings-row-select';
+    row.appendChild(mkLabelBlock(header, subtext));
+    const sel = document.createElement('select');
+    sel.className = 'settings-row-select-control';
+    // Placeholder until enumerateDevices resolves.
+    const loading = document.createElement('option');
+    loading.value = '';
+    loading.textContent = 'checking…';
+    sel.appendChild(loading);
+    sel.addEventListener('change', () => onChange(sel.value || null));
+    row.appendChild(sel);
+    // Expose for async populate.
+    row._select = sel;
+    row._savedId = savedId;
+    return row;
+  };
+
+  // Build the four rows.
+  const tdsRow = mkToggleRow(
+    'Tape dump sounds',
+    'reference audio only',
+    tapeDumpSoundsEnabled,
+    (on) => {
+      tapeDumpSoundsEnabled = on;
+      if (!library.transmissionSounds) library.transmissionSounds = {};
+      library.transmissionSounds.enabled = on;
+      saveLibraryDebounced();
+      // Mirror to the main-process menu checkbox so the View menu (if
+      // still present in this build) reflects modal-driven changes.
+      if (window.api && typeof window.api.setTapeDumpSoundsInitial === 'function') {
+        window.api.setTapeDumpSoundsInitial(on);
+      }
     }
-    // makeSoundPlayer audio elements (button + switch clicks) detect
-    // the library change themselves on their next play call — no need
-    // to push to them here.
+  );
+
+  const bsRow = mkToggleRow(
+    'Button and switch sounds',
+    'PG-200',
+    buttonSoundsEnabled,
+    (on) => {
+      buttonSoundsEnabled = on;
+      library.buttonSounds = on;
+      saveLibraryDebounced();
+      if (window.api && typeof window.api.setButtonSoundsInitial === 'function') {
+        window.api.setButtonSoundsInitial(on);
+      }
+    }
+  );
+
+  const inAppRow = mkSelectRow(
+    'In-app audio',
+    'where you send tape dumps sound, button and switch sounds, and sequencer editor sounds',
+    library.appSoundDeviceId,
+    (id) => {
+      library.appSoundDeviceId = id;
+      saveLibraryDebounced();
+      if (typeof setPreviewSink === 'function') setPreviewSink(id);
+      // makeSoundPlayer audio elements pick up the change lazily on
+      // their next play call.
+    }
+  );
+
+  const cableRow = mkSelectRow(
+    'Tape dump routing',
+    'choose your cable or audio interface for transferring data between JX and JP',
+    library.cableOutputDeviceId,
+    (id) => {
+      library.cableOutputDeviceId = id;
+      saveLibraryDebounced();
+    }
+  );
+
+  modal.appendChild(closeX);
+  modal.appendChild(title);
+  modal.appendChild(tdsRow);
+  modal.appendChild(bsRow);
+  modal.appendChild(inAppRow);
+  modal.appendChild(cableRow);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const doneBtn = document.createElement('button');
+  doneBtn.className = 'modal-btn modal-btn-confirm';
+  doneBtn.textContent = 'Done';
+  actions.appendChild(doneBtn);
+  modal.appendChild(actions);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  closeX.addEventListener('click', close);
+  doneBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape' && document.body.contains(overlay)) {
+      close();
+      document.removeEventListener('keydown', onKey);
+    }
   });
 
-  // Populate from enumerateDevices (silent-fail if blocked).
+  // Populate both device dropdowns once enumerateDevices resolves.
   (async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const outputs = devices.filter((d) => d.kind === 'audiooutput');
-      selectEl.textContent = '';
-
-      const sysOpt = document.createElement('option');
-      sysOpt.value = '';
-      const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-      const defLabel = (def && def.label) || 'unknown';
-      sysOpt.textContent = `(system default — ${defLabel})`;
-      selectEl.appendChild(sysOpt);
-
-      outputs.forEach((d) => {
-        if (d.deviceId === 'default' || !d.deviceId) return;
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
-        selectEl.appendChild(opt);
-      });
-
-      // Pre-select saved or clear stale.
-      const saved = library.appSoundDeviceId;
-      if (saved && outputs.some((d) => d.deviceId === saved)) {
-        selectEl.value = saved;
-      } else {
-        selectEl.value = '';
-        if (saved) {
-          library.appSoundDeviceId = null;
-          saveLibraryDebounced();
+      const populate = (sel, savedId, libraryKey) => {
+        sel.textContent = '';
+        const sysOpt = document.createElement('option');
+        sysOpt.value = '';
+        const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
+        const defLabel = (def && def.label) || 'unknown';
+        sysOpt.textContent = `(system default — ${defLabel})`;
+        sel.appendChild(sysOpt);
+        outputs.forEach((d) => {
+          if (d.deviceId === 'default' || !d.deviceId) return;
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
+          sel.appendChild(opt);
+        });
+        if (savedId && outputs.some((d) => d.deviceId === savedId)) {
+          sel.value = savedId;
+        } else {
+          sel.value = '';
+          if (savedId) {
+            library[libraryKey] = null;
+            saveLibraryDebounced();
+          }
         }
-      }
-
-      // Apply current selection to the sequencer-preview AudioContext.
-      // Sound-player Audio elements pick it up on their next play.
-      if (typeof setPreviewSink === 'function') {
-        setPreviewSink(selectEl.value || null);
-      }
+      };
+      populate(inAppRow._select, inAppRow._savedId, 'appSoundDeviceId');
+      populate(cableRow._select, cableRow._savedId, 'cableOutputDeviceId');
     } catch {}
   })();
 }
@@ -10719,14 +10849,25 @@ function setupMemoryDropdown() {
     // only working mode until the JX-3P MIDI Upgrade Kit is installed
     // and Phase 3 lands.
     if (newMode === 'midi') {
+      // Revert dropdown + persisted mode back to Tape Memory on any
+      // dismissal (OK / Esc / overlay click). MIDI is non-functional
+      // until Phase 3 ships, so leaving the dropdown stuck on MIDI
+      // would imply the mode is active when it isn't — better to bounce
+      // it back so the next attempt to use Tape Memory just works.
+      const revertToTape = () => {
+        sel.value = 'tape';
+        library.tapeMode = 'tape';
+        saveLibraryDebounced();
+      };
       showConfirmModal({
         title: 'MIDI Memory mode',
         body:
-          'MIDI functionality is coming soon — gated on the Series Circuits ' +
-          'JX-3P MIDI Upgrade Kit (Phase 3). For now, use **Tape Memory** mode ' +
-          'for all transfers to and from the JX-3P.',
+          'MIDI functionality is coming soon (once I install the Series Circuits ' +
+          'MIDI upgrade kit on my JX-3P). Hold tight!',
         confirmLabel: 'OK',
         hideCancel: true,
+        onConfirm: revertToTape,
+        onCancel:  revertToTape,
       });
     }
   });
