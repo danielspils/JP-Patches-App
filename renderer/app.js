@@ -2574,7 +2574,11 @@ function exitPreviewMode() {
   if (!currentPreviewPatch) return;
   currentPreviewPatch = null;
   updateSvgPatchName();
-  updateAllControls(currentPatch());
+  // currentPatch() returns null when called from the Library tab —
+  // route through activeBankPatch() instead so the panel knobs settle
+  // on the last C/D slot the user was working with, matching the
+  // parallelogram fallback in updateSvgPatchName.
+  updateAllControls(selBank === 'L' ? activeBankPatch() : currentPatch());
 }
 
 // Returns the bank+slot of the patch the SVG panel is visibly showing. On a
@@ -2633,8 +2637,15 @@ function updateSvgPatchName() {
     name   = '';
     svgPatchNameEl.classList.add('patch-readout-preview');
   } else {
-    prefix = `${slotKey(selBank, selSlot)}: `;
-    name   = patchName(selBank, selSlot) || patchPlaceholder(selBank, selSlot);
+    // On Library tab there's no current C/D slot, so the parallelogram
+    // would show "L1: click to name" if we used selBank/selSlot
+    // directly. Fall through to activeBankSelection() which returns the
+    // last bank/slot the user was on before navigating to Library —
+    // matches the panel's behavior of "showing what you'd be working
+    // on if you switched back to a bank tab."
+    const { bank, slot } = activeBankSelection();
+    prefix = `${slotKey(bank, slot)}: `;
+    name   = patchName(bank, slot) || patchPlaceholder(bank, slot);
     svgPatchNameEl.classList.remove('patch-readout-preview');
   }
   if (prefixSpan) prefixSpan.textContent = prefix;
@@ -2748,7 +2759,16 @@ function updateSvgPairedPatchHint() {
 
   const lineCTA = document.createElement('div');
   lineCTA.className = 'paired-patch-hint-cta';
-  lineCTA.textContent = 'click Write to save paired patch';
+  lineCTA.appendChild(document.createTextNode('click '));
+  // "Write" in a mini panel-button frame so the user reads it as
+  // referring to the actual Write button on the panel, not the verb.
+  // Frame styling mirrors the panel-button face (#cbc4b4 cream +
+  // #555 stroke) — design-system primitive.
+  const writeKey = document.createElement('span');
+  writeKey.className = 'paired-patch-hint-write-key';
+  writeKey.textContent = 'Write';
+  lineCTA.appendChild(writeKey);
+  lineCTA.appendChild(document.createTextNode(' to save paired patch'));
   div.appendChild(lineCTA);
   hintFo.style.display = '';
 }
@@ -4843,6 +4863,34 @@ function handleSendSequenceToJX() {
   if (selSequence === null) return;
   const seq = library.sequences[selSequence];
   if (!seq) return;
+  // v0.6.5: paired-patch preview only represents visual context from
+  // the Library — the JX-3P tape format carries sequence pages only,
+  // no patch data. When the user kicks off Load to JX-3P, exit
+  // preview so the panel stops implying "I'm sending both." Fade the
+  // hint to opacity 0 (200ms), then clear state AND open the Send
+  // modal — delaying the modal until the fade completes feels more
+  // deliberate than letting them race.
+  if (currentPreviewPatch) {
+    const hintFo = document.querySelector('.paired-patch-hint-fo');
+    if (hintFo) {
+      hintFo.classList.add('paired-patch-hint-exiting');
+      setTimeout(() => {
+        exitPreviewMode();
+        hintFo.classList.remove('paired-patch-hint-exiting');
+        sendSequenceToJxAfterExit(seq);
+      }, 220);
+    } else {
+      exitPreviewMode();
+      sendSequenceToJxAfterExit(seq);
+    }
+    return;
+  }
+  sendSequenceToJxAfterExit(seq);
+}
+
+// Continuation of handleSendSequenceToJX — split so the paired-patch
+// preview fade can defer the modal open until the fade completes.
+function sendSequenceToJxAfterExit(seq) {
   migrateSequenceShape(seq);
   if (!seq.tape || !Array.isArray(seq.tape.pages)) {
     showConfirmModal({

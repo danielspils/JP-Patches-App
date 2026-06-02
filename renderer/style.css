@@ -2746,6 +2746,41 @@ body.seq-dragging-pitch * {
 .paired-patch-hint .paired-patch-hint-cta {
   color: var(--text-mid);
 }
+/* Extra breathing room above the CTA so the mini button frame around
+   "Write" has space to render without crowding the line above. */
+.paired-patch-hint .paired-patch-hint-cta {
+  margin-top: 5px;
+}
+/* "Write" in a panel-button frame so users read it as the actual
+   button on the panel below, not the verb. Mirrors panel.svg's
+   button face (#cbc4b4 cream) + #555 stroke — design-system primitive
+   scaled down to fit inline at the hint's 15px text size. */
+.paired-patch-hint .paired-patch-hint-write-key {
+  display: inline-block;
+  background: #cbc4b4;
+  color: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 1px 7px;
+  font-size: 13px;
+  font-weight: 600;
+  font-style: normal;
+  line-height: 1.1;
+  margin: 0 2px;
+  vertical-align: 1px;
+}
+/* Hint container exit-fade — applied when the user clicks Load to
+   JX-3P on a sequence with a paired patch. The JX tape format only
+   carries sequence pages (not the paired patch), so we exit preview
+   on Load click; the 200ms opacity transition softens the swap from
+   "panel showing paired patch" to "panel showing slot." Class is
+   added in handleSendSequenceToJX, removed after exitPreviewMode. */
+.paired-patch-hint-fo {
+  transition: opacity 200ms ease;
+}
+.paired-patch-hint-fo.paired-patch-hint-exiting {
+  opacity: 0;
+}
 /* Notes line clamps to 2 lines max with an ellipsis tail. Keeps the
    hint block from overflowing into the Manual / Write button row no
    matter how long the sequence author's patchNote is. Hanging indent
