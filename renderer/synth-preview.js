@@ -49,6 +49,10 @@
   // up a real audio graph) and there's a small per-domain cap, so reuse
   // matters.
   let cachedCtx = null;
+  // v0.7.0: pending sinkId to apply on first ctx creation. Lets app.js
+  // call setPreviewSink at startup (before the first previewNote) without
+  // forcing AudioContext construction prematurely.
+  let pendingSinkId = null;
 
   function getOrCreateCtx() {
     if (cachedCtx) return cachedCtx;
@@ -59,8 +63,32 @@
       ? (window.AudioContext || window.webkitAudioContext)
       : null;
     if (!AC) return null;
-    cachedCtx = new AC();
+    // v0.7.0: pin to the requested sink on initial construction when set
+    // (Chromium 110+; harmless if older — AudioContextOptions ignores
+    // unknown keys). Subsequent changes go through setPreviewSink which
+    // calls ctx.setSinkId().
+    cachedCtx = pendingSinkId ? new AC({ sinkId: pendingSinkId }) : new AC();
     return cachedCtx;
+  }
+
+  /**
+   * v0.7.0 — pin sequencer-preview audio to a specific output device.
+   * Pass null/empty to reset to system default. Safe to call before the
+   * AudioContext has been created (the value is held + applied on first
+   * previewNote). Returns a Promise that resolves once setSinkId has
+   * applied to the live AudioContext (or immediately if there's no live
+   * ctx yet); callers can fire-and-forget.
+   *
+   * @param {string|null} deviceId
+   * @returns {Promise<void>}
+   */
+  function setPreviewSink(deviceId) {
+    pendingSinkId = deviceId || null;
+    if (!cachedCtx || typeof cachedCtx.setSinkId !== 'function') {
+      return Promise.resolve();
+    }
+    // Chromium's AudioContext.setSinkId accepts '' for "system default".
+    return cachedCtx.setSinkId(deviceId || '').catch(() => {});
   }
 
   /**
@@ -134,5 +162,5 @@
     };
   }
 
-  return { previewNote, midiToHz };
+  return { previewNote, midiToHz, setPreviewSink };
 });

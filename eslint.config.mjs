@@ -87,6 +87,7 @@ export default [
         // Globals exposed by renderer/synth-preview.js
         previewNote:                'readonly',
         midiToHz:                   'readonly',
+        setPreviewSink:             'readonly',
 
         // Globals exposed by renderer/transmission-sounds.js
         selectTapeDumpSpeaker:      'readonly',

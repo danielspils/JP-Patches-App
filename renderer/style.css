@@ -2720,6 +2720,55 @@ body.seq-dragging-pitch * {
   height: calc((100vw - 370px) * 620 / 1050);
   min-width: 0;
   overflow: visible;
+  /* v0.7.0: anchor the chrome-level app-sound picker overlay. */
+  position: relative;
+}
+
+/* v0.7.0 — chrome-level app-sound picker. Top-right overlay on the panel,
+   always visible. Speaker icon + label + interactive <select>. Routes
+   button/switch click sounds AND sequencer note previews via setSinkId,
+   independent of the cable picker (Send modal) and macOS system default.
+   Per Daniel's 2026-06-01 mockup. */
+.app-sound-picker {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 10, 10, 0.72);   /* semi-transparent so panel reads through */
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--text-bright);
+  font-family: Helvetica, "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  /* Lift above the SVG visually but don't intercept clicks on areas
+     outside the chip itself. */
+  pointer-events: auto;
+}
+.app-sound-picker-icon {
+  flex-shrink: 0;
+  color: var(--text-bright);
+}
+.app-sound-picker-label {
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+.app-sound-picker-select {
+  background: #0e0e0e;
+  color: var(--text-bright);
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 220px;
+}
+.app-sound-picker-select:focus {
+  outline: 1px solid var(--text-mid);
+  outline-offset: 0;
 }
 
 /* Scale to fill the available width; aspect ratio preserved automatically. */

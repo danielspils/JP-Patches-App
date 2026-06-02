@@ -196,14 +196,28 @@ let tapeDumpVolume = 0.0025;
 
 // Cache one Audio element per sound (created lazily). Resetting currentTime
 // before each play lets rapid presses retrigger the sound.
+//
+// v0.7.0: applies setSinkId(library.appSoundDeviceId) before play so app
+// sounds route to the user's picked device (independent of macOS system
+// default + the cable picker). Tracks the last-applied sinkId so we only
+// re-call setSinkId when the user picks a different device — setSinkId
+// is an async device handshake and shouldn't fire on every click. Silent-
+// fail on rejection (device gone, etc.) — degrades to default routing.
 function makeSoundPlayer(src, volume) {
   let audio = null;
+  let lastAppliedSink = undefined;
   return () => {
     if (!buttonSoundsEnabled) return;
     try {
       if (!audio) {
         audio = new Audio(src);
         audio.volume = volume;
+      }
+      // Apply sinkId on-demand: only if changed since last play.
+      const want = library && library.appSoundDeviceId;
+      if (want !== lastAppliedSink && typeof audio.setSinkId === 'function') {
+        lastAppliedSink = want;
+        audio.setSinkId(want || '').catch(() => {});  // '' = default sink
       }
       audio.currentTime = 0;
       const p = audio.play();
@@ -1871,6 +1885,13 @@ function ensureLibraryShape() {
   // to their speakers/headphones AND have transmissions still route to
   // the cable device, no more shared-default conflict.
   if (!('cableOutputDeviceId' in library)) library.cableOutputDeviceId = null;
+  // v0.7.0: pinned app-sound output device. null = system default
+  // (current pre-v0.7 behavior). String = setSinkId target for button
+  // clicks, switch clicks, and sequencer note previews. Separated from
+  // cableOutputDeviceId so the user can route transmissions to their
+  // audio interface AND app sounds to their speakers/headphones, fully
+  // independent of macOS Sound output (which becomes irrelevant to JP).
+  if (!('appSoundDeviceId' in library)) library.appSoundDeviceId = null;
   const legacy = library.names || {};
   ['C', 'D'].forEach((bank) => {
     if (!Array.isArray(library.slotMeta[bank])) library.slotMeta[bank] = [];
@@ -10500,6 +10521,7 @@ async function init() {
   setupHwButtons();
   setupPatchListDropZone();
   setupCustomBuilder();
+  setupAppSoundPicker();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !writePending) return;
     // If a modal is open it handles its own Esc (close → write mode stays
@@ -10540,6 +10562,100 @@ async function init() {
   requestAnimationFrame(() => {
     document.body.classList.add('controls-armed');
   });
+}
+
+// v0.7.0 — chrome-level app-sound picker. Always-visible dropdown in the
+// top-right of the panel host, controls where button clicks, switch
+// clicks, and sequencer note previews play. Independent of the cable
+// picker (Send modal) and macOS system default. Persists to
+// library.appSoundDeviceId; pushed to synth-preview.js via
+// setPreviewSink and to makeSoundPlayer Audio elements via their own
+// per-play change detection.
+function setupAppSoundPicker() {
+  const host = document.getElementById('panel-host');
+  if (!host) return;
+  if (document.getElementById('app-sound-picker')) return;   // idempotent
+
+  const wrap = document.createElement('div');
+  wrap.id = 'app-sound-picker';
+  wrap.className = 'app-sound-picker';
+  // Reuses the speaker + wave icons from the Tape Dump Sounds control
+  // — same design-system primitive. No slash variant here (the control
+  // doesn't mute).
+  wrap.innerHTML =
+    '<svg class="app-sound-picker-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polygon points="3 9 7 9 11 5 11 19 7 15 3 15" fill="currentColor" stroke="none"/>' +
+      '<path d="M15 9.5a4 4 0 0 1 0 5"/>' +
+      '<path d="M17.5 7a7.5 7.5 0 0 1 0 10"/>' +
+    '</svg>' +
+    '<span class="app-sound-picker-label">app sound:</span>' +
+    '<select class="app-sound-picker-select" aria-label="App sound output device"></select>';
+  host.appendChild(wrap);
+
+  const selectEl = wrap.querySelector('select');
+
+  // Initial placeholder — same UX as the Send modal picker while
+  // enumerateDevices is in flight.
+  const loadingOpt = document.createElement('option');
+  loadingOpt.value = '';
+  loadingOpt.textContent = 'checking…';
+  selectEl.appendChild(loadingOpt);
+
+  // Persist + propagate on user change.
+  selectEl.addEventListener('change', () => {
+    const id = selectEl.value || null;
+    library.appSoundDeviceId = id;
+    saveLibraryDebounced();
+    // Push to the sequencer-preview AudioContext.
+    if (typeof setPreviewSink === 'function') {
+      setPreviewSink(id);
+    }
+    // makeSoundPlayer audio elements (button + switch clicks) detect
+    // the library change themselves on their next play call — no need
+    // to push to them here.
+  });
+
+  // Populate from enumerateDevices (silent-fail if blocked).
+  (async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter((d) => d.kind === 'audiooutput');
+      selectEl.textContent = '';
+
+      const sysOpt = document.createElement('option');
+      sysOpt.value = '';
+      const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
+      const defLabel = (def && def.label) || 'unknown';
+      sysOpt.textContent = `(system default — ${defLabel})`;
+      selectEl.appendChild(sysOpt);
+
+      outputs.forEach((d) => {
+        if (d.deviceId === 'default' || !d.deviceId) return;
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
+        selectEl.appendChild(opt);
+      });
+
+      // Pre-select saved or clear stale.
+      const saved = library.appSoundDeviceId;
+      if (saved && outputs.some((d) => d.deviceId === saved)) {
+        selectEl.value = saved;
+      } else {
+        selectEl.value = '';
+        if (saved) {
+          library.appSoundDeviceId = null;
+          saveLibraryDebounced();
+        }
+      }
+
+      // Apply current selection to the sequencer-preview AudioContext.
+      // Sound-player Audio elements pick it up on their next play.
+      if (typeof setPreviewSink === 'function') {
+        setPreviewSink(selectEl.value || null);
+      }
+    } catch {}
+  })();
 }
 
 function setupHwButtons() {
