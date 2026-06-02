@@ -4279,6 +4279,21 @@ async function showAudioDiagnosticsModal() {
   banner.appendChild(bannerIcon);
   banner.appendChild(bannerText);
 
+  // v0.7.0: surface the pinned cable transmission device alongside
+  // the built-in-speaker check. Helps debug "why didn't my transfer
+  // reach the JX?" — one glance shows where the audio is routed.
+  const transmissionLine = document.createElement('div');
+  transmissionLine.className = 'audio-diag-transmission';
+  const cableId = library && library.cableOutputDeviceId;
+  let cableLabel;
+  if (!cableId) {
+    cableLabel = '(system default)';
+  } else {
+    const found = diag.audioOutputs && diag.audioOutputs.find((o) => o.deviceId === cableId);
+    cableLabel = found ? found.label : `(unknown device — id ${cableId.slice(0, 6)}…)`;
+  }
+  transmissionLine.innerHTML = '<strong>Transmission output:</strong> ' + escapeHtml(cableLabel);
+
   const actions = document.createElement('div');
   actions.className = 'modal-actions audio-diag-actions';
 
@@ -4299,6 +4314,7 @@ async function showAudioDiagnosticsModal() {
   modal.appendChild(closeX);
   modal.appendChild(title);
   modal.appendChild(banner);
+  modal.appendChild(transmissionLine);
   modal.appendChild(actions);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);

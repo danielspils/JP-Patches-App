@@ -1880,6 +1880,22 @@ body.seq-dragging-pitch * {
 .audio-diag-banner-empty-labels { background: rgba(51, 80, 143, 0.18);  border: 1px solid rgba(51, 80, 143, 0.55); }
 .audio-diag-banner-empty-labels .audio-diag-banner-icon { color: #4264a8; }
 
+/* v0.7.0 cable transmission device line below the diagnostic banner.
+   Surfaces what library.cableOutputDeviceId resolves to — separate
+   from the built-in-speaker check (different concern: that's about
+   Tape Dump Sounds parallel monitor routing, this is about where
+   the actual cable transmission audio goes). */
+.audio-diag-transmission {
+  font-size: 12px;
+  color: var(--text-mid);
+  margin-bottom: 18px;
+  padding: 0 4px;
+}
+.audio-diag-transmission strong {
+  color: var(--text-bright);
+  font-weight: 600;
+}
+
 /* Actions row: spaces Report-button and Done apart when both are
    present; otherwise the single Done button centers via modal-actions
    default (flex-end). */
