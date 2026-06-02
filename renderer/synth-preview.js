@@ -137,19 +137,29 @@
     const clampedScale = Math.max(0, Math.min(1, gainScale));
     const PEAK_GAIN = 0.12 * clampedScale;
 
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
+    const osc    = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const gain   = ctx.createGain();
     osc.type = 'triangle';
     osc.frequency.value = midiToHz(midiPitch);
 
-    // Envelope: ramp up → hold → ramp down. Avoids click artifacts
-    // from instantaneous start/stop on a square wave.
+    // v0.7.0: low-pass filter (~3.5 kHz, Q 0.5) tames the upper
+    // harmonics of the triangle wave. At C6 (the top of the JX range,
+    // 1047 Hz fundamental) it cuts the 4th harmonic and above; lower
+    // notes are essentially untouched. Smooth rolloff (no resonance
+    // peak) — just gently mellower. Daniel 2026-06-02.
+    filter.type = 'lowpass';
+    filter.frequency.value = 3500;
+    filter.Q.value = 0.5;
+
+    // Envelope on gain: ramp up → hold → ramp down. Avoids click
+    // artifacts from instantaneous start/stop on the oscillator.
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(PEAK_GAIN, now + ATTACK_S);
     gain.gain.setValueAtTime(PEAK_GAIN, now + ATTACK_S + SUSTAIN_S);
     gain.gain.linearRampToValueAtTime(0, now + ATTACK_S + SUSTAIN_S + RELEASE_S);
 
-    osc.connect(gain).connect(ctx.destination);
+    osc.connect(filter).connect(gain).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + ATTACK_S + SUSTAIN_S + RELEASE_S + 0.01);
 
@@ -157,8 +167,9 @@
     // oscillators linger in the audio graph until GC, which on rapid
     // repeated previews can accumulate noticeably.
     osc.onended = () => {
-      try { osc.disconnect(); } catch {}
-      try { gain.disconnect(); } catch {}
+      try { osc.disconnect();    } catch {}
+      try { filter.disconnect(); } catch {}
+      try { gain.disconnect();   } catch {}
     };
   }
 

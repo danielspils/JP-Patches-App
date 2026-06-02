@@ -2575,9 +2575,32 @@ function currentPatch() {
   // lookups) uses activeBankSelection() / slotMeta arrays directly and
   // is unaffected by this preview indirection.
   if (currentPreviewPatch) return currentPreviewPatch.params;
-  if (!patches || !Array.isArray(patches.banks) || selBank === 'L') return null;
+  // v0.7.0 "play for fun" on the Library tab: return a phantom patch
+  // (lazy-cloned from activeBankPatch) so knobs + switches respond to
+  // mouse input without affecting any real C/D slot. Phantom is reset
+  // on bank-tab navigation, so it always starts fresh from the user's
+  // most-recent bank context.
+  if (selBank === 'L') return getOrCreatePhantomPatch();
+  if (!patches || !Array.isArray(patches.banks)) return null;
   const bankIdx = selBank === 'D' ? 1 : 0;
   return patches.banks[bankIdx] && patches.banks[bankIdx][selSlot] || null;
+}
+
+// v0.7.0 — phantom patch backing the Library-tab "play for fun" mode.
+// Lazy-initialized from activeBankPatch on first read, deep-cloned so
+// mutations don't leak back into the real slot. Cleared on bank-tab
+// nav so the next Library visit re-clones from the current bank
+// context. Library handlers that mutate it (knob drag, switch click)
+// fall through the existing currentPatch() path — no per-handler
+// branching needed. Save/render side effects fire harmlessly because
+// phantom isn't in library.json.
+let phantomPatch = null;
+function getOrCreatePhantomPatch() {
+  if (!phantomPatch) {
+    const base = (typeof activeBankPatch === 'function') ? activeBankPatch() : null;
+    phantomPatch = base ? JSON.parse(JSON.stringify(base)) : {};
+  }
+  return phantomPatch;
 }
 
 // Enter paired-patch preview mode — panel displays these params + name
@@ -2594,18 +2617,18 @@ function enterPreviewMode(params, name, sourceLabel) {
   updateAllControls(currentPatch());
 }
 
-// Exit preview mode → panel returns to active C/D slot display. Called
-// automatically when user selects any C/D slot (selectPatch), or when
-// switching to a sequence without paired-patch metadata.
+// Exit preview mode → panel returns to active C/D slot display (or to
+// the Library-tab phantom when on Library). Called automatically when
+// user selects any C/D slot (selectPatch) or switches to a sequence
+// without paired-patch metadata.
 function exitPreviewMode() {
   if (!currentPreviewPatch) return;
   currentPreviewPatch = null;
   updateSvgPatchName();
-  // currentPatch() returns null when called from the Library tab —
-  // route through activeBankPatch() instead so the panel knobs settle
-  // on the last C/D slot the user was working with, matching the
-  // parallelogram fallback in updateSvgPatchName.
-  updateAllControls(selBank === 'L' ? activeBankPatch() : currentPatch());
+  // v0.7.0: currentPatch() now returns the phantom patch on the
+  // Library tab (was null pre-v0.7), so it's safe to route everything
+  // through it — no Library-tab special-case needed.
+  updateAllControls(currentPatch());
 }
 
 // Returns the bank+slot of the patch the SVG panel is visibly showing. On a
@@ -3648,6 +3671,21 @@ function renderPatchList() {
       if (Number.isNaN(fromIdx) || fromIdx === toIdx) return;
       reorderBankSlot(selBank, fromIdx, toIdx);
     });
+  }
+
+  // v0.7.0 hint: when the active C/D banks came from a fresh Record-
+  // from-JX import (or any tape-capture load), the snapshot only lives
+  // in active state until the user clicks "save C/D banks to library."
+  // Surface that friction so users don't lose their import by switching
+  // libraries before saving. The label switches off the "JX-3P tape
+  // capture · …" prefix once the user saves (activeBanksSourceLabel
+  // gets reassigned to the new package's name), so the hint
+  // self-dismisses on save.
+  if (activeBanksSourceLabel && activeBanksSourceLabel.startsWith('JX-3P tape capture')) {
+    const hint = document.createElement('div');
+    hint.className = 'save-banks-hint';
+    hint.textContent = 'Your JX-3P import is in active C/D — save here to keep a snapshot.';
+    actions.appendChild(hint);
   }
 
   const btn = document.createElement('button');
@@ -4866,7 +4904,7 @@ function showSequenceInfo(idx) {
         month: 'long', day: 'numeric', year: 'numeric',
       });
       lines.push('');
-      lines.push(`**Saved:** ${formatted}`);
+      lines.push(`**Created:** ${formatted}`);
     }
   }
 
@@ -5776,48 +5814,43 @@ function showSendToJxFlow(opts) {
   const outputDeviceLabel = document.createElement('label');
   outputDeviceLabel.className = 'send-jx-device-label';
   outputDeviceLabel.textContent = 'OUTPUT DEVICE:';
-  // v0.7.0: interactive output-device picker (was read-only display
-  // pre-v0.7). User picks the cable device once; selection persists in
-  // library.cableOutputDeviceId and is applied via setSinkId on play.
-  // Empty value = "(system default)" — keeps current behavior for users
-  // who haven't picked.
-  const outputDeviceSelect = document.createElement('select');
-  outputDeviceSelect.id = 'send-jx-output-select';
-  outputDeviceSelect.className = 'send-jx-device-select';
-  // Placeholder option while enumerateDevices is loading.
-  const loadingOpt = document.createElement('option');
-  loadingOpt.value = '';
-  loadingOpt.textContent = 'checking…';
-  outputDeviceSelect.appendChild(loadingOpt);
+  // v0.7.0 (revised 2026-06-02): read-only display of the current cable
+  // routing. Was an interactive picker earlier in v0.7.0 dev, but the
+  // Audio Settings modal (gear icon) became the canonical place to set
+  // this — keeping a picker here would be two surfaces for the same
+  // library.cableOutputDeviceId. Display text resolves to the picked
+  // device's label, or "(system default — <label>)" when unset.
+  const outputDeviceDisplay = document.createElement('div');
+  outputDeviceDisplay.id = 'send-jx-output-display';
+  outputDeviceDisplay.className = 'send-jx-device-display';
+  outputDeviceDisplay.textContent = 'checking…';
   outputDeviceSection.appendChild(outputDeviceLabel);
-  outputDeviceSection.appendChild(outputDeviceSelect);
+  outputDeviceSection.appendChild(outputDeviceDisplay);
   modal.appendChild(outputDeviceSection);
 
-  // v0.7.0 safety net: if the picker's resolved target is the Mac's
-  // built-in speakers (either picked explicitly OR "(system default)"
-  // resolving to them), disable Play and pop a modal warning. Prevents
-  // the full-volume blast that hits when setSinkId routes the FSK to
-  // the laptop speakers. Discovered 2026-06-01 when Daniel changed his
-  // macOS Sound output to speakers per the v0.7.0 docs and the picker's
-  // default selection routed the transmission to speakers — head got
-  // blasted off. This belt fires before any play() can route to the
-  // wrong sink.
+  // v0.7.0 safety net: if the current cable routing resolves to the
+  // Mac's built-in speakers, disable Play + pop a warning modal pointing
+  // the user at Audio Settings to fix it. Prevents the full-volume blast
+  // that hits when setSinkId routes the FSK to the laptop speakers.
+  // Discovered 2026-06-01 — see release notes for the full story.
   //
-  // outputDevices is cached so the change handler + safety check can
-  // look up labels without re-running enumerateDevices on every click.
+  // outputDevices is cached so the safety check can resolve the
+  // current library.cableOutputDeviceId to a label without re-running
+  // enumerateDevices on every check.
   let outputDevices = [];
-  let safetyModalShown = false;     // only pop once until selection changes back to non-speaker
-  const isSpeakerSelection = () => {
-    const val = outputDeviceSelect.value;
-    let label = '';
-    if (val) {
-      const dev = outputDevices.find((d) => d.deviceId === val);
-      label = (dev && dev.label) || '';
-    } else {
-      const def  = outputDevices.find((d) => d.deviceId === 'default') || outputDevices[0];
-      const real = def && outputDevices.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
-      label = (real && real.label) || (def && def.label) || '';
+  let safetyModalShown = false;     // only pop once per modal session
+  const resolveCableLabel = () => {
+    const saved = library.cableOutputDeviceId;
+    if (saved) {
+      const dev = outputDevices.find((d) => d.deviceId === saved);
+      return (dev && dev.label) || '';
     }
+    const def  = outputDevices.find((d) => d.deviceId === 'default') || outputDevices[0];
+    const real = def && outputDevices.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+    return (real && real.label) || (def && def.label) || '';
+  };
+  const isSpeakerSelection = () => {
+    const label = resolveCableLabel();
     return typeof isBuiltInSpeakerOutput === 'function' && isBuiltInSpeakerOutput(label);
   };
   const applySafetyCheck = () => {
@@ -5826,10 +5859,10 @@ function showSendToJxFlow(opts) {
       if (!safetyModalShown) {
         safetyModalShown = true;
         showConfirmModal({
-          title: 'Heads up — your selected output is your speakers',
+          title: 'Heads up — your tape dump routing is your speakers',
           body:
             "Sending a tape dump to your Mac's built-in speakers will play the FSK at full volume — loud and unpleasant — and the JX-3P won't receive anything (it's not connected to your speakers). " +
-            "Pick your audio interface (the device connected to the JX-3P's tape input) from the OUTPUT DEVICE dropdown.",
+            "Open Audio Settings (gear icon, top-right of the panel) and pick your audio interface under \"Tape dump routing.\"",
           confirmLabel: 'OK, got it',
           hideCancel: true,
           onConfirm: () => {},
@@ -5837,20 +5870,9 @@ function showSendToJxFlow(opts) {
       }
     } else {
       primaryBtn.disabled = false;
-      safetyModalShown = false;    // re-arm — if user goes back to speakers, warn again
+      safetyModalShown = false;
     }
   };
-
-  // Persist on user pick + re-run safety check.
-  outputDeviceSelect.addEventListener('change', () => {
-    library.cableOutputDeviceId = outputDeviceSelect.value || null;
-    saveLibraryDebounced();
-    // Resolve cableDeviceId (used by Tape Dump Sounds cable-exclusion
-    // guard) to the freshly-picked device, so a mid-playback device
-    // change doesn't echo onto the new cable.
-    cableDeviceId = library.cableOutputDeviceId;
-    applySafetyCheck();
-  });
 
   // Per-segment timeline + indicator + status text. Construction in
   // buildSendStatusSection above. Hidden until enterPlayState (step 2).
@@ -6086,68 +6108,46 @@ function showSendToJxFlow(opts) {
     // the info popover to hidden each time we (re)enter the play state.
     tdsCtrl.style.display = tapeDumpSoundsEnabled ? '' : 'none';
     tdsPop.style.display = 'none';
-    // v0.7.0: populate the output-device picker with the OS's available
-    // audio outputs. enumerateDevices requires a prior getUserMedia grant
-    // in some browsers (the Mac mic permission for Record-from-JX usually
-    // suffices); silent-fail to the placeholder if blocked.
+    // v0.7.0 (revised 2026-06-02): set the read-only routing display
+    // from the current library.cableOutputDeviceId. Also caches outputs
+    // for the safety-check resolver + resolves cableDeviceId for the
+    // Tape Dump Sounds cable-exclusion guard. enumerateDevices requires
+    // a prior getUserMedia grant in some browsers; silent-fail to the
+    // placeholder if blocked.
     (async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        outputDevices = outputs;   // cache for safety check + change handler
-        const selectEl = document.getElementById('send-jx-output-select');
-        if (!selectEl) return;
-        // Clear placeholder + previous options.
-        selectEl.textContent = '';
-        // First option: system default (null) — current pre-v0.7 routing.
-        const sysOpt = document.createElement('option');
-        sysOpt.value = '';
-        // Surface what the system default resolves to, so the user sees
-        // what they'd get without an explicit pick.
+        outputDevices = outputs;
+        const displayEl = document.getElementById('send-jx-output-display');
+        if (!displayEl) return;
         const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-        const defLabel = (def && def.label) || 'unknown';
-        sysOpt.textContent = `(system default — ${defLabel})`;
-        selectEl.appendChild(sysOpt);
-        // One option per non-default audio output device.
-        outputs.forEach((d) => {
-          if (d.deviceId === 'default' || !d.deviceId) return;
-          const opt = document.createElement('option');
-          opt.value = d.deviceId;
-          opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
-          selectEl.appendChild(opt);
-        });
-        // Pre-select saved cableOutputDeviceId if it's still available.
-        // If saved device is gone (e.g. user unplugged the interface),
-        // fall back to system default — better than silently routing to
-        // a missing device on play().
         const saved = library.cableOutputDeviceId;
-        if (saved && outputs.some((d) => d.deviceId === saved)) {
-          selectEl.value = saved;
-        } else {
-          selectEl.value = '';
-          if (saved) {
-            // Clear the stale id so we don't try to setSinkId to a
-            // disconnected device. User can re-pick from the dropdown.
-            library.cableOutputDeviceId = null;
-            saveLibraryDebounced();
-          }
+        // Stale-id fallback: if saved device is gone (user unplugged
+        // the interface), clear it from library so setSinkId at play
+        // time falls through to default routing instead of erroring.
+        const savedDev = saved && outputs.find((d) => d.deviceId === saved);
+        if (saved && !savedDev) {
+          library.cableOutputDeviceId = null;
+          saveLibraryDebounced();
         }
-        // Resolve cableDeviceId (Tape Dump Sounds cable-exclusion guard).
-        // When system default is selected, resolve to the REAL device
-        // behind the 'default' alias (same groupId) — the transfer plays
-        // out the system default, so that's the "cable" we must never
-        // echo onto.
-        if (selectEl.value) {
-          cableDeviceId = selectEl.value;
+        const targetLabel = savedDev
+          ? (savedDev.label || `(unnamed device ${saved.slice(0, 6)})`)
+          : `(system default — ${(def && def.label) || 'unknown'})`;
+        displayEl.textContent = targetLabel;
+        // Resolve cableDeviceId for Tape Dump Sounds cable-exclusion.
+        // When system default, resolve to the REAL device behind the
+        // 'default' alias (same groupId) — that's the "cable" we must
+        // never echo onto.
+        if (savedDev) {
+          cableDeviceId = savedDev.deviceId;
         } else {
           const realDefault = def && outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
           cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
         }
-        // v0.7.0 safety: fire the speaker check now that the picker is
-        // populated + a value is selected. If the resolved target is
-        // built-in speakers (e.g. user has macOS Sound output set to
-        // MacBook Pro Speakers + picker defaulted to "(system default)"),
-        // this pops the warning modal + disables ▶ Play.
+        // Fire the speaker safety check now that we know the resolved
+        // routing target. Pops the warning modal + disables Play if
+        // the user has tape dump routing set to built-in speakers.
         applySafetyCheck();
       } catch {}
     })();
@@ -7541,10 +7541,16 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     const processingSeg = segs.find((s) => s.kind === 'processing');
     if (!processingSeg) return;
     segs.forEach((s) => s.el.classList.toggle('active', s === processingSeg));
+    // Park the indicator AT THE START of the processing segment instead
+    // of its midpoint — processing duration is unpredictable (decode +
+    // disk I/O), so a midpoint-parked indicator gave the false sense
+    // that progress had stalled mid-segment. The segment itself pulses
+    // (CSS animation on .send-jx-seg.active.send-jx-seg-processing) to
+    // signal "still working" without faking forward motion. Daniel
+    // 2026-06-02 — "Star Trek transporter shimmer."
     const totalEst = segs.reduce((sum, s) => sum + s.estSec, 0);
     const startPct = (totalEst - processingSeg.estSec) / totalEst * 100;
-    const midPct   = startPct + (processingSeg.estSec / 2) / totalEst * 100;
-    indicator.style.left = `${midPct}%`;
+    indicator.style.left = `${startPct}%`;
   };
 
   // Kicks off a capture using the currently-selected device. Called once
@@ -10046,6 +10052,11 @@ function setupTabs() {
         if (currentPreviewPatch && !writePending) {
           currentPreviewPatch = null;
         }
+        // v0.7.0: also reset the Library-tab phantom patch on any tab
+        // change. Phantom tweaks are "for fun" only — discarded on
+        // navigation so the next Library visit starts fresh from the
+        // current bank state.
+        phantomPatch = null;
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         renderPatchList();

@@ -108,30 +108,14 @@ function focusedWebContentsAction(method) {
   }
 }
 
-// Button-sound preference mirrored into the View menu checkbox. The
-// authoritative value lives in the renderer's library.json; on launch the
-// renderer pushes the saved value via `button-sounds-initial` and we sync
-// the checkbox. Toggling the menu sends `button-sounds-changed` back so the
-// renderer can apply + persist it.
+// v0.7.0: button-sound + tape-dump-sound state vars retained only for
+// the *-initial IPC handlers below — the renderer's Audio Settings
+// modal still pushes setButtonSoundsInitial / setTapeDumpSoundsInitial
+// on toggle. No menu items consume the state anymore (moved to the
+// gear modal); leaving the IPC plumbing in place means re-adding a
+// menu item later requires zero handshake rewiring.
 let buttonSoundsChecked = true;
-
-function setButtonSoundsFromMenu(enabled) {
-  buttonSoundsChecked = enabled;
-  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-  if (win && win.webContents) win.webContents.send('button-sounds-changed', enabled);
-}
-
-// Tape-dump-sounds preference, mirrored into the View menu checkbox the
-// same way as button sounds. Off by default; the authoritative value lives
-// in the renderer's library.json (transmissionSounds.enabled), pushed up
-// via `tape-dump-sounds-initial` on launch.
 let tapeDumpSoundsChecked = false;
-
-function setTapeDumpSoundsFromMenu(enabled) {
-  tapeDumpSoundsChecked = enabled;
-  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-  if (win && win.webContents) win.webContents.send('tape-dump-sounds-changed', enabled);
-}
 
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
@@ -194,22 +178,15 @@ function buildAppMenu() {
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomFromMenu(1.0)  },
         { label: '75%',         accelerator: 'CmdOrCtrl+-', click: () => setZoomFromMenu(0.75) },
         { type: 'separator' },
-        {
-          id: 'button-sounds',
-          label: 'Button && switch sounds',
-          type: 'checkbox',
-          checked: buttonSoundsChecked,
-          click: (item) => setButtonSoundsFromMenu(item.checked),
-        },
-        {
-          id: 'tape-dump-sounds',
-          label: 'Tape dump sounds',
-          type: 'checkbox',
-          checked: tapeDumpSoundsChecked,
-          click: (item) => setTapeDumpSoundsFromMenu(item.checked),
-        },
-        { type: 'separator' },
         { role: 'togglefullscreen' },
+        // v0.7.0: "Button && switch sounds" + "Tape dump sounds"
+        // checkboxes moved to the Audio Settings modal (gear icon in
+        // the panel's red header strip). The renderer-side IPC plumbing
+        // for those (state vars + setters above, plus the *Initial /
+        // *Changed channels) stays as harmless dead code — the modal
+        // still calls setTapeDumpSoundsInitial/setButtonSoundsInitial
+        // on toggle for forward-compat (no-op today; would re-light a
+        // menu checkbox if we ever bring one back).
       ],
     },
     { role: 'windowMenu' },
