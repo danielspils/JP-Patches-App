@@ -241,6 +241,18 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | With system default = built-in speakers + picker pinned to KT → ▶ Play | transfer routes to KT — **JX receives** AND app sounds (clicks/previews) still play through speakers (the win of v0.7.0) | |
 | Picker selection doesn't break Tape Dump Sounds cable-exclusion | parallel monitor still plays out built-in speakers; cable still receives only the FSK once | |
 
+### 7b.1. Cable picker safety belt (v0.7.0)
+
+> Prevents the head-blast bug: if picker's resolved target IS the built-in speakers (explicit pick OR "(system default)" resolving to them), pop a modal warning + disable ▶ Play until user changes selection.
+
+| Check | Expected | Result |
+|---|---|---|
+| Set macOS Sound output → MacBook Pro Speakers → open Send modal → reach play state | modal warning pops: *"Heads up — your selected output is your speakers"* with single **OK, got it** button; ▶ Play is disabled | |
+| Dismiss the modal | ▶ Play stays disabled (warning was the alert, disabling is the actual prevention) | |
+| Pick KT USB Audio in the dropdown | ▶ Play re-enables; no modal | |
+| Pick MacBook Pro Speakers explicitly from the dropdown | modal pops again; ▶ Play disables | |
+| Pick KT again, then re-pick speakers a third time | modal pops every time (re-arms when user changes back to a non-speaker device) | |
+
 ### 7c. Audio Diagnostics — cable transmission line (v0.7.0)
 
 | Check | Expected | Result |
@@ -249,6 +261,22 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | With no picker pick (cableOutputDeviceId = null) | line reads `Transmission output: (system default)` | |
 | After picking KT USB Audio in the Send modal → reopen Audio Diagnostics | line reads `Transmission output: KT USB Audio (…)` | |
 | With a stale id (picked device unplugged before Audio Diagnostics opens, before Send modal had a chance to clean up) | line reads `Transmission output: (unknown device — id <prefix>…)` | |
+
+### 7d. App-sound picker — top-right of panel (v0.7.0)
+
+> Always-visible chrome picker that pins button clicks, switch clicks, and sequencer note previews to an explicit output device via `setSinkId`. Independent of the cable picker and macOS system default. Persists to `library.appSoundDeviceId`.
+
+| Check | Expected | Result |
+|---|---|---|
+| App launches | small dropdown in top-right of panel: speaker icon + `app sound:` label + `<select>` with `(system default — <label>)` selected | |
+| View → Button & switch sounds ON, click any panel button while picker = `(system default)` | sound plays through macOS system default output (unchanged pre-v0.7 behavior) | |
+| Set macOS Sound output → KT USB Audio (the cable) → click a panel button | sound plays through KT (audible to JX, not to user — proves it follows system default when picker is unset) | |
+| Pick MacBook Pro Speakers in the chrome picker → click a panel button | sound plays through speakers regardless of macOS system default (the v0.7.0 win) | |
+| Library → Sequences → click any note on the visualizer | preview tone plays through the chrome picker's selected device (the synth-preview AudioContext is pinned via setPreviewSink) | |
+| Reload renderer (Cmd+R) | picker pre-selects the previously-picked device | |
+| Quit + relaunch app | selection persists across restarts | |
+| Unplug the picked device → relaunch | picker falls back to `(system default)`; stale id cleared from library.json | |
+| Chrome picker = MacBook Pro Speakers + cable picker = KT USB Audio + macOS Sound output = anything | tape transfer reaches JX (via KT) AND clicks audible (via speakers) — JP Patches routes everything itself, system default is irrelevant | |
 
 ## 8. Drag-and-drop
 
