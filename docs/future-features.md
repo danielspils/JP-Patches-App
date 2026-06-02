@@ -282,46 +282,53 @@ When JP Patches gets a real user manual (README, in-app help, or a separate `USE
   - Tests (round-trip + backward compat): 45 min
   - Smoke test rows + CLAUDE.md update: 30 min
 
-  ### Paired-patch hint UI (locked 2026-06-02 design session)
+  ### Paired-patch auto-load UI (locked 2026-06-02 design session, revised same session)
 
-  v0.6.5 also adds in-app surfacing for paired-patch context. The full Option D + A design (worked through with Daniel):
+  v0.6.5 also adds in-app surfacing for paired-patch context. After walking through Options A→D + a hint-text variant (Option D + A), we landed on a cleaner auto-load design when Daniel asked "When a Sequence is loaded with its paired patch isn't the PG-200 automatically set to the paired patch parameters (another 3P!)?"
 
-  **The user-facing surface:** when a Library sequence with a paired patch is selected, an italicized hint text appears next to the Write button on the PG-200 panel:
+  **The user-facing surface:** when a Library sequence with a paired patch is selected, the PG-200 panel automatically displays the paired patch's params + name. A small "Preview" badge near the Patch parallelogram signals that the panel is showing a preview slot, not a real C/D slot. A small italicized hint text below the panel supports the affordance:
 
-  > *"{sequence name} was written with Warm Pad — click Write to add Warm Pad to your library."*
+  > *"This sequence is paired with this patch — click Write to add it to your library."*
 
-  The hint sits in the open space below the JP PATCHES logo, near the Manual/Write button row. Visible only when the selected sequence has a paired patch AND the patch isn't already in the user's library (fingerprint match).
+  Selecting any C/D slot exits the preview and the panel returns to normal slot display.
 
-  **The Write button becomes context-aware** (the only mechanism change):
-  - **Normal context**: Write does what it does today — clones the currently-displayed C/D patch's params into the chosen slot
-  - **Paired-patch-hint context**: Write clones the PAIRED PATCH's params into the chosen slot (not the currently-displayed patch). Slot-picker banner reads "Click a slot to write **Warm Pad**" instead of "...current patch". Confirmation modal reads "Save **Warm Pad** to C7?"
+  **The Write button is unchanged** — it does what it always does (writes whatever's currently displayed on the panel to the chosen slot via the existing slot-picker + confirmation). Since the panel is showing the paired patch in preview mode, Write naturally writes the paired patch. No new "context-awareness" code needed.
 
   **What the user does:**
   1. Library → Sequences → click a sequence with paired-patch metadata
-  2. See the hint next to Write
-  3. Click Write → arms slot picker (with paired-patch-specific banner)
-  4. Click any C/D slot → confirmation modal
-  5. Confirm → paired patch lands in chosen slot
+  2. PG-200 panel switches to show the paired patch (knobs, switches, name); "Preview" badge visible
+  3. Click Write → arms slot picker (existing "Click a slot to write current patch" banner)
+  4. Click any C/D slot → confirmation modal "Save this new patch to C7?"
+  5. Confirm → paired patch lands in chosen slot, panel exits preview, displays the new slot's contents
   6. (Optional) Send Tones → JX gets the bank with paired patch
-  7. (Optional) Send Sequence → JX plays sequence through their now-loaded paired patch
+  7. (Optional) Send Sequence → JX plays sequence through the loaded paired patch
 
   **What the user does NOT need to do:**
   - No new modal to learn
   - No new button to discover (Write is where it always was)
-  - No surprise PG-200 panel changes (panel stays on user's current slot selection)
-  - No destructive auto-mutations
+  - No new explicit-toggle button (auto-load handles it)
+  - No destructive auto-mutations (preview is overlay, not a real C/D write)
 
-  **What we explicitly DID NOT pick** (for design-trail clarity):
+  **What we considered and rejected** (for design-trail clarity):
   - **Option A — minimal**: just preserve metadata, no paired-patch UI. Too thin — leaves paired-patch context as data that goes nowhere.
-  - **Option B — preview mode**: PG-200 panel reflects paired-patch params automatically. Too invasive — surprises user with panel changes.
-  - **Option C — full 2-stage send**: "Send Sequence & Paired Patch to JX" modal with multi-step orchestration. Too complex — the bank-dump nature of the JX tape format makes "send one patch" a misleading framing; user would need slot picker + Memory Protect dance + multi-step transmission UX. The Option D version skips all this by letting the user drive the standard Write + Send-Tones + Send-Sequence flows separately, in their own time.
-  - **Auto-load preview into PG-200 panel + explicit toggle button**: rejected in favor of the hint-text approach, which is less surprising and doesn't change the panel state.
+  - **Option C — full 2-stage send**: "Send Sequence & Paired Patch to JX" modal with multi-step orchestration. Too complex — the bank-dump nature of the JX tape format makes "send one patch" a misleading framing; user would need slot picker + Memory Protect dance + multi-step transmission UX. The auto-load version skips all this by letting the user drive the standard Write + Send-Tones + Send-Sequence flows separately, in their own time.
+  - **Option D + A — hint text + context-aware Write** (originally locked, then revised): panel stayed unchanged; hint text drove the action; Write became context-aware (cloned paired-patch params even though they weren't on the panel). Cleaner-looking initially but added implementation complexity (context-aware Write + a special slot-picker banner) AND a less-natural mental model (user reads hint about Warm Pad but panel shows their existing C1). Daniel's "isn't the PG-200 automatically set?" question surfaced that auto-load is actually MORE elegant once you commit to a clear Preview badge.
+
+  **Edge case — unsaved edits when selecting a sequence with paired patch:**
+  - User had unsaved edits to C5 (modified-dot showing). Panel was on C5.
+  - User clicks a sequence with paired patch.
+  - Panel auto-loads paired patch (preview mode).
+  - User's unsaved edits to C5 are NOT lost — they're still in library.slotMeta under C5's modified state. The modified-dot on C5 in the patch list still shows.
+  - User clicks C5 → preview exits → panel returns to C5 with edits intact.
+  - No guard modal needed; this isn't destructive.
 
   **Why this design is small implementation-wise:**
-  - PG-200 panel state is unchanged — no new preview-mode plumbing
-  - Write flow infrastructure (slot picker + confirmation modal) is reused as-is
-  - Only the click handler needs context-awareness (check "is paired-patch hint active?" → switch source of params)
-  - The hint text + position is new but small (≤30 lines of CSS + ~30 lines of renderer logic)
+  - Preview-slot state in renderer: one new field (`currentPreviewPatch = {params, name, fromSequenceId}` or null)
+  - PG-200 panel + Patch parallelogram render: check preview state first, fall back to active C/D slot
+  - "Preview" badge: small visual cue near the Patch parallelogram (CSS-only)
+  - Auto-set on sequence selection: one line in the sequence-row click handler
+  - Auto-clear on C/D slot click: one line in the slot click handler
+  - Write button stays untouched (winning bonus — no new code there)
 
   **MIDI future enhancement (Phase 3, not in v0.6.5):**
   - The same Write → load-paired-patch flow ports cleanly: instead of writing to JP library + tape-dumping later, the MIDI path sends the patch directly to the JX via SysEx Data Set
