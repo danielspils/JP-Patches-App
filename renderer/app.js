@@ -1892,6 +1892,14 @@ function ensureLibraryShape() {
   // audio interface AND app sounds to their speakers/headphones, fully
   // independent of macOS Sound output (which becomes irrelevant to JP).
   if (!('appSoundDeviceId' in library)) library.appSoundDeviceId = null;
+  // v0.7.0 (revised 2026-06-02): cached labels for the two pinned
+  // devices. Saved alongside the deviceId so the Audio Settings picker
+  // can show a "ghost" option ("KT USB Audio — unavailable") when the
+  // device is unplugged, instead of forgetting the selection. The id
+  // stays valid across unplug/replug cycles; the label gives the ghost
+  // option human-readable text.
+  if (!('cableOutputDeviceLabel' in library)) library.cableOutputDeviceLabel = null;
+  if (!('appSoundDeviceLabel'    in library)) library.appSoundDeviceLabel    = null;
   const legacy = library.names || {};
   ['C', 'D'].forEach((bank) => {
     if (!Array.isArray(library.slotMeta[bank])) library.slotMeta[bank] = [];
@@ -1949,6 +1957,12 @@ function ensureRecordCalibrationShape() {
   if (!library.record.calibratedGain || typeof library.record.calibratedGain !== 'object') {
     library.record.calibratedGain = {};
   }
+  // v0.7.1: preferred Record-from-JX input device. Pre-selected on
+  // modal open; falls back to first available if absent. Label cached
+  // so the user can see what's missing when the device is unplugged
+  // (e.g. "KT USB Audio (31b2:2024) (unavailable, plug it in!)").
+  if (!('preferredInputDeviceId'    in library.record)) library.record.preferredInputDeviceId    = null;
+  if (!('preferredInputDeviceLabel' in library.record)) library.record.preferredInputDeviceLabel = null;
 }
 function getCalibratedGain(deviceId) {
   if (!deviceId || !library || !library.record) return null;
@@ -4260,184 +4274,6 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, confirmStyle, o
   confirmBtn.focus();
 }
 
-// Audio Diagnostics — opens via Help > Audio Diagnostics…. One-glance
-// design (Daniel-spec, May 30):
-//   - 'ok'           → green banner: "All systems go!" + matched speaker
-//   - 'no-match'     → amber banner: macOS may have changed the label
-//                      format → "Report this bug" → pre-filled GitHub Issue
-//   - 'no-outputs'   → amber banner: no audio outputs on this Mac
-//                      (still offer Report — could indicate a real bug)
-//   - 'empty-labels' → blue info banner: grant mic perm via Record-from-JX
-//                      (NOT a bug; no Report button)
-// Device list / Copy-button surface intentionally removed — average users
-// don't need it, bug-reporters get the full payload via the Report flow.
-async function showAudioDiagnosticsModal() {
-  if (typeof runAudioDiagnostic !== 'function') return;
-  // Avoid stacking duplicate modals if the user mashes the menu item.
-  if (document.querySelector('.audio-diag-modal')) return;
-
-  const diag = await runAudioDiagnostic();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-
-  const modal = document.createElement('div');
-  modal.className = 'modal audio-diag-modal';
-  // Slightly wider than the default 440 so the longer "no-match" banner
-  // text doesn't wrap into a tall block.
-  modal.style.maxWidth = '480px';
-
-  const closeX = document.createElement('button');
-  closeX.className = 'modal-close-x';
-  closeX.setAttribute('aria-label', 'Close');
-  closeX.textContent = '×';
-
-  const title = document.createElement('h2');
-  title.className = 'modal-title';
-  title.textContent = 'Audio Diagnostics';
-
-  // Status banner — color-coded by diag.status, with a single primary
-  // message. No device list, no copy button.
-  const banner = document.createElement('div');
-  banner.className = 'audio-diag-banner audio-diag-banner-' + diag.status;
-  const bannerIcon = document.createElement('span');
-  bannerIcon.className = 'audio-diag-banner-icon';
-  const bannerText = document.createElement('span');
-  bannerText.className = 'audio-diag-banner-text';
-
-  // Whether the Report-this-bug action is offered (only when the
-  // diagnostic indicates a likely problem worth reporting). 'empty-labels'
-  // is expected/recoverable, so no report button there.
-  let showReportButton = false;
-
-  if (diag.status === 'ok') {
-    bannerIcon.textContent = '✓';
-    bannerText.innerHTML =
-      '<strong>All systems go!</strong><br>' +
-      'Tape Dump Sounds will play through <em>' +
-      escapeHtml(diag.speakerMatch.label) + '</em>.';
-  } else if (diag.status === 'no-match') {
-    bannerIcon.textContent = '⚠';
-    bannerText.innerHTML =
-      '<strong>The OS may have changed output labels</strong> — ' +
-      'Tape Dump Sounds won’t work.';
-    showReportButton = true;
-  } else if (diag.status === 'no-outputs') {
-    bannerIcon.textContent = '⚠';
-    bannerText.innerHTML =
-      '<strong>No audio outputs detected on this Mac.</strong><br>' +
-      'Tape Dump Sounds is unavailable.';
-    showReportButton = true;
-  } else if (diag.status === 'empty-labels') {
-    bannerIcon.textContent = 'ℹ';
-    bannerText.innerHTML =
-      '<strong>Audio device labels are not yet visible</strong> ' +
-      '(microphone permission required).<br>' +
-      'Use Record-from-JX once to grant the permission, then re-open this dialog.';
-  }
-  banner.appendChild(bannerIcon);
-  banner.appendChild(bannerText);
-
-  // v0.7.0: surface the pinned cable transmission device alongside
-  // the built-in-speaker check. Helps debug "why didn't my transfer
-  // reach the JX?" — one glance shows where the audio is routed.
-  const transmissionLine = document.createElement('div');
-  transmissionLine.className = 'audio-diag-transmission';
-  const cableId = library && library.cableOutputDeviceId;
-  let cableLabel;
-  if (!cableId) {
-    cableLabel = '(system default)';
-  } else {
-    const found = diag.audioOutputs && diag.audioOutputs.find((o) => o.deviceId === cableId);
-    cableLabel = found ? found.label : `(unknown device — id ${cableId.slice(0, 6)}…)`;
-  }
-  transmissionLine.innerHTML = '<strong>Transmission output:</strong> ' + escapeHtml(cableLabel);
-
-  const actions = document.createElement('div');
-  actions.className = 'modal-actions audio-diag-actions';
-
-  let reportBtn = null;
-  if (showReportButton) {
-    reportBtn = document.createElement('button');
-    reportBtn.className = 'modal-btn modal-btn-cancel audio-diag-report';
-    reportBtn.textContent = 'Report this bug';
-  }
-
-  const doneBtn = document.createElement('button');
-  doneBtn.className = 'modal-btn modal-btn-confirm';
-  doneBtn.textContent = 'Done';
-
-  if (reportBtn) actions.appendChild(reportBtn);
-  actions.appendChild(doneBtn);
-
-  modal.appendChild(closeX);
-  modal.appendChild(title);
-  modal.appendChild(banner);
-  modal.appendChild(transmissionLine);
-  modal.appendChild(actions);
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-
-  // Wire Report-this-bug: gather app/OS metadata via IPC, build the
-  // pre-filled GitHub Issue URL via the pure helper, hand off to the
-  // OS default browser. The main-side openExternal handler is
-  // allowlisted to the JP Patches repo only, so even a corrupted URL
-  // here can't navigate the user elsewhere.
-  if (reportBtn) {
-    reportBtn.addEventListener('click', async () => {
-      reportBtn.disabled = true;
-      const originalLabel = reportBtn.textContent;
-      reportBtn.textContent = 'Opening browser…';
-      try {
-        let appInfo = { appVersion: 'unknown', macOsRelease: 'unknown' };
-        if (window.api && typeof window.api.getAppInfo === 'function') {
-          try { appInfo = await window.api.getAppInfo() || appInfo; } catch {}
-        }
-        const url = buildAudioDiagnosticIssueUrl({
-          diag,
-          appVersion:   appInfo.appVersion,
-          macOsRelease: appInfo.macOsRelease,
-          regexSource:  (window.MAC_SPEAKER_LABEL_RE && window.MAC_SPEAKER_LABEL_RE.source) || '(missing)',
-        });
-        if (window.api && typeof window.api.openExternal === 'function') {
-          const res = await window.api.openExternal(url);
-          if (res && res.ok) {
-            close();
-            return;
-          }
-          reportBtn.textContent = 'Could not open browser';
-          console.warn('[audio-diagnostic] openExternal failed:', res && res.reason);
-        } else {
-          reportBtn.textContent = 'Browser open unavailable';
-        }
-        setTimeout(() => {
-          reportBtn.textContent = originalLabel;
-          reportBtn.disabled = false;
-        }, 2000);
-      } catch (err) {
-        console.warn('[audio-diagnostic] report flow failed:', (err && err.name) || err);
-        reportBtn.textContent = 'Could not open browser';
-        setTimeout(() => {
-          reportBtn.textContent = originalLabel;
-          reportBtn.disabled = false;
-        }, 2000);
-      }
-    });
-  }
-
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  closeX.addEventListener('click', close);
-  doneBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', onKey);
-  doneBtn.focus();
-}
-// (escapeHtml() used by showAudioDiagnosticsModal lives further down,
-//  near the bottom of the file — function declarations are hoisted.)
 
 function buildTrashIcon(idx) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -5839,38 +5675,59 @@ function showSendToJxFlow(opts) {
   // enumerateDevices on every check.
   let outputDevices = [];
   let safetyModalShown = false;     // only pop once per modal session
-  const resolveCableLabel = () => {
+  // Effective routing analysis. Three states matter:
+  //   - 'ok'      → saved device is present (or no save + system default
+  //                 isn't speakers); Play allowed.
+  //   - 'missing' → saved device set but unplugged; Play blocked — we
+  //                 refuse to silently fall through to system default
+  //                 (which could be speakers, regressing to the blast).
+  //   - 'speakers'→ effective routing IS the built-in speakers; Play
+  //                 blocked + warned about full-volume FSK risk.
+  const analyzeRouting = () => {
     const saved = library.cableOutputDeviceId;
     if (saved) {
       const dev = outputDevices.find((d) => d.deviceId === saved);
-      return (dev && dev.label) || '';
+      if (!dev) return { state: 'missing', savedLabel: library.cableOutputDeviceLabel || 'your saved device' };
+      return { state: isBuiltInSpeakerOutput(dev.label) ? 'speakers' : 'ok' };
     }
+    // No save — evaluate system default for the speakers risk.
     const def  = outputDevices.find((d) => d.deviceId === 'default') || outputDevices[0];
     const real = def && outputDevices.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
-    return (real && real.label) || (def && def.label) || '';
-  };
-  const isSpeakerSelection = () => {
-    const label = resolveCableLabel();
-    return typeof isBuiltInSpeakerOutput === 'function' && isBuiltInSpeakerOutput(label);
+    const label = (real && real.label) || (def && def.label) || '';
+    return { state: isBuiltInSpeakerOutput(label) ? 'speakers' : 'ok' };
   };
   const applySafetyCheck = () => {
-    if (isSpeakerSelection()) {
-      primaryBtn.disabled = true;
-      if (!safetyModalShown) {
-        safetyModalShown = true;
-        showConfirmModal({
-          title: 'Heads up — your tape dump routing is your speakers',
-          body:
-            "Sending a tape dump to your Mac's built-in speakers will play the FSK at full volume — loud and unpleasant — and the JX-3P won't receive anything (it's not connected to your speakers). " +
-            "Open Audio Settings (gear icon, top-right of the panel) and pick your audio interface under \"Tape dump routing.\"",
-          confirmLabel: 'OK, got it',
-          hideCancel: true,
-          onConfirm: () => {},
-        });
-      }
-    } else {
+    const r = analyzeRouting();
+    if (r.state === 'ok') {
       primaryBtn.disabled = false;
       safetyModalShown = false;
+      return;
+    }
+    primaryBtn.disabled = true;
+    if (safetyModalShown) return;
+    safetyModalShown = true;
+    if (r.state === 'speakers') {
+      showConfirmModal({
+        title: 'Heads up — your tape dump routing is your speakers',
+        body:
+          "Sending a tape dump to your Mac's built-in speakers will play the FSK at full volume — loud and unpleasant — and the JX-3P won't receive anything (it's not connected to your speakers). " +
+          "Open Audio Settings (gear icon, top-right of the panel) and pick your audio interface under \"Tape dump routing.\"",
+        confirmLabel: 'OK, got it',
+        hideCancel: true,
+        onConfirm: () => {},
+      });
+    } else {  // 'missing'
+      showConfirmModal({
+        title: 'Tape Dump device unavailable',
+        body:
+          `Your selected tape dump device ${r.savedLabel} isn't connected. ` +
+          "Plug it back in, or open Audio Setting (gear icon, top-right of the panel) and pick a different device. " +
+          "JP Patches won't fail back to your speakers (that would be painfully loud!). " +
+          "Your last device is remembered—plug it back in to restore it.",
+        confirmLabel: 'OK, got it',
+        hideCancel: true,
+        onConfirm: () => {},
+      });
     }
   };
 
@@ -6007,10 +5864,22 @@ function showSendToJxFlow(opts) {
   // signals "audio is actively transmitting", which we know perfectly
   // well from audioEl's playing state without needing to tap the buffer.
 
+  // Hot-plug listener handle — assigned when step 2 enters (registers
+  // the listener), nulled in cleanup() (removes it). Hoisted above
+  // cleanup() so the closure reference is unambiguous.
+  let onDeviceChange = null;
+
   const cleanup = async () => {
     if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
     // Stop any parallel tape-dump sound (no-op if none playing / feature off).
     try { if (typeof stopTapeDumpSound === 'function') stopTapeDumpSound(); } catch {}
+    // Detach the devicechange listener that was attached when step 2
+    // entered. Leaving it dangling would leak per-modal-open + risk
+    // calling refreshOutputDevices against a destroyed DOM.
+    if (onDeviceChange) {
+      try { navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange); } catch {}
+      onDeviceChange = null;
+    }
     if (audioEl) {
       try { audioEl.pause(); } catch {}
       audioEl.src = '';
@@ -6108,49 +5977,60 @@ function showSendToJxFlow(opts) {
     // the info popover to hidden each time we (re)enter the play state.
     tdsCtrl.style.display = tapeDumpSoundsEnabled ? '' : 'none';
     tdsPop.style.display = 'none';
-    // v0.7.0 (revised 2026-06-02): set the read-only routing display
-    // from the current library.cableOutputDeviceId. Also caches outputs
-    // for the safety-check resolver + resolves cableDeviceId for the
-    // Tape Dump Sounds cable-exclusion guard. enumerateDevices requires
-    // a prior getUserMedia grant in some browsers; silent-fail to the
-    // placeholder if blocked.
-    (async () => {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        outputDevices = outputs;
-        const displayEl = document.getElementById('send-jx-output-display');
-        if (!displayEl) return;
-        const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-        const saved = library.cableOutputDeviceId;
-        // Stale-id fallback: if saved device is gone (user unplugged
-        // the interface), clear it from library so setSinkId at play
-        // time falls through to default routing instead of erroring.
-        const savedDev = saved && outputs.find((d) => d.deviceId === saved);
-        if (saved && !savedDev) {
-          library.cableOutputDeviceId = null;
-          saveLibraryDebounced();
-        }
-        const targetLabel = savedDev
-          ? (savedDev.label || `(unnamed device ${saved.slice(0, 6)})`)
+    // v0.7.0 (revised 2026-06-02): refresh the read-only routing
+    // display + caches from the current library.cableOutputDeviceId.
+    // Initial call here; the devicechange listener (registered below)
+    // re-invokes it on hot-plug / unplug while the modal is open.
+    refreshOutputDevices();
+    // Hot-plug handler: re-enumerate + re-render whenever the OS reports
+    // a device change. Fixes the "unplug KT → 'unavailable, plug it
+    // in!' display + Play disabled → plug KT back in → display still
+    // stuck unavailable" trap Daniel hit 2026-06-02. Listener attached
+    // only after step 2 enters (no point earlier — the display isn't
+    // visible). Removed in cleanup().
+    if (!onDeviceChange) {
+      onDeviceChange = () => { refreshOutputDevices(); };
+      try { navigator.mediaDevices.addEventListener('devicechange', onDeviceChange); } catch {}
+    }
+  };
+
+  // Re-enumerate + repaint the output-device display + re-run the
+  // safety check. Idempotent; called from enterPlayState's initial
+  // setup AND from the devicechange listener.
+  const refreshOutputDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter((d) => d.kind === 'audiooutput');
+      outputDevices = outputs;
+      const displayEl = document.getElementById('send-jx-output-display');
+      if (!displayEl) return;
+      const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
+      const saved = library.cableOutputDeviceId;
+      const savedDev = saved && outputs.find((d) => d.deviceId === saved);
+      // EFFECTIVE routing intent:
+      //   - Saved device present: its label
+      //   - Saved device missing: "X — unavailable, plug it in!" (NO
+      //     silent fallback to system default — applySafetyCheck blocks
+      //     Play in that state, per 2026-06-02 design call)
+      //   - No save: system-default label
+      const targetLabel = savedDev
+        ? (savedDev.label || `(unnamed device ${saved.slice(0, 6)})`)
+        : saved
+          ? `${library.cableOutputDeviceLabel || 'your saved device'} — unavailable, plug it in!`
           : `(system default — ${(def && def.label) || 'unknown'})`;
-        displayEl.textContent = targetLabel;
-        // Resolve cableDeviceId for Tape Dump Sounds cable-exclusion.
-        // When system default, resolve to the REAL device behind the
-        // 'default' alias (same groupId) — that's the "cable" we must
-        // never echo onto.
-        if (savedDev) {
-          cableDeviceId = savedDev.deviceId;
-        } else {
-          const realDefault = def && outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
-          cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
-        }
-        // Fire the speaker safety check now that we know the resolved
-        // routing target. Pops the warning modal + disables Play if
-        // the user has tape dump routing set to built-in speakers.
-        applySafetyCheck();
-      } catch {}
-    })();
+      displayEl.textContent = targetLabel;
+      // Resolve cableDeviceId for Tape Dump Sounds cable-exclusion.
+      // When system default, resolve to the REAL device behind the
+      // 'default' alias (same groupId) — that's the "cable" we must
+      // never echo onto.
+      if (savedDev) {
+        cableDeviceId = savedDev.deviceId;
+      } else {
+        const realDefault = def && outputs.find((d) => d.deviceId !== 'default' && d.groupId && d.groupId === def.groupId);
+        cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
+      }
+      applySafetyCheck();
+    } catch {}
   };
 
   const startPlayback = async () => {
@@ -7256,17 +7136,41 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       // device is unplugged + replugged, but the device label (e.g.
       // "KT USB Audio (31b2:2024)") stays stable, so the label-match
       // fallback recovers from that case without bothering the user.
+      // v0.7.1: on INITIAL refresh, also try library.record.preferred*
+      // (cross-session memory). Same id-then-label match strategy. If
+      // the preferred device is missing entirely, prepend a disabled
+      // ghost option so the user sees what's remembered + can replug.
       let restored = false;
+      const tryMatch = (id, label) => {
+        if (!id) return false;
+        if ([...devicePicker.options].some((o) => o.value === id)) {
+          devicePicker.value = id;
+          return true;
+        }
+        if (label) {
+          const byLabel = [...devicePicker.options].find((o) => o.textContent === label);
+          if (byLabel) { devicePicker.value = byLabel.value; return true; }
+        }
+        return false;
+      };
       if (priorId) {
-        if ([...devicePicker.options].some((o) => o.value === priorId)) {
-          devicePicker.value = priorId;
-          restored = true;
-        } else if (priorLabel) {
-          const byLabel = [...devicePicker.options].find((o) => o.textContent === priorLabel);
-          if (byLabel) {
-            devicePicker.value = byLabel.value;
-            restored = true;
-          }
+        restored = tryMatch(priorId, priorLabel);
+      } else if (initial && library.record && library.record.preferredInputDeviceId) {
+        // First refresh of a fresh modal session: honor the saved
+        // preferred device from a previous session.
+        restored = tryMatch(library.record.preferredInputDeviceId, library.record.preferredInputDeviceLabel);
+        if (!restored) {
+          // Preferred device is unplugged. Prepend a ghost option so the
+          // user can see what they had picked + is currently missing.
+          // First available input stays auto-selected as the working
+          // fallback — capture still starts so the modal isn't a dead
+          // end while user finds their cable.
+          const ghostLabel = library.record.preferredInputDeviceLabel || '(saved device)';
+          const ghost = document.createElement('option');
+          ghost.value = library.record.preferredInputDeviceId;
+          ghost.textContent = `${ghostLabel} (unavailable, plug it in!)`;
+          ghost.disabled = true;
+          devicePicker.insertBefore(ghost, devicePicker.children[0] || null);
         }
       }
       return { initial, hadPrior: !!priorId, restored, devicesGone: false };
@@ -7769,7 +7673,19 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   // restart from scratch with the new device. Buffer + elapsed timer reset.
   // Also re-check this device's saved calibration — switching devices may
   // toggle between first-time-calibration and saved-cal modes.
+  // v0.7.1: persist this pick as the preferred input device so the next
+  // modal open pre-selects it (cross-session memory). Label cached so a
+  // future unplugged state can render a meaningful ghost option.
   devicePicker.addEventListener('change', () => {
+    const id = devicePicker.value || null;
+    const opt = devicePicker.options[devicePicker.selectedIndex];
+    const label = (opt && opt.textContent) || null;
+    if (id) {
+      ensureRecordCalibrationShape();
+      library.record.preferredInputDeviceId    = id;
+      library.record.preferredInputDeviceLabel = label;
+      saveLibraryDebounced();
+    }
     if (state !== 'recording') return;
     stopCapture();
     configureForCurrentDevice();
@@ -10491,15 +10407,9 @@ async function init() {
       saveLibraryDebounced();
     });
   }
-  // Help > Audio Diagnostics… — opens the live diagnostic modal so users
-  // (and bug reporters) can see what enumerateDevices returns against the
-  // Tape Dump Sounds built-in-speaker allowlist. Useful after macOS
-  // updates that may have changed device label formats.
-  if (typeof window.api.onAudioDiagnosticsOpen === 'function') {
-    window.api.onAudioDiagnosticsOpen(() => {
-      if (typeof showAudioDiagnosticsModal === 'function') showAudioDiagnosticsModal();
-    });
-  }
+  // v0.7.1: standalone Help → Audio Diagnostics modal removed (canary
+  // check + bug-report flow folded into the Audio Settings modal). The
+  // IPC channel + preload binding stay as harmless dead code.
   // No source label at boot — active C/D banks are unnamed until the user
   // explicitly loads a library package (which sets activeBanksSourceLabel
   // to that package's name). The send-to-JX modal falls back to the
@@ -10671,7 +10581,15 @@ function showAudioSettingsModal() {
     loading.value = '';
     loading.textContent = 'checking…';
     sel.appendChild(loading);
-    sel.addEventListener('change', () => onChange(sel.value || null));
+    sel.addEventListener('change', () => {
+      const id = sel.value || null;
+      // Pull the human-readable label from the picked <option>'s
+      // dataset (set during populate). Used to cache the label so a
+      // future unplug still shows the friendly name in a ghost option.
+      const opt = sel.options[sel.selectedIndex];
+      const label = (opt && opt.dataset.deviceLabel) || null;
+      onChange(id, label);
+    });
     row.appendChild(sel);
     // Expose for async populate.
     row._select = sel;
@@ -10682,7 +10600,7 @@ function showAudioSettingsModal() {
   // Build the four rows.
   const tdsRow = mkToggleRow(
     'Tape dump sounds',
-    'allows you to hear what your tape dumps sounds like (without affecting the actual transfer of data between JX and JP)',
+    'hear your tape dump (without affecting data transfer between JX and JP)',
     tapeDumpSoundsEnabled,
     (on) => {
       tapeDumpSoundsEnabled = on;
@@ -10715,8 +10633,9 @@ function showAudioSettingsModal() {
     'In-app audio',
     'where you hear tape dump, button and switch, sequencer editor sounds',
     library.appSoundDeviceId,
-    (id) => {
-      library.appSoundDeviceId = id;
+    (id, label) => {
+      library.appSoundDeviceId    = id;
+      library.appSoundDeviceLabel = label;
       saveLibraryDebounced();
       if (typeof setPreviewSink === 'function') setPreviewSink(id);
       // makeSoundPlayer audio elements pick up the change lazily on
@@ -10728,8 +10647,26 @@ function showAudioSettingsModal() {
     'Tape dump routing',
     'choose your cable or audio interface for transferring data between JX and JP',
     library.cableOutputDeviceId,
-    (id) => {
-      library.cableOutputDeviceId = id;
+    (id, label) => {
+      library.cableOutputDeviceId    = id;
+      library.cableOutputDeviceLabel = label;
+      saveLibraryDebounced();
+    }
+  );
+
+  // v0.7.1: 5th row — Record input device. Same library.record.preferred*
+  // fields the Record-from-JX modal writes to, so either surface stays
+  // in sync. Read-current-saved-id-from-library in the populate path
+  // (not the row's _savedId snapshot) so picks made in the Record modal
+  // while this modal is open get reflected on the next refresh.
+  const recordRow = mkSelectRow(
+    'Record from JX-3P routing',
+    'where JP captures the JX-3P’s tape dump audio',
+    library.record && library.record.preferredInputDeviceId,
+    (id, label) => {
+      ensureRecordCalibrationShape();
+      library.record.preferredInputDeviceId    = id;
+      library.record.preferredInputDeviceLabel = label;
       saveLibraryDebounced();
     }
   );
@@ -10740,6 +10677,48 @@ function showAudioSettingsModal() {
   modal.appendChild(bsRow);
   modal.appendChild(inAppRow);
   modal.appendChild(cableRow);
+  modal.appendChild(recordRow);
+
+  // v0.7.1: collapsible "How routing works" disclosure. Power users
+  // who want to understand the 4 distinct audio paths can expand it;
+  // casual users see only the headers + the dropdowns above. Sits
+  // here below the controls so the table reads as supporting
+  // documentation, not an action item.
+  const routingDetails = document.createElement('details');
+  routingDetails.className = 'audio-settings-routing-details';
+  const routingSummary = document.createElement('summary');
+  routingSummary.textContent = 'How routing works';
+  routingDetails.appendChild(routingSummary);
+  const routingTable = document.createElement('table');
+  routingTable.className = 'audio-settings-routing-table';
+  routingTable.innerHTML =
+    '<thead><tr><th>Sound</th><th>Where it plays</th></tr></thead>' +
+    '<tbody>' +
+      '<tr><td>Button &amp; switch clicks, sequencer note previews</td>' +
+        '<td>The <strong>In-app audio</strong> device you picked above ' +
+        '(or system default if you haven&rsquo;t picked).</td></tr>' +
+      '<tr><td>Tape Dump Sounds &mdash; the FSK monitor you hear during a transfer</td>' +
+        '<td>Your Mac&rsquo;s built-in speakers, always. ' +
+        '(Hardcoded for safety &mdash; can&rsquo;t accidentally route into the cable.)</td></tr>' +
+      '<tr><td>Outgoing tape dumps (Send to JX-3P)</td>' +
+        '<td>The <strong>Tape dump routing</strong> device you picked above.</td></tr>' +
+      '<tr><td>Incoming tape dumps (Record from JX-3P)</td>' +
+        '<td>The input device you pick in the Record-from-JX modal ' +
+        '(remembered across sessions).</td></tr>' +
+    '</tbody>';
+  routingDetails.appendChild(routingTable);
+  modal.appendChild(routingDetails);
+
+  // v0.7.1: canary status banner (folded in from the removed Audio
+  // Diagnostics modal). Only renders when Tape Dump Sounds' built-in-
+  // speaker allowlist DOESN'T match a present device — that's the
+  // silent-regression check that catches macOS-update label format
+  // changes. When status is 'ok' we render nothing (no need to alarm
+  // users when everything's fine).
+  const canarySection = document.createElement('div');
+  canarySection.className = 'audio-settings-canary';
+  canarySection.style.display = 'none';   // hidden until runAudioDiagnostic resolves to a bad state
+  modal.appendChild(canarySection);
 
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
@@ -10749,10 +10728,85 @@ function showAudioSettingsModal() {
   actions.appendChild(doneBtn);
   modal.appendChild(actions);
 
+  // Run the canary check + render the warning inline if needed. Same
+  // diagnostic logic the standalone modal used to run; the bug-report
+  // button reuses buildAudioDiagnosticIssueUrl + openExternal IPC.
+  (async () => {
+    if (typeof runAudioDiagnostic !== 'function') return;
+    const diag = await runAudioDiagnostic();
+    if (diag.status === 'ok') return;
+    canarySection.style.display = '';
+    const icon = document.createElement('span');
+    icon.className = 'audio-settings-canary-icon';
+    const text = document.createElement('div');
+    text.className = 'audio-settings-canary-text';
+    let showReport = false;
+    if (diag.status === 'no-match') {
+      icon.textContent = '⚠';
+      text.innerHTML = '<strong>Tape Dump Sounds may not work.</strong> The macOS speaker label format looks unfamiliar — likely a recent OS update changed it.';
+      showReport = true;
+    } else if (diag.status === 'no-outputs') {
+      icon.textContent = '⚠';
+      text.innerHTML = '<strong>No audio outputs detected.</strong> Tape Dump Sounds + In-app audio routing are unavailable.';
+      showReport = true;
+    } else if (diag.status === 'empty-labels') {
+      icon.textContent = 'ℹ';
+      text.innerHTML = '<strong>Audio device labels not yet visible</strong> (microphone permission required). Use Record-from-JX once to grant the permission, then reopen this dialog.';
+    }
+    canarySection.appendChild(icon);
+    canarySection.appendChild(text);
+    canarySection.classList.add(`audio-settings-canary-${diag.status}`);
+    if (showReport) {
+      const reportBtn = document.createElement('button');
+      reportBtn.type = 'button';
+      reportBtn.className = 'audio-settings-canary-report';
+      reportBtn.textContent = 'Report this bug';
+      reportBtn.addEventListener('click', async () => {
+        reportBtn.disabled = true;
+        const originalLabel = reportBtn.textContent;
+        reportBtn.textContent = 'Opening browser…';
+        try {
+          let appInfo = { appVersion: 'unknown', macOsRelease: 'unknown' };
+          if (window.api && typeof window.api.getAppInfo === 'function') {
+            try { appInfo = await window.api.getAppInfo() || appInfo; } catch {}
+          }
+          const url = buildAudioDiagnosticIssueUrl({
+            diag,
+            appVersion:   appInfo.appVersion,
+            macOsRelease: appInfo.macOsRelease,
+            regexSource:  (window.MAC_SPEAKER_LABEL_RE && window.MAC_SPEAKER_LABEL_RE.source) || '(missing)',
+          });
+          if (window.api && typeof window.api.openExternal === 'function') {
+            const res = await window.api.openExternal(url);
+            if (res && res.ok) {
+              close();
+              return;
+            }
+          }
+          reportBtn.textContent = 'Could not open browser';
+          setTimeout(() => { reportBtn.textContent = originalLabel; reportBtn.disabled = false; }, 2000);
+        } catch (err) {
+          console.warn('[audio-settings-canary] report flow failed:', (err && err.name) || err);
+          reportBtn.textContent = 'Could not open browser';
+          setTimeout(() => { reportBtn.textContent = originalLabel; reportBtn.disabled = false; }, 2000);
+        }
+      });
+      canarySection.appendChild(reportBtn);
+    }
+  })();
+
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  const close = () => overlay.remove();
+  // Hot-plug listener handle — assigned below, removed in close().
+  let onDeviceChange = null;
+  const close = () => {
+    if (onDeviceChange) {
+      try { navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange); } catch {}
+      onDeviceChange = null;
+    }
+    overlay.remove();
+  };
   closeX.addEventListener('click', close);
   doneBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
@@ -10763,40 +10817,102 @@ function showAudioSettingsModal() {
     }
   });
 
-  // Populate both device dropdowns once enumerateDevices resolves.
-  (async () => {
+  // v0.7.0 (revised 2026-06-02): "ghost" option for a saved device
+  // that's no longer enumerated (interface unplugged). Keeps the
+  // selection in memory so plug-it-back-in restores it without the
+  // user having to re-pick. Disabled in the dropdown — user has to
+  // actively choose system-default (or another device) to use audio
+  // right now, but the saved id stays in library.
+  //
+  // v0.7.1: generalized over device kind (outputs / inputs) and over
+  // the library-path triplet (id / label / how-to-write-label-back)
+  // so the same logic drives the In-app, Tape dump, AND Record input
+  // pickers. cfg = { devices, savedId, savedLabel, setLabel }.
+  const populate = (row, cfg) => {
+    const sel = row._select;
+    sel.textContent = '';
+    const sysOpt = document.createElement('option');
+    sysOpt.value = '';
+    sysOpt.dataset.deviceLabel = '';
+    const def = cfg.devices.find((d) => d.deviceId === 'default') || cfg.devices[0];
+    const defLabel = (def && def.label) || 'unknown';
+    sysOpt.textContent = `(system default — ${defLabel})`;
+    sel.appendChild(sysOpt);
+    cfg.devices.forEach((d) => {
+      if (d.deviceId === 'default' || !d.deviceId) return;
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.dataset.deviceLabel = d.label || '';
+      opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
+      sel.appendChild(opt);
+    });
+    const presentDev = cfg.savedId && cfg.devices.find((d) => d.deviceId === cfg.savedId);
+    if (presentDev) {
+      sel.value = cfg.savedId;
+      if (cfg.savedLabel !== presentDev.label) {
+        cfg.setLabel(presentDev.label);
+        saveLibraryDebounced();
+      }
+    } else if (cfg.savedId) {
+      // Ghost option: render saved-but-unplugged device as the SELECTED
+      // value in the closed dropdown (not disabled — disabling hides it
+      // behind the system-default fallback, which silently misled users
+      // into thinking their pick was lost). Inserted at the very top so
+      // the user reads the saved selection first. Effective routing:
+      // - Send modal safety belt blocks Play when state === 'missing'.
+      // - In-app sounds attempt setSinkId(savedId), fail silently, fall
+      //   through to default sink — user sees the "unavailable, plug
+      //   it in!" suffix and understands why audio isn't on their pick.
+      const ghostLabel = cfg.savedLabel || '(unknown device)';
+      const ghost = document.createElement('option');
+      ghost.value = cfg.savedId;
+      ghost.dataset.deviceLabel = ghostLabel;
+      ghost.textContent = `${ghostLabel} (unavailable, plug it in!)`;
+      sel.insertBefore(ghost, sel.children[0] || null);
+      sel.value = cfg.savedId;
+    } else {
+      sel.value = '';
+    }
+  };
+
+  // Async device-list refresh — initial call + devicechange-driven
+  // re-runs share this single path. Catches the "unplug → ghost shown
+  // → replug → ghost gone, live option re-selected" cycle without
+  // requiring the user to close + reopen. Enumerates both audiooutput
+  // (for In-app + Tape dump routing) and audioinput (for Record input).
+  const refresh = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const outputs = devices.filter((d) => d.kind === 'audiooutput');
-      const populate = (sel, savedId, libraryKey) => {
-        sel.textContent = '';
-        const sysOpt = document.createElement('option');
-        sysOpt.value = '';
-        const def = outputs.find((d) => d.deviceId === 'default') || outputs[0];
-        const defLabel = (def && def.label) || 'unknown';
-        sysOpt.textContent = `(system default — ${defLabel})`;
-        sel.appendChild(sysOpt);
-        outputs.forEach((d) => {
-          if (d.deviceId === 'default' || !d.deviceId) return;
-          const opt = document.createElement('option');
-          opt.value = d.deviceId;
-          opt.textContent = d.label || `(unnamed device ${d.deviceId.slice(0, 6)})`;
-          sel.appendChild(opt);
-        });
-        if (savedId && outputs.some((d) => d.deviceId === savedId)) {
-          sel.value = savedId;
-        } else {
-          sel.value = '';
-          if (savedId) {
-            library[libraryKey] = null;
-            saveLibraryDebounced();
-          }
-        }
-      };
-      populate(inAppRow._select, inAppRow._savedId, 'appSoundDeviceId');
-      populate(cableRow._select, cableRow._savedId, 'cableOutputDeviceId');
+      const inputs  = devices.filter((d) => d.kind === 'audioinput');
+      populate(inAppRow, {
+        devices:    outputs,
+        savedId:    library.appSoundDeviceId,
+        savedLabel: library.appSoundDeviceLabel,
+        setLabel:   (l) => { library.appSoundDeviceLabel = l; },
+      });
+      populate(cableRow, {
+        devices:    outputs,
+        savedId:    library.cableOutputDeviceId,
+        savedLabel: library.cableOutputDeviceLabel,
+        setLabel:   (l) => { library.cableOutputDeviceLabel = l; },
+      });
+      populate(recordRow, {
+        devices:    inputs,
+        savedId:    library.record && library.record.preferredInputDeviceId,
+        savedLabel: library.record && library.record.preferredInputDeviceLabel,
+        setLabel:   (l) => {
+          ensureRecordCalibrationShape();
+          library.record.preferredInputDeviceLabel = l;
+        },
+      });
     } catch {}
-  })();
+  };
+  refresh();
+  // Listen for OS-level device changes so the modal stays in sync with
+  // physical plug/unplug while open. Detached in close().
+  onDeviceChange = () => { refresh(); };
+  try { navigator.mediaDevices.addEventListener('devicechange', onDeviceChange); } catch {}
 }
 
 function setupHwButtons() {

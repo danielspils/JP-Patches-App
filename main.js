@@ -201,18 +201,10 @@ function buildAppMenu() {
           label: 'Check for Updates…',
           click: () => checkForUpdates({ manual: true }),
         },
-        { type: 'separator' },
-        {
-          // Surfaces the live audio-output state vs. the Tape Dump Sounds
-          // built-in-speaker allowlist. Lets a user check whether speakers
-          // are detected without needing to open the Send modal first —
-          // useful after a macOS update may have changed device labels.
-          label: 'Audio Diagnostics…',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-            if (win && win.webContents) win.webContents.send('audio-diagnostics-open');
-          },
-        },
+        // v0.7.1: "Audio Diagnostics…" menu item removed. Canary status
+        // (the macOS-label-regression check) is now inline in the gear-
+        // icon Audio Settings modal. The IPC handler in app.js stays
+        // (harmless dead code) in case we ever bring this back.
       ],
     },
   ];
