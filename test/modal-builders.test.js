@@ -119,16 +119,15 @@ test('buildRecordActions — Stop uses the brand-aligned confirm class', () => {
 
 // ── buildSendActions ───────────────────────────────────────────────
 
-test('buildSendActions — returns Cancel + Save + Send in that order', () => {
-  const { actions, cancelBtn, saveBtn, primaryBtn } = buildSendActions();
+test('buildSendActions — returns Cancel + Send in the actions row (v0.7.2 removed Save WAV)', () => {
+  const { actions, cancelBtn, primaryBtn } = buildSendActions();
+  assert.equal(actions.children.length, 2);
   assert.equal(actions.children[0], cancelBtn);
-  assert.equal(actions.children[1], saveBtn);
-  assert.equal(actions.children[2], primaryBtn);
+  assert.equal(actions.children[1], primaryBtn);
 });
 
-test('buildSendActions — Save WAV uses the Roland-blue alt style; Send is Roland-green confirm', () => {
-  const { saveBtn, primaryBtn } = buildSendActions();
-  assert.ok(saveBtn.className.includes('modal-btn-alt'));
+test('buildSendActions — Send uses the Roland-green confirm class', () => {
+  const { primaryBtn } = buildSendActions();
   assert.ok(primaryBtn.className.includes('modal-btn-confirm'));
 });
 
@@ -137,9 +136,14 @@ test('buildSendActions — primary button starts in "Send to JX-3P" state', () =
   assert.equal(primaryBtn.textContent, 'Send to JX-3P');
 });
 
-test('buildSendActions — Save button has a tooltip explaining the file alternative', () => {
-  const { saveBtn } = buildSendActions();
-  assert.match(saveBtn.title, /file instead/i);
+test('buildSendActions — saveBtn is a detached stub (back-compat for existing destructurers)', () => {
+  const { actions, saveBtn } = buildSendActions();
+  // Stub exists so existing `saveBtn.disabled = true` lines still work,
+  // but is NOT in the actions row — Save WAV file moved to a per-library-
+  // row download icon in v0.7.2.
+  assert.ok(saveBtn);
+  assert.equal(saveBtn.parentNode, null);
+  assert.ok(!actions.contains(saveBtn));
 });
 
 // ── buildSendRow ───────────────────────────────────────────────────

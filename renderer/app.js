@@ -3724,6 +3724,30 @@ function buildLoadToAppIcon(onClick, title, label) {
   return btn;
 }
 
+// v0.7.2: hover-revealed download icon on each Library row, sits between
+// the LOAD button and the trash. Click to write the row's data as a WAV
+// to the user's Desktop. Uses an inline SVG download glyph (arrow into
+// tray) styled to match the existing icon-button vocabulary.
+function buildDownloadWavIcon(onClick, title) {
+  const btn = document.createElement('button');
+  btn.className = 'package-download-btn';
+  btn.title = title || 'Download as WAV to Desktop';
+  btn.setAttribute('aria-label', btn.title);
+  btn.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+      // Down arrow shaft + head
+      '<path d="M8 2 V11"/>' +
+      '<path d="M4.5 7.5 L8 11 L11.5 7.5"/>' +
+      // Tray / baseline
+      '<path d="M3 14 H13"/>' +
+    '</svg>';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
 function renderLibraryActions(_actions) {
   // The "load to app" action moved to an inline hover icon on each
   // package row (see buildLoadToAppIcon). No bottom-of-list button.
@@ -3796,8 +3820,9 @@ function renderLibraryList(list) {
     selPackage = null;
     const ph = document.createElement('div');
     ph.className = 'library-placeholder';
-    ph.textContent = 'No saved packages yet.\nUse "save C/D banks to library" on a bank tab.';
+    ph.textContent = 'No saved packages yet.\nUse "save C/D banks to library" on a bank tab, or upload a WAV below.';
     list.appendChild(ph);
+    list.appendChild(buildWavUploadZone('tones', { variant: 'prominent' }));
     return;
   }
 
@@ -3831,6 +3856,10 @@ function renderLibraryList(list) {
     item.appendChild(nm);
     item.appendChild(def);
     item.appendChild(inp);
+    item.appendChild(buildDownloadWavIcon(
+      () => handleDownloadTonesPackage(idx),
+      'download this C/D bank as a WAV (saves to Desktop)',
+    ));
     item.appendChild(buildLoadToAppIcon(
       () => handleLoadLibraryBanks(idx),
       'Load this C/D bank package to app',
@@ -3893,6 +3922,101 @@ function renderLibraryList(list) {
       reorderPackage(fromIdx, toIdx);
     });
   });
+  // Always-visible upload affordance at the bottom of the populated list.
+  list.appendChild(buildWavUploadZone('tones', { variant: 'compact' }));
+}
+
+// v0.7.2: visible WAV upload affordance for the Library sub-tabs.
+// Two paths to import: click the zone (native file picker) OR
+// drag-and-drop a WAV onto it. The parent #patch-list already handles
+// drops globally via setupPatchListDropZone — this zone just provides
+// the visible target + click-to-browse for users who don't know about
+// drag-and-drop. Empty-state uses the prominent variant; populated-
+// state appends a smaller version below the list.
+function buildWavUploadZone(kind, opts) {
+  const variant = (opts && opts.variant) || 'compact';   // 'prominent' | 'compact'
+  const labelText = 'drop a WAV or click to upload a WAV';
+
+  const zone = document.createElement('div');
+  zone.className = `lib-upload-zone lib-upload-zone-${variant}`;
+  zone.setAttribute('role', 'button');
+  zone.setAttribute('tabindex', '0');
+  zone.title = 'Click to browse, or drag a .wav file onto this area';
+
+  // WAV-file icon: rounded-rect document shape with folded corner +
+  // music note + "WAV" text label. Stroked in currentColor so it picks
+  // up the parent's text color (cream-secondary normally, full cream
+  // on hover/drag-over).
+  zone.innerHTML =
+    '<svg class="lib-upload-zone-icon" viewBox="0 0 32 40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+      // Document outline with folded corner
+      '<path d="M3 2 H21 L29 10 V36 Q29 38 27 38 H5 Q3 38 3 36 Z"/>' +
+      '<path d="M21 2 V10 H29"/>' +
+      // Music note (filled head + stem)
+      '<circle cx="10" cy="26" r="2.4" fill="currentColor" stroke="none"/>' +
+      '<path d="M12.4 26 V16 L19 18.4 V22"/>' +
+      '<circle cx="16.6" cy="22" r="2" fill="currentColor" stroke="none"/>' +
+      // "WAV" text label below the note
+      '<text x="16" y="34.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="Helvetica, sans-serif" font-size="5.5" font-weight="700">WAV</text>' +
+    '</svg>' +
+    `<div class="lib-upload-zone-label">${labelText}</div>`;
+
+  // Hidden file input — click on zone triggers the native picker.
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.wav';
+  input.style.display = 'none';
+  zone.appendChild(input);
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+  });
+  input.addEventListener('change', () => {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const filePath = (window.api && typeof window.api.getPathForFile === 'function')
+      ? window.api.getPathForFile(file)
+      : null;
+    if (!filePath) { showImportError('Could not read file path. Try drag-and-drop instead.'); return; }
+    if (kind === 'sequences') {
+      handleSequenceDropImport(filePath);
+    } else {
+      handleTonesDropImport(filePath);
+    }
+    input.value = '';   // reset so same file can be picked again
+  });
+
+  // Visual hover state during drag-over. The parent #patch-list
+  // catches the actual drop event via setupPatchListDropZone; this is
+  // purely cosmetic feedback so the user knows the zone is the right
+  // target.
+  zone.addEventListener('dragenter', (e) => {
+    const types = e.dataTransfer && Array.from(e.dataTransfer.types || []);
+    if (types && types.includes('Files')) zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', (e) => {
+    if (e.currentTarget === zone && !zone.contains(e.relatedTarget)) {
+      zone.classList.remove('drag-over');
+    }
+  });
+  // On drop: visual feedback that the drop registered + swap label to
+  // "Importing…" so the user knows decoding is in flight (jx3p can take
+  // 1-2 seconds). renderPatchList re-renders the zone after import
+  // completes, which naturally resets state. Safety timeout resets the
+  // label if import errors out (no re-render).
+  zone.addEventListener('drop', (e) => {
+    const types = e.dataTransfer && Array.from(e.dataTransfer.types || []);
+    if (!types.includes('Files')) return;
+    zone.classList.remove('drag-over');
+    zone.classList.add('drop-received');
+    const labelEl = zone.querySelector('.lib-upload-zone-label');
+    if (labelEl) labelEl.textContent = 'Importing… (decoding WAV)';
+    setTimeout(() => {
+      zone.classList.remove('drop-received');
+      if (labelEl) labelEl.textContent = labelText;
+    }, 6000);
+  });
+  return zone;
 }
 
 function reorderPackage(fromIdx, toIdx) {
@@ -4388,8 +4512,9 @@ function renderSequencesList(list) {
     const ph = document.createElement('div');
     ph.className = 'library-placeholder';
     ph.textContent =
-      'No saved sequences yet.\nUse Tape Memory "Sequencer" mode + Save on a bank tab.';
+      'No saved sequences yet.\nUse Tape Memory "Sequencer" mode + Save on a bank tab, or upload a WAV below.';
     list.appendChild(ph);
+    list.appendChild(buildWavUploadZone('sequences', { variant: 'prominent' }));
     return;
   }
 
@@ -4430,6 +4555,10 @@ function renderSequencesList(list) {
     item.appendChild(nm);
     item.appendChild(def);
     item.appendChild(inp);
+    item.appendChild(buildDownloadWavIcon(
+      () => handleDownloadSequence(idx),
+      'download this sequence as a WAV (saves to Desktop)',
+    ));
     // Sequence info icon — replaces the in-app LOAD button (removed
     // 2026-05-25). The old LOAD action restored the paired patch into
     // its original C/D slot, which silently overwrote any edits the
@@ -4516,6 +4645,8 @@ function renderSequencesList(list) {
       reorderSequence(fromIdx, toIdx);
     });
   });
+  // Always-visible upload affordance at the bottom of the populated list.
+  list.appendChild(buildWavUploadZone('sequences', { variant: 'compact' }));
 }
 
 function reorderSequence(fromIdx, toIdx) {
@@ -10051,6 +10182,83 @@ function routeWavDrop(filePath) {
     handleBankDropImport(filePath);
   } else {
     showImportError('Drop on Bank C, Bank D, or the Library > Tones/Sequences sub-tabs.');
+  }
+}
+
+// v0.7.2: download icon click handler — writes the selected Library Tones
+// package to ~/Desktop as a WAV. Replaces what used to be the "Save WAV
+// file" button inside the Send modal (now removed): downloading lives per-
+// library-row so the user picks WHAT to download in the same place they
+// browse their library. Main side resolves the path under ~/Desktop and
+// auto-uniques on collision; renderer just supplies a friendly filename.
+async function handleDownloadTonesPackage(idx) {
+  const pkg = library && library.packages && library.packages[idx];
+  if (!pkg || !Array.isArray(pkg.banks)) {
+    showImportError('No package data to download.');
+    return;
+  }
+  const filename = pkg.customName || pkg.defaultName || `JP Patches package ${idx + 1}`;
+  // jx3p bank.schema.json requires {format_version, banks} and rejects
+  // additional top-level properties — _slotMeta is stripped main-side
+  // before being passed to jx3p (see tape-save-wav-to-path). v0.7.2:
+  // forgot format_version on first cut → jx3p validation rejected the
+  // payload + dumped the input as stderr (Daniel hit a wall of
+  // 'vca_level: 154, chorus: False, …' in the error modal).
+  const exportData = { format_version: '1.0', banks: pkg.banks };
+  if (pkg.slotMeta) exportData._slotMeta = pkg.slotMeta;
+  try {
+    const result = await window.api.tapeSaveWavToPath(exportData, filename);
+    if (result && result.saved) {
+      showConfirmModal({
+        title: 'WAV saved',
+        body: result.path,
+        confirmLabel: 'OK',
+        hideCancel: true,
+        onConfirm: () => {},
+      });
+    } else if (result && result.error) {
+      showImportError(`Could not write WAV: ${result.error}`);
+    }
+    // result.saved === false with no error = user cancelled the dialog;
+    // silent no-op.
+  } catch (err) {
+    showImportError(`Could not write WAV: ${err && err.message || err}`);
+  }
+}
+
+// v0.7.2: same shape as handleDownloadTonesPackage but for sequences.
+// Builds the export payload via buildSequenceMetaForExport so cross-user
+// receivers see the customName / originalName / patchNote / pairedPatch
+// the v0.6.5 chunk preserves.
+async function handleDownloadSequence(idx) {
+  const seq = library && library.sequences && library.sequences[idx];
+  if (!seq || !seq.tape || !Array.isArray(seq.tape.pages)) {
+    showImportError('No sequence data to download.');
+    return;
+  }
+  const filename = seq.customName || seq.defaultName || `JP Patches sequence ${idx + 1}`;
+  const exportData = {
+    pages: seq.tape.pages,
+    _sequenceMeta: (typeof buildSequenceMetaForExport === 'function')
+      ? buildSequenceMetaForExport(seq)
+      : null,
+  };
+  try {
+    const result = await window.api.seqTapeSaveWavToPath(exportData, filename);
+    if (result && result.saved) {
+      showConfirmModal({
+        title: 'Sequence WAV saved',
+        body: result.path,
+        confirmLabel: 'OK',
+        hideCancel: true,
+        onConfirm: () => {},
+      });
+    } else if (result && result.error) {
+      showImportError(`Could not write WAV: ${result.error}`);
+    }
+    // result.saved === false with no error = user cancelled; silent no-op.
+  } catch (err) {
+    showImportError(`Could not write WAV: ${err && err.message || err}`);
   }
 }
 

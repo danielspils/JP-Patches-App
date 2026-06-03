@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   tapeSave:            ()        => ipcRenderer.invoke('tape-save'),
   tapeLoad:            (data)    => ipcRenderer.invoke('tape-load', data),
   tapeSaveFromPath:    (path)    => ipcRenderer.invoke('tape-save-from-path', path),
+  tapeSaveWavToPath:   (data, p) => ipcRenderer.invoke('tape-save-wav-to-path', data, p),
   tapeEncodeToTemp:    (data)    => ipcRenderer.invoke('tape-encode-to-temp', data),
   tapeCleanupTemp:     (path)    => ipcRenderer.invoke('tape-cleanup-temp', path),
   // Record-from-JX flow: captured PCM samples (16-bit signed LE) from Web
@@ -28,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),
   seqTapeSaveFromPath: (path)    => ipcRenderer.invoke('seq-tape-save-from-path', path),
+  seqTapeSaveWavToPath:(data, p) => ipcRenderer.invoke('seq-tape-save-wav-to-path', data, p),
   // View > zoom presets. Main owns the window and applies the zoom; this
   // callback lets the renderer persist the new value into library.json
   // so the next launch opens at the same size.

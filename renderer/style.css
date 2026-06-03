@@ -1362,6 +1362,86 @@ body.seq-dragging-pitch * {
   line-height: 1.7;
 }
 
+/* v0.7.2: WAV upload zone — visible drop target + click-to-browse
+   affordance at the bottom of each Library sub-tab. Two variants:
+   - prominent: empty-state, centered + larger
+   - compact:   populated-state, smaller bar below the list
+   Both share: dashed border, WAV-file icon, label, hover/drag-over
+   glow. Drops are caught by the parent #patch-list (already wired in
+   setupPatchListDropZone); this zone is purely visible-target + click
+   handler. */
+.lib-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 16px auto;
+  padding: 18px 20px;
+  border: 1.5px dashed rgba(247, 241, 230, 0.28);
+  border-radius: 6px;
+  color: var(--text-mid);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.lib-upload-zone:hover,
+.lib-upload-zone:focus,
+.lib-upload-zone.drag-over {
+  border-color: rgba(247, 241, 230, 0.7);
+  color: var(--text-bright);
+  background: rgba(247, 241, 230, 0.04);
+  outline: none;
+}
+/* v0.7.2: drop received — brief pulse + sustained brighter state to
+   confirm the drop registered. Sustained state stays until renderPatchList
+   replaces the zone (after jx3p decode completes ~1-2s) or the 6s safety
+   timeout fires (in app.js — covers import-error cases where renderPatch-
+   List doesn't run). */
+.lib-upload-zone.drop-received {
+  border-color: rgba(247, 241, 230, 0.95);
+  background: rgba(247, 241, 230, 0.12);
+  color: var(--text-bright);
+  animation: lib-upload-drop-pulse 600ms ease-out;
+}
+@keyframes lib-upload-drop-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(247, 241, 230, 0.45); }
+  100% { box-shadow: 0 0 0 14px rgba(247, 241, 230, 0);    }
+}
+.lib-upload-zone-icon {
+  flex-shrink: 0;
+  color: currentColor;
+}
+.lib-upload-zone-label {
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+/* Prominent: empty-state. Bigger icon, more vertical breathing room. */
+.lib-upload-zone-prominent {
+  margin: 12px 24px;
+  padding: 28px 20px;
+  gap: 12px;
+}
+.lib-upload-zone-prominent .lib-upload-zone-icon {
+  width: 56px;
+  height: 70px;
+}
+.lib-upload-zone-prominent .lib-upload-zone-label {
+  font-size: 12px;
+}
+/* Compact: populated-state. Smaller, sits at the bottom of the list. */
+.lib-upload-zone-compact {
+  margin: 12px 8px;
+  padding: 12px 16px;
+  gap: 8px;
+  flex-direction: row;
+}
+.lib-upload-zone-compact .lib-upload-zone-icon {
+  width: 24px;
+  height: 30px;
+}
+
 .save-banks-btn {
   display: block;
   margin: 2px 12px;
@@ -2525,6 +2605,41 @@ body.seq-dragging-pitch * {
   color: var(--text-bright);
   background: rgba(247, 241, 230, 0.1);
 }
+
+/* v0.7.2: Download-as-WAV icon — hover-revealed on each Library row,
+   sits to the LEFT of LOAD (tones) or INFO (sequences). On click it
+   writes the row's data to ~/Desktop as a WAV. Same fade-in / hover
+   highlight vocabulary as the other row icons. Position varies per
+   row type via :has() so we don't have to thread row-type classes
+   through the renderer. */
+.package-download-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--text-mid);
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+.package-item:hover .package-download-btn { display: inline-flex; }
+.package-download-btn:hover {
+  color: var(--text-bright);
+  background: rgba(247, 241, 230, 0.1);
+}
+/* v0.7.2 (revised same-day): order on hover is LOAD | download | trash
+   (or info | download | trash on sequences) — download in the middle,
+   primary action on the LEFT per Daniel's read of "primary > secondary
+   > destructive" weight. Positioning math reads from the right edge:
+   trash 10, download 40, LOAD/info further left. */
+.package-download-btn { right: 40px; }
+.package-item:has(.package-load-btn) .package-load-btn { right: 75px; }
+.package-item:has(.package-info-btn) .package-info-btn { right: 70px; }
 
 /* Destructive — Roland red solid. Same brand-aligned treatment as
    confirm/alt above. Reserved for delete/remove/force-overwrite. */

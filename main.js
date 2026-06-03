@@ -716,6 +716,58 @@ ipcMain.handle('tape-load', async (e, data, suggestedName) => {
   }
 });
 
+// sanitizeWavFilename: strip path separators + extension, restrict to safe
+// chars (letters, digits, spaces, dashes, underscores, parens, dots), then
+// re-append `.wav`. Used as the dialog's default filename — the user can
+// edit it in the dialog, but the suggested value should be clean.
+function sanitizeWavFilename(filename) {
+  const safe = String(filename || 'JP Patches export')
+    .replace(/[\\/]/g, '_')
+    .replace(/\.wav$/i, '')
+    .replace(/[^A-Za-z0-9 _\-().]/g, '')
+    .trim()
+    || 'JP Patches export';
+  return safe + '.wav';
+}
+
+// tape-save-wav-to-path: same encoder pipeline as tape-load, but the Save
+// dialog defaults to ~/Desktop with the package name pre-filled — so a
+// single click saves to Desktop, or the user redirects to another folder.
+// Powers the download icon on Library Tones rows. v0.7.2 originally
+// silent-saved (Daniel asked for "click save to actually save it ... and
+// you could choose a different location" — this is that.)
+ipcMain.handle('tape-save-wav-to-path', async (e, data, filename) => {
+  let dlg;
+  try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    dlg = await dialog.showSaveDialog(win, {
+      title: 'Download C/D bank as WAV',
+      defaultPath: path.join(os.homedir(), 'Desktop', sanitizeWavFilename(filename)),
+      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+    });
+  } catch (err) {
+    return { saved: false, error: 'Could not open save dialog: ' + err.message };
+  }
+  if (dlg.canceled || !dlg.filePath) return { saved: false };
+
+  const destPath = dlg.filePath;
+  const { _slotMeta, ...jx3pData } = data || {};
+  const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
+  try {
+    fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${destPath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedSlotMetaInWav(destPath, _slotMeta); } catch (e2) {
+      console.warn('embedSlotMetaInWav failed:', e2 && e2.message);
+    }
+    return { saved: true, path: destPath };
+  } catch (err) {
+    return { saved: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
+  }
+});
+
 // tape-encode-to-temp: same encoder pipeline as tape-load, but writes the WAV
 // to a temp path the renderer can play directly through the Mac audio output
 // (so users don't have to find/play the file themselves). The renderer is
@@ -879,6 +931,47 @@ ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
       console.warn('embedJpMetaInWav(sequenceMeta) failed:', e2 && e2.message);
     }
     return { saved: true, path: dlg.filePath };
+  } catch (err) {
+    return { saved: false, error: err.stderr || err.message };
+  } finally {
+    try { fs.unlinkSync(tempJson); } catch {}
+  }
+});
+
+// seq-tape-save-wav-to-path: same encoder pipeline as seq-tape-load, but
+// the Save dialog defaults to ~/Desktop with the sequence name pre-filled.
+// Powers the download icon on Library Sequences rows. Same dialog
+// behavior as tape-save-wav-to-path above.
+ipcMain.handle('seq-tape-save-wav-to-path', async (e, data, filename) => {
+  let dlg;
+  try {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    dlg = await dialog.showSaveDialog(win, {
+      title: 'Download sequence as WAV',
+      defaultPath: path.join(os.homedir(), 'Desktop', sanitizeWavFilename(filename)),
+      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+    });
+  } catch (err) {
+    return { saved: false, error: 'Could not open save dialog: ' + err.message };
+  }
+  if (dlg.canceled || !dlg.filePath) return { saved: false };
+
+  const destPath = dlg.filePath;
+  const { _sequenceMeta } = data || {};
+  const tempJson = path.join(os.tmpdir(), `jp_seq_export_${Date.now()}.json`);
+  try {
+    const payload = {
+      format_version: '1.0',
+      kind: 'sequence',
+      pages: (data && Array.isArray(data.pages)) ? data.pages : [],
+    };
+    fs.writeFileSync(tempJson, JSON.stringify(payload, null, 2), 'utf8');
+    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${destPath}"`;
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    try { embedJpMetaInWav(destPath, { sequenceMeta: _sequenceMeta }); } catch (e2) {
+      console.warn('embedJpMetaInWav(sequenceMeta) failed:', e2 && e2.message);
+    }
+    return { saved: true, path: destPath };
   } catch (err) {
     return { saved: false, error: err.stderr || err.message };
   } finally {

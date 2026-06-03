@@ -184,6 +184,14 @@
   // flow progresses; modal wires those state changes.
 
   /**
+   * v0.7.2: `saveBtn` is retained in the return shape as a harmless
+   * detached stub (never appended to the DOM) so existing callers that
+   * destructure { saveBtn } don't need to be rewritten + can still
+   * call .disabled = true / .style.display = 'none' without throwing.
+   * The Save-WAV-file action moved to a per-library-row download icon
+   * (see buildDownloadWavIcon in app.js) so users pick what to
+   * download where they browse, not buried inside the transfer flow.
+   *
    * @returns {{
    *   actions:    HTMLElement,
    *   cancelBtn:  HTMLButtonElement,
@@ -197,15 +205,13 @@
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'modal-btn modal-btn-cancel';
     cancelBtn.textContent = 'Cancel';
+    // Detached stub — see JSDoc above. Not appended to DOM.
     const saveBtn = document.createElement('button');
-    saveBtn.className = 'modal-btn modal-btn-alt';
-    saveBtn.textContent = 'Save WAV file';
-    saveBtn.title = 'Export to a file instead of sending directly';
+    saveBtn.style.display = 'none';
     const primaryBtn = document.createElement('button');
     primaryBtn.className = 'modal-btn modal-btn-confirm';
     primaryBtn.textContent = 'Send to JX-3P';
     actions.appendChild(cancelBtn);
-    actions.appendChild(saveBtn);
     actions.appendChild(primaryBtn);
     return { actions, cancelBtn, saveBtn, primaryBtn };
   }
