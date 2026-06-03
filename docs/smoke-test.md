@@ -83,6 +83,42 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Save (keep pre-fill values) | new sequence entry appears with originalName, createdAt, patchNote, pairedPatch all preserved | |
 | Click the re-imported sequence | preview activates with the paired patch (proves params + name traveled in the chunk) | |
 | Write the previewed patch to a fresh C/D slot | params + name land correctly (same as section 3a row) | |
+| Step §3b row 2 above ("Send to JX-3P → Save WAV file") | **v0.7.2 NOTE:** the "Save WAV file" button no longer exists in the Send modal. Use the per-row **download icon** on the Library Sequences row instead — hover the row, click the down-arrow icon, hit Save in the native dialog. Same WAV output. | |
+
+### 3c. WAV upload zone (v0.7.2)
+
+> Always-visible dashed-border zone at the bottom of each Library sub-tab. Accepts drag-and-drop OR click-to-browse via native file picker. Pulses + shows "Importing…" on drop so the decode delay reads as feedback, not stalled UI.
+
+| Check | Expected | Result |
+|---|---|---|
+| Library → Tones with packages already present | dashed-border zone at bottom of list: WAV-file icon + label *"drop a WAV or click to upload a WAV"* (compact horizontal variant) | |
+| Library → Tones with NO packages (empty state) | zone renders larger + centered (prominent variant); placeholder text above mentions both "save C/D banks to library" + "upload a WAV below" | |
+| Library → Sequences | same zone (compact when populated, prominent when empty) | |
+| Hover the zone | border + label brighten (text-bright color); cursor reads as pointer | |
+| Drag a .wav file over the zone (don't drop yet) | border + label brighten via `.drag-over` class | |
+| Drop the WAV | zone pulses outward once (~600ms ring); border + background stay brighter; label swaps to *"Importing… (decoding WAV)"*; ~1-2s later the file appears in the list and the zone re-renders fresh | |
+| Click the zone | native macOS file picker opens, filtered to `.wav` | |
+| Pick a .wav in the picker | imports same as drag-drop (label change + pulse + list update) | |
+| Drop a non-WAV file (e.g. .png) | global error banner: *"Only .wav files can be dropped here."* (parent #patch-list catches this; zone may or may not have pulsed) | |
+| Drop a corrupted WAV | global error banner: *"Could not decode this WAV: …"*; zone's "Importing…" state self-resets after 6s safety timeout | |
+
+### 3d. Library row download icon (v0.7.2)
+
+> Hover-revealed icon on each Library row (Tones + Sequences). Native macOS Save dialog defaults to ~/Desktop with the package/sequence name pre-filled. Replaces the removed "Save WAV file" button that used to live in the Send modal.
+
+| Check | Expected | Result |
+|---|---|---|
+| Library → Tones row, hover | three icons reveal left-to-right: **LOAD button**, **download arrow icon**, **trash icon** | |
+| Library → Sequences row, hover | three icons reveal left-to-right: **info (ⓘ) icon**, **download arrow icon**, **trash icon** | |
+| Click download icon on a Tones row (e.g. Spils Sounds) | native macOS Save dialog opens; default filename `Spils Sounds.wav`; default location is Desktop | |
+| Click Save without changing | WAV writes to `~/Desktop/Spils Sounds.wav`; small confirm modal pops: *"WAV saved"* + the path | |
+| Pick a different folder in the dialog → Save | WAV writes there instead | |
+| Cancel the dialog | silent no-op (no error modal) | |
+| Click download icon on a Sequences row | dialog defaults to `<sequence name>.wav`; same flow | |
+| Download a row whose package has a customName | filename in the dialog matches the customName | |
+| Download a row with the JP-default name (e.g. "C/D banks May 18, 2026") | filename in the dialog matches the default name | |
+| Verify chunk preservation: open the downloaded WAV in a hex viewer (or re-import into JP) | jPpS chunk present (v:2 for sequences with paired patches); customName + slotMeta survive | |
+| Send-to-JX modal action row | **no "Save WAV file" button** — only Cancel + Send to JX-3P | |
 
 ## 4. Sequencer editor (new in v0.6.0)
 
