@@ -45,6 +45,7 @@ export default [
         // Globals exposed by renderer/library-math.js
         paramsFingerprint:      'readonly',
         computeReorderIdx:      'readonly',
+        allPatchesIdentical:    'readonly',
 
         // Globals exposed by renderer/library-schema.js
         CURRENT_SCHEMA_VERSION:   'readonly',

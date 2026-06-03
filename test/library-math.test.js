@@ -14,6 +14,7 @@ const assert = require('node:assert/strict');
 const {
   paramsFingerprint,
   computeReorderIdx,
+  allPatchesIdentical,
 } = require('../renderer/library-math.js');
 
 // ─── paramsFingerprint ──────────────────────────────────────────────────────
@@ -130,4 +131,88 @@ test('computeReorderIdx — simulated upward splice', () => {
   const [moved] = arr.splice(fromIdx, 1);
   arr.splice(eff, 0, moved);
   assert.deepEqual(arr, ['a', 'e', 'b', 'c', 'd']);
+});
+
+// ─── allPatchesIdentical ────────────────────────────────────────────────────
+//
+// Drives the v0.7.2 WAV-type auto-route. Pins the truth table so we don't
+// accidentally start mis-detecting (false-positive routes a Tones import
+// to Sequences and the user wonders where their import went).
+
+// Tiny patch factory — 32-key shape doesn't matter for fingerprint equality
+// (paramsFingerprint sorts keys + JSON-encodes), so any unique-per-call
+// param object suffices.
+function makePatch(seed) {
+  return { dco1_range: seed, vcf_cutoff: 128, env_attack: 64 };
+}
+function fillBank(patch) {
+  return Array.from({ length: 16 }, () => patch);
+}
+
+test('allPatchesIdentical — true when all 32 patches share the same params', () => {
+  const same = makePatch(8);
+  const banks = [fillBank(same), fillBank(same)];
+  assert.equal(allPatchesIdentical(banks), true);
+});
+
+test('allPatchesIdentical — true even when reference is different but params match', () => {
+  // Sequence-WAV-misroute case: jx3p produces 32 distinct objects whose
+  // fields happen to be identical. Fingerprint-based equality (sorted-
+  // key JSON) should hit, even though the JS references differ.
+  const banks = [
+    Array.from({ length: 16 }, () => makePatch(8)),
+    Array.from({ length: 16 }, () => makePatch(8)),
+  ];
+  assert.notStrictEqual(banks[0][0], banks[0][1], 'sanity: separate refs');
+  assert.equal(allPatchesIdentical(banks), true);
+});
+
+test('allPatchesIdentical — false when even one patch differs', () => {
+  const banks = [fillBank(makePatch(8)), fillBank(makePatch(8))];
+  banks[1][7] = makePatch(99);   // one patch differs
+  assert.equal(allPatchesIdentical(banks), false);
+});
+
+test('allPatchesIdentical — false on non-array input', () => {
+  assert.equal(allPatchesIdentical(null),       false);
+  assert.equal(allPatchesIdentical(undefined),  false);
+  assert.equal(allPatchesIdentical({}),         false);
+  assert.equal(allPatchesIdentical('banks'),    false);
+  assert.equal(allPatchesIdentical(42),         false);
+});
+
+test('allPatchesIdentical — false when banks array < 2 entries', () => {
+  assert.equal(allPatchesIdentical([]),                       false);
+  assert.equal(allPatchesIdentical([fillBank(makePatch(8))]), false);
+});
+
+test('allPatchesIdentical — false when an inner element is not an array', () => {
+  assert.equal(allPatchesIdentical([fillBank(makePatch(8)), 'not-a-bank']), false);
+});
+
+test('allPatchesIdentical — false when total patches < 32', () => {
+  // jx3p shape is always 16-per-bank, but defend against a malformed
+  // payload that happens to pass the outer shape check.
+  const short = Array.from({ length: 10 }, () => makePatch(8));
+  assert.equal(allPatchesIdentical([short, short]), false);
+});
+
+test('allPatchesIdentical — false when first patch has no fingerprint (empty/null params)', () => {
+  // paramsFingerprint returns null for empty objects; allPatchesIdentical
+  // should treat that as "can't determine identity" → false.
+  const banks = [
+    Array.from({ length: 16 }, () => ({})),
+    Array.from({ length: 16 }, () => ({})),
+  ];
+  assert.equal(allPatchesIdentical(banks), false);
+});
+
+test('allPatchesIdentical — fingerprint is order-insensitive (key order varies)', () => {
+  // Same params, different property insertion order. The misroute-detection
+  // shouldn't care about the JSON serialization order of jx3p's output.
+  const banks = [
+    fillBank({ dco1_range: 8, vcf_cutoff: 128, env_attack: 64 }),
+    fillBank({ env_attack: 64, dco1_range: 8, vcf_cutoff: 128 }),
+  ];
+  assert.equal(allPatchesIdentical(banks), true);
 });

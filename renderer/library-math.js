@@ -92,8 +92,49 @@
     return fromIdx < toIdx ? toIdx - 1 : toIdx;
   }
 
+  // ── allPatchesIdentical ─────────────────────────────────────────────────
+  //
+  // Detect the "sequence WAV misrouted to Tones sub-tab" case (v0.7.2).
+  // When jx3p's bank decoder runs on a sequence WAV, the sequence's
+  // paired-patch metadata is read as bank data + duplicated into every
+  // C/D slot — so the decoded banks contain 32 identical patches.
+  // Legitimate bank exports virtually never have 32 identical patches
+  // (a brand-new defaults-only bank would be the theoretical exception,
+  // but users don't export those). Returns true when every patch's
+  // fingerprint matches the first patch's, false otherwise (including
+  // shape-invalid inputs).
+  //
+  // Reuses paramsFingerprint above so the equality test is order-
+  // insensitive (jx3p's output object property order isn't guaranteed
+  // stable across schema versions).
+  /**
+   * @param {Array<Array<Object>> | any} banks
+   *   Expected: a two-element array of 16-patch arrays (what jx3p
+   *   wav-to-json returns). Anything else returns false (handler
+   *   bails to normal import path).
+   * @returns {boolean}
+   *   true when every patch across both banks has the same parameter
+   *   fingerprint as the first patch.
+   */
+  function allPatchesIdentical(banks) {
+    if (!Array.isArray(banks) || banks.length < 2) return false;
+    const flat = [];
+    for (const bank of banks) {
+      if (!Array.isArray(bank)) return false;
+      for (const patch of bank) flat.push(patch);
+    }
+    if (flat.length < 32) return false;
+    const firstFp = paramsFingerprint(flat[0]);
+    if (firstFp === null) return false;
+    for (let i = 1; i < flat.length; i++) {
+      if (paramsFingerprint(flat[i]) !== firstFp) return false;
+    }
+    return true;
+  }
+
   return {
     paramsFingerprint,
     computeReorderIdx,
+    allPatchesIdentical,
   };
 });

@@ -10276,20 +10276,9 @@ async function handleDownloadSequence(idx) {
   }
 }
 
-// v0.7.2: detect the "sequence WAV misrouted to Tones" case. When jx3p's
-// bank decoder runs on a sequence WAV, the sequence's paired-patch
-// metadata gets interpreted as bank data + duplicated into every C/D
-// slot — so the decoded banks contain 32 identical patches. Legitimate
-// bank exports virtually never have all 32 identical (32 default-init
-// patches would be the theoretical exception, but a user wouldn't
-// export that). Returns true when this misroute case is suspected.
-function allPatchesIdentical(banks) {
-  if (!Array.isArray(banks) || banks.length < 2) return false;
-  const flat = banks.flatMap((b) => Array.isArray(b) ? b : []);
-  if (flat.length < 32) return false;
-  const firstSig = JSON.stringify(flat[0]);
-  return flat.every((p) => JSON.stringify(p) === firstSig);
-}
+// allPatchesIdentical lives in renderer/library-math.js (extracted v0.7.2
+// for unit-testability — see test/library-math.test.js). The UMD wrapper
+// attaches it to window, so the call site below picks it up as a global.
 
 async function handleSequenceDropImport(filePath) {
   const result = await window.api.seqTapeSaveFromPath(filePath);

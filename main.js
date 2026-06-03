@@ -716,19 +716,9 @@ ipcMain.handle('tape-load', async (e, data, suggestedName) => {
   }
 });
 
-// sanitizeWavFilename: strip path separators + extension, restrict to safe
-// chars (letters, digits, spaces, dashes, underscores, parens, dots), then
-// re-append `.wav`. Used as the dialog's default filename — the user can
-// edit it in the dialog, but the suggested value should be clean.
-function sanitizeWavFilename(filename) {
-  const safe = String(filename || 'JP Patches export')
-    .replace(/[\\/]/g, '_')
-    .replace(/\.wav$/i, '')
-    .replace(/[^A-Za-z0-9 _\-().]/g, '')
-    .trim()
-    || 'JP Patches export';
-  return safe + '.wav';
-}
+// sanitizeWavFilename lives in main-filename-util.js (extracted v0.7.2
+// for unit-testability — see test/main-filename-util.test.js).
+const { sanitizeWavFilename } = require('./main-filename-util.js');
 
 // tape-save-wav-to-path: same encoder pipeline as tape-load, but the Save
 // dialog defaults to ~/Desktop with the package name pre-filled — so a
