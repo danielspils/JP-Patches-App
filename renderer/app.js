@@ -1666,6 +1666,20 @@ function patchPlaceholder(b, s) {
 // from its parent so it matches whatever placeholder/italic style is active.
 // Disappears once the user assigns a custom name (caller checks before calling).
 function appendRenamePencil(span) {
+  // v0.7.2: wrap the existing text in an inner .row-name-text span so
+  // the text can ellipsize independently of the pencil. Without the
+  // wrap, the pencil sits at the end of the parent span and gets
+  // clipped by text-overflow:ellipsis when the row hovers and the name
+  // shrinks to leave room for action icons. (Daniel 2026-06-03 — the
+  // hovered "Espen Kraft Roland JX3P New Patches" row showed `…` but
+  // no pencil.) The inner span carries the white-space/overflow/text-
+  // overflow trio; the pencil is a flex-shrink:0 sibling.
+  const text = span.textContent;
+  span.textContent = '';
+  const textSpan = document.createElement('span');
+  textSpan.className = 'row-name-text';
+  textSpan.textContent = text;
+  span.appendChild(textSpan);
   span.insertAdjacentHTML('beforeend',
     ' <svg class="patch-rename-icon" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">' +
       '<path d="M8.5 1.5l2 2-6 6-2.5.5.5-2.5z" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round"/>' +
@@ -10262,17 +10276,38 @@ async function handleDownloadSequence(idx) {
   }
 }
 
+// v0.7.2: detect the "sequence WAV misrouted to Tones" case. When jx3p's
+// bank decoder runs on a sequence WAV, the sequence's paired-patch
+// metadata gets interpreted as bank data + duplicated into every C/D
+// slot — so the decoded banks contain 32 identical patches. Legitimate
+// bank exports virtually never have all 32 identical (32 default-init
+// patches would be the theoretical exception, but a user wouldn't
+// export that). Returns true when this misroute case is suspected.
+function allPatchesIdentical(banks) {
+  if (!Array.isArray(banks) || banks.length < 2) return false;
+  const flat = banks.flatMap((b) => Array.isArray(b) ? b : []);
+  if (flat.length < 32) return false;
+  const firstSig = JSON.stringify(flat[0]);
+  return flat.every((p) => JSON.stringify(p) === firstSig);
+}
+
 async function handleSequenceDropImport(filePath) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
     return;
   }
-  // If the file decoded but every page is empty, it's probably a patch WAV.
+  // v0.7.2: if the sequence decoder returned empty pages, this WAV is
+  // almost certainly a Tones (patches) dump misrouted to the Sequences
+  // sub-tab. Silently auto-route to the Tones sub-tab + import there.
+  // Tab switch is the only signal — Daniel: "users will only do this
+  // when they forget [which] tab they're on (or so goes my theory)."
   const hasContent = result.data && Array.isArray(result.data.pages)
     && result.data.pages.some((p) => Array.isArray(p));
   if (!hasContent) {
-    showImportError('This WAV does not contain any sequencer data. Try dropping it on the Tones sub-tab if it is a patch dump.');
+    selLibTab = 'tones';
+    renderPatchList();
+    handleTonesDropImport(filePath);
     return;
   }
   if (!activeBankPatch()) {
@@ -10305,6 +10340,19 @@ async function handleTonesDropImport(filePath) {
   // active C/D banks. Default name uses an "Imported" prefix to distinguish
   // these from "Saved" snapshots.
   const banks = decodedToInMemoryBanks(result.data);
+  // v0.7.2: when a Sequence WAV gets misrouted to the Tones sub-tab,
+  // jx3p's bank decoder happily returns 32 identical patches (the
+  // paired-patch metadata gets read as bank data). Silently auto-route
+  // to the Sequences sub-tab + import there. Tab switch is the only
+  // signal — Daniel: "users will only do this when they forget [which]
+  // tab they're on (or so goes my theory)." Heuristic is reliable —
+  // legitimate bank exports almost never have 32 identical patches.
+  if (banks && allPatchesIdentical(banks)) {
+    selLibTab = 'sequences';
+    renderPatchList();
+    handleSequenceDropImport(filePath);
+    return;
+  }
   // Prefer the slotMeta embedded in the WAV's "jPpS" chunk (set by another
   // JP Patches install on export) so cross-user shares preserve custom names.
   // Fall back to decodedToSlotMeta when the WAV carries no chunk — gives

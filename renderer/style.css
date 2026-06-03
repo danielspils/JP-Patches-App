@@ -2636,9 +2636,10 @@ body.seq-dragging-pitch * {
    (or info | download | trash on sequences) — download in the middle,
    primary action on the LEFT per Daniel's read of "primary > secondary
    > destructive" weight. Positioning math reads from the right edge:
-   trash 10, download 40, LOAD/info further left. */
+   trash 10, download 40, LOAD/info further left. Spacing is equidistant
+   (~8px between adjacent right-edges of the three icons). */
 .package-download-btn { right: 40px; }
-.package-item:has(.package-load-btn) .package-load-btn { right: 75px; }
+.package-item:has(.package-load-btn) .package-load-btn { right: 70px; }
 .package-item:has(.package-info-btn) .package-info-btn { right: 70px; }
 
 /* Destructive — Roland red solid. Same brand-aligned treatment as
@@ -2727,9 +2728,35 @@ body.seq-dragging-pitch * {
 
 .package-name-span {
   color: var(--text-bright);
+  display: inline-flex;
+  align-items: baseline;
+  vertical-align: bottom;
+  max-width: 100%;
+  min-width: 0;
+  /* Ellipsis lives on the inner .row-name-text — without the inner
+     wrap, text-overflow:ellipsis on the parent eats the pencil at the
+     end of the span (the pencil is the LAST child, so it gets clipped
+     before the text does). See appendRenamePencil in app.js. */
+}
+/* v0.7.2: when icons appear on row hover (LOAD/info + download + trash,
+   occupying ~120px from the right edge), shrink the name's max-width
+   so long names ellipsize cleanly instead of disappearing behind the
+   icons. Daniel: "see entire library name when NOT in hover state.
+   When hover, shorten file name with '...'" */
+.package-item:hover .package-name-span {
+  max-width: calc(100% - 110px);
+}
+/* Inner text wrapper — added by appendRenamePencil so the text can
+   ellipsize without clipping the pencil sibling. */
+.row-name-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.package-name-span .patch-rename-icon {
+  flex-shrink: 0;
 }
 .package-name-span.unnamed {
   color: var(--text-bright);

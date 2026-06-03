@@ -34,6 +34,14 @@ action lives on each library row now. The Send modal stays focused
 on its one job: shoot the active C/D banks (or a sequence) down the
 cable.
 
+### Wrong-tab WAVs auto-route
+
+If you drop a Sequence WAV on the Tones sub-tab (or a Tones WAV on
+Sequences), JP Patches detects the mistype and silently switches you
+to the right sub-tab to land the file there. No modal, no warning —
+just the tab change as your signal that the file went where it
+belonged.
+
 ## Install
 
 Auto-update from v0.7.1 should bring this up automatically. Otherwise:
