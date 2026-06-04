@@ -37,6 +37,7 @@
     },
     "files": [
       "main.js",
+      "main-filename-util.js",
       "preload.js",
       "renderer/**/*",
       "package.json"
