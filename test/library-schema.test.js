@@ -6,7 +6,10 @@ const {
   CURRENT_SCHEMA_VERSION,
   migrations,
   migrateLibraryToCurrent,
+  repairProvenance,
 } = require('../renderer/library-schema.js');
+const { paramsFingerprint }    = require('../renderer/library-math.js');
+const { isSilentDefaultPatch, silentDefaultPatch } = require('../renderer/bucket-ops.js');
 
 // ── Public-API contract: CURRENT_SCHEMA_VERSION ────────────────────
 
@@ -108,3 +111,122 @@ test('migrateLibraryToCurrent — library claiming a future schemaVersion is lef
 // transform applied). The empty-list cases above already verify
 // the engine's "no-op", "stamp", "future-version respect", and
 // "idempotent" guarantees.
+
+// ── repairProvenance (v1→v2 migration core) ────────────────────────
+//
+// Re-roots originLibrary/originalName/createdAt to the EARLIEST library
+// containing each exact patch. Real paramsFingerprint + isSilentDefaultPatch
+// are injected (same helpers the shipped migration resolves at runtime).
+
+// Distinct, valid (non-silent) patches built off the canonical 33-key shape.
+const patchA = () => ({ ...silentDefaultPatch(), vca_level: 100, vcf_cutoff: 60 });
+const patchB = () => ({ ...silentDefaultPatch(), vca_level: 120, vcf_cutoff: 30 });
+
+// A minimal package: one filled C-slot, the rest empty arrays of length 16.
+function pkg({ name, created, slot0Params, slot0Meta }) {
+  const C = new Array(16).fill(null); C[0] = slot0Params || null;
+  const D = new Array(16).fill(null);
+  const metaC = new Array(16).fill(null); metaC[0] = slot0Meta || null;
+  const metaD = new Array(16).fill(null);
+  return { customName: name, createdAt: created, savedAt: created, banks: [C, D], slotMeta: { C: metaC, D: metaD } };
+}
+
+test('repairProvenance — re-roots a derived bank to the earliest library', () => {
+  const lib = { packages: [
+    pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: patchA(),
+          slot0Meta: { name: 'Bass', origin: 'C1', sourceLabel: 'Spils', originLibrary: 'Spils', originalName: 'Bass' } }),
+    pkg({ name: 'Derived', created: '2026-06-04T00:00:00Z', slot0Params: patchA(),  // same patch, dragged in
+          slot0Meta: { name: 'Bass', origin: 'C1', sourceLabel: 'Derived', originLibrary: 'Derived', originalName: 'Bass' } }),
+  ]};
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  const derived = lib.packages[1].slotMeta.C[0];
+  assert.equal(derived.originLibrary, 'Spils');
+  assert.equal(derived.createdAt,     '2026-05-21T00:00:00Z');
+  assert.equal(derived.originalName,  'Bass');
+  // The earliest library itself is untouched.
+  assert.equal(lib.packages[0].slotMeta.C[0].originLibrary, 'Spils');
+  assert.equal(lib._provRepaired, 1);
+});
+
+test('repairProvenance — idempotent (second run changes nothing)', () => {
+  const lib = { packages: [
+    pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: patchA(),
+          slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Spils', originalName: 'Bass' } }),
+    pkg({ name: 'Derived', created: '2026-06-04T00:00:00Z', slot0Params: patchA(),
+          slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Derived', originalName: 'Bass' } }),
+  ]};
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  assert.equal(lib._provRepaired, 1);
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  assert.equal(lib._provRepaired, 0);  // already deepest → no change
+});
+
+test('repairProvenance — skips silent-default fillers', () => {
+  const lib = { packages: [
+    pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: silentDefaultPatch(),
+          slot0Meta: { name: null, origin: 'C1', originLibrary: 'Spils' } }),
+    pkg({ name: 'Derived', created: '2026-06-04T00:00:00Z', slot0Params: silentDefaultPatch(),
+          slot0Meta: { name: null, origin: 'C1', originLibrary: 'Derived' } }),
+  ]};
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  assert.equal(lib._provRepaired, 0);
+  assert.equal(lib.packages[1].slotMeta.C[0].originLibrary, 'Derived'); // untouched
+});
+
+test('repairProvenance — never re-roots to a LATER library (patch unique to the later bank)', () => {
+  const lib = { packages: [
+    pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: patchA(),
+          slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Spils' } }),
+    pkg({ name: 'Derived', created: '2026-06-04T00:00:00Z', slot0Params: patchB(), // a DIFFERENT patch
+          slot0Meta: { name: 'Lead', origin: 'C1', originLibrary: 'Derived' } }),
+  ]};
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  assert.equal(lib._provRepaired, 0);
+  assert.equal(lib.packages[1].slotMeta.C[0].originLibrary, 'Derived'); // its own earliest origin
+});
+
+test('repairProvenance — also repairs the active banks (via slotMeta cleanParams)', () => {
+  // Active params live as `cleanParams` inside each active slotMeta entry,
+  // not as a banks[] array — fingerprint that to re-root the live state.
+  const lib = {
+    packages: [
+      pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: patchA(),
+            slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Spils', originalName: 'Bass' } }),
+    ],
+    slotMeta: {
+      C: (() => {
+        const m = new Array(16).fill(null);
+        m[0] = { name: 'Bass', origin: 'C1', originLibrary: 'Okay Dokay', cleanParams: patchA() };
+        return m;
+      })(),
+      D: new Array(16).fill(null),
+    },
+  };
+  repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch);
+  assert.equal(lib.slotMeta.C[0].originLibrary, 'Spils');     // active slot re-rooted
+  assert.equal(lib.slotMeta.C[0].createdAt,     '2026-05-21T00:00:00Z');
+});
+
+test('repairProvenance — safe on null / missing inputs', () => {
+  assert.equal(repairProvenance(null, paramsFingerprint, isSilentDefaultPatch), null);
+  const lib = { packages: 'not-an-array' };
+  assert.equal(repairProvenance(lib, paramsFingerprint, isSilentDefaultPatch), lib); // no throw
+  // Missing helpers → returns library untouched.
+  const lib2 = { packages: [] };
+  assert.equal(repairProvenance(lib2, null, null), lib2);
+});
+
+test('migrateLibraryToCurrent — v1 library runs the provenance repair (1→2)', () => {
+  const lib = {
+    schemaVersion: 1,
+    packages: [
+      pkg({ name: 'Spils', created: '2026-05-21T00:00:00Z', slot0Params: patchA(),
+            slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Spils', originalName: 'Bass' } }),
+      pkg({ name: 'Derived', created: '2026-06-04T00:00:00Z', slot0Params: patchA(),
+            slot0Meta: { name: 'Bass', origin: 'C1', originLibrary: 'Derived', originalName: 'Bass' } }),
+    ],
+  };
+  const out = migrateLibraryToCurrent(lib);
+  assert.equal(out.schemaVersion, CURRENT_SCHEMA_VERSION);
+  assert.equal(out.packages[1].slotMeta.C[0].originLibrary, 'Spils'); // repaired via the migration
+});

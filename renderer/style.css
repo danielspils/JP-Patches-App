@@ -761,6 +761,42 @@ body.seq-dragging-pitch * {
 .seq-viz-play-btn.playing:hover  { background: #2a8a72; }
 .seq-viz-play-btn.playing:active { background: #185647; }
 
+/* Repeat (:||) toggle — deliberately minimal so it reads as a quiet,
+   discoverable affordance, not a primary control.
+     INACTIVE: bare glyph in the rate-font color (var(--text-mid)), no box.
+     ACTIVE:   a thin rounded box in that same rate-font color appears, and
+               the glyph turns Roland green.
+   A transparent border is reserved when inactive so toggling doesn't shift
+   the row. margin-left mirrors the rate-wrap's margin so the icon sits with
+   even breathing room between Play and the rate control. The SVG glyph uses
+   currentColor, so it follows the color rules above. */
+.seq-viz-repeat-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 24px;
+  margin-left: 12px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;   /* reserves the active box; invisible when off */
+  border-radius: 4px;
+  color: var(--text-mid);          /* glyph = the rate "%" font color */
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.seq-viz-repeat-btn:hover { color: var(--text-bright); }
+/* Active (looping) — mirrors the Play button's playing state: green fill,
+   cream/white glyph. Same box size as inactive (the reserved 1px border just
+   gains color), so toggling doesn't shift the row. */
+.seq-viz-repeat-btn.active {
+  background: #1f6e5b;
+  color: #f7f1e6;
+  border-color: #2a8a72;
+}
+.seq-viz-repeat-btn.active:hover { background: #2a8a72; }
+
 /* Rate input — slider + number combo. Slider sits left for fast
    coarse adjustment; number sits right for precise type-in. Both
    live inside a single bordered chip so they read as one control.
@@ -1580,6 +1616,15 @@ body.seq-dragging-pitch * {
 .send-jx-modal.step-2 { max-width: 560px; }
 .send-jx-modal .modal-body { text-align: center; }
 .send-jx-status { margin: 12px 0 18px; min-height: 32px; }
+/* Step 1 (pre-Play) is just the title + Cancel/Send buttons. Center the
+   buttons and collapse the vertical space the step-2 elements reserve — the
+   empty body's margin and the timeline/status block's min-height — so the
+   shell hugs its content. (sendRow / outputDeviceSection / tdsCtrl are
+   already inline display:none.) enterPlayState adds .step-2, which lifts all
+   three rules and restores the full layout. */
+.send-jx-modal:not(.step-2) .modal-actions { justify-content: center; }
+.send-jx-modal:not(.step-2) .modal-body:empty { display: none; }
+.send-jx-modal:not(.step-2) .send-jx-status { display: none; }
 /* Built-in-speaker warning — amber, shown when the Send output device is the
    Mac's own speakers (almost always wrong: blasts the speakers, JX gets
    nothing). Set inline in the modal body, under the output-device line. */

@@ -212,11 +212,21 @@
   // ── buildSavedBucketSlotMeta ───────────────────────────────────────────
   //
   // Build the metadata half of a saved package: per-slot { name, origin,
-  // sourceLabel }. Filled slots carry the entry's metadata (with fallback
-  // origin = "C5"-style if the entry's origin is missing). Empty slots
-  // get { name: null, origin: 'C5', sourceLabel: null } — consistent with
-  // the silent-default fill (the saved slot has no source; its identity
-  // is just its JX position).
+  // sourceLabel } plus DEEP PROVENANCE (originLibrary, originalName,
+  // createdAt) when the entry carries it. Filled slots carry the entry's
+  // metadata (with fallback origin = "C5"-style if the entry's origin is
+  // missing). Empty slots get { name: null, origin: 'C5', sourceLabel: null }
+  // — consistent with the silent-default fill (the saved slot has no source;
+  // its identity is just its JX position).
+  //
+  // v0.7.5: the deep-provenance fields are preserved so building a custom
+  // bank from patches that already live in another library (e.g. dragging
+  // Spils Sounds patches into a new "Okay Dokay" bank) doesn't re-root their
+  // lineage to the new bank. Without these, the load-time enrichment in
+  // app.js stamps originLibrary with the NEW bank's name + date, hiding the
+  // patch's true origin in the Patch-history modal. Fields are only emitted
+  // when present, so packages built from patches with no prior provenance
+  // stay byte-identical to the old shape.
   function buildSavedBucketSlotMeta(buckets) {
     const meta = { C: [], D: [] };
     ['C', 'D'].forEach((bank) => {
@@ -224,11 +234,16 @@
       for (let i = 0; i < 16; i++) {
         const entry = arr[i];
         if (entry) {
-          meta[bank][i] = {
+          const m = {
             name:        entry.name || null,
             origin:      entry.origin || (bank + (i + 1)),
             sourceLabel: entry.sourceLabel || null,
           };
+          // Carry deep provenance forward only when the source patch had it.
+          if (entry.originLibrary) m.originLibrary = entry.originLibrary;
+          if (entry.originalName)  m.originalName  = entry.originalName;
+          if (entry.createdAt)     m.createdAt     = entry.createdAt;
+          meta[bank][i] = m;
         } else {
           meta[bank][i] = {
             name:        null,

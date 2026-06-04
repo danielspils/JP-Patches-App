@@ -726,11 +726,53 @@ function seqStepMs() {
   return Math.round(12500 / Math.max(1, seqPlayRatePct));
 }
 
+// Repeat toggle (the :|| transport control). When on, playback loops over
+// the active range instead of stopping at the end. Session-scoped like
+// seqPlayRatePct (resets on reload). Read live inside seqPlaybackTick so
+// toggling mid-play takes effect at the next loop boundary.
+let seqPlayRepeat = false;
+
+// Compute the playback step range [start, endIncl] honoring (a) the JX
+// "stop/loop after the last entry" boundary and (b) the current view scope:
+//   - Single-page view  → loop within that page, capped at its last
+//     populated step (whole page if the page itself is empty).
+//   - ALL view          → the whole populated sequence (0 → last entry).
+// Falls back to the full range for an empty sequence so play still does
+// *something* visible. Inclusive end.
+function seqPlayRange(pages) {
+  const last = window.lastPopulatedStep ? window.lastPopulatedStep(pages) : -1;
+  if (selSeqVizPage !== null && selSeqVizPage >= 0) {
+    const pStart = selSeqVizPage * 16;
+    const pEnd   = pStart + 15;
+    if (last < pStart) return { start: pStart, endIncl: pEnd };   // page empty → sweep it
+    return { start: pStart, endIncl: Math.min(last, pEnd) };
+  }
+  if (last < 0) return { start: 0, endIncl: 127 };                 // empty seq → old full range
+  return { start: 0, endIncl: last };
+}
+
+// One playback step. Shared by the main timer and the rate hot-restart so
+// the advance/loop/stop logic lives in exactly one place. At the boundary
+// (one past the last in-range step): wrap to loopStart when repeat is on,
+// else full stop.
+function seqPlaybackTick(pages) {
+  if (!seqPlayState) return;
+  const next = seqPlayState.currentStep + 1;
+  if (next >= seqPlayState.endStep) {
+    if (!seqPlayRepeat) { stopSeqPlayback(); return; }
+    seqPlayState.currentStep = seqPlayState.loopStart;
+  } else {
+    seqPlayState.currentStep = next;
+  }
+  playSeqStep(pages, seqPlayState.currentStep);
+  seqPlayState.playheadEl.setAttribute('x', String(seqPlayState.currentStep));
+}
+
 /**
  * Start (or resume) sequence playback. Idempotent for the playing
  * state — already-playing calls no-op. If state is currently PAUSED,
  * resumes from the saved currentStep without rebuilding the playhead.
- * If IDLE, builds a fresh playhead at the start of the visible range.
+ * If IDLE, builds a fresh playhead at the start of the active range.
  */
 function startSeqPlayback() {
   if (seqPlayState && seqPlayState.timerId !== null) return;   // already playing
@@ -739,10 +781,12 @@ function startSeqPlayback() {
   const pages = seq.tape.pages;
 
   if (!seqPlayState) {
-    // IDLE → PLAYING: fresh start. Build playhead at start of range.
-    const startStep = (selSeqVizPage !== null && selSeqVizPage >= 0) ? selSeqVizPage * 16 : 0;
-    const visibleSteps = (selSeqVizPage !== null) ? 16 : 128;
-    const endStep = startStep + visibleSteps;
+    // IDLE → PLAYING: fresh start. Range honors the last-entry boundary +
+    // view scope (see seqPlayRange). endStep is exclusive (one past the
+    // last in-range step); loopStart is where repeat wraps back to.
+    const range = seqPlayRange(pages);
+    const startStep = range.start;
+    const endStep   = range.endIncl + 1;
 
     const rollSvg = document.querySelector('.seq-viz-svg');
     if (!rollSvg) return;
@@ -754,25 +798,16 @@ function startSeqPlayback() {
     playheadEl.setAttribute('height', '49');     // PITCH_RANGE
     rollSvg.appendChild(playheadEl);
 
-    seqPlayState = { timerId: null, currentStep: startStep, endStep, playheadEl };
+    seqPlayState = { timerId: null, currentStep: startStep, loopStart: startStep, endStep, playheadEl };
   }
-  // (Else: PAUSED → PLAYING. seqPlayState already has currentStep
-  // + endStep + playheadEl from the previous play session; we just
-  // need to restart the timer below.)
+  // (Else: PAUSED → PLAYING. seqPlayState already has currentStep +
+  // loopStart + endStep + playheadEl from the previous play session; we
+  // just need to restart the timer below.)
 
   // Play the current step immediately so resume feels instantaneous.
   playSeqStep(pages, seqPlayState.currentStep);
 
-  seqPlayState.timerId = setInterval(() => {
-    if (!seqPlayState) return;
-    seqPlayState.currentStep += 1;
-    if (seqPlayState.currentStep >= seqPlayState.endStep) {
-      stopSeqPlayback();
-      return;
-    }
-    playSeqStep(pages, seqPlayState.currentStep);
-    seqPlayState.playheadEl.setAttribute('x', String(seqPlayState.currentStep));
-  }, seqStepMs());
+  seqPlayState.timerId = setInterval(() => seqPlaybackTick(pages), seqStepMs());
 
   setSeqPlayButtonState(true);
 }
@@ -794,16 +829,7 @@ function setSeqPlayRatePct(pct) {
     clearInterval(seqPlayState.timerId);
     const seq   = library.sequences && library.sequences[selSequence];
     const pages = (seq && seq.tape && Array.isArray(seq.tape.pages)) ? seq.tape.pages : [];
-    seqPlayState.timerId = setInterval(() => {
-      if (!seqPlayState) return;
-      seqPlayState.currentStep += 1;
-      if (seqPlayState.currentStep >= seqPlayState.endStep) {
-        stopSeqPlayback();
-        return;
-      }
-      playSeqStep(pages, seqPlayState.currentStep);
-      seqPlayState.playheadEl.setAttribute('x', String(seqPlayState.currentStep));
-    }, seqStepMs());
+    seqPlayState.timerId = setInterval(() => seqPlaybackTick(pages), seqStepMs());
   }
 }
 
@@ -1983,15 +2009,24 @@ function ensureRecordCalibrationShape() {
   if (!('preferredInputDeviceId'    in library.record)) library.record.preferredInputDeviceId    = null;
   if (!('preferredInputDeviceLabel' in library.record)) library.record.preferredInputDeviceLabel = null;
 }
-function getCalibratedGain(deviceId) {
-  if (!deviceId || !library || !library.record) return null;
-  const entry = library.record.calibratedGain && library.record.calibratedGain[deviceId];
-  return (entry && typeof entry.gain === 'number') ? entry : null;
+// Resolve a device's calibrated gain. Pass the label too: deviceIds are
+// salted hashes that rotate across app updates / USB replug / default-switch,
+// so a deviceId-only lookup "forgets" calibration the user already did. The
+// label (stable, carries USB VID:PID) lets resolveCalibratedGain fall back to
+// a label match — see renderer/record-calibration.js for the full rationale.
+function getCalibratedGain(deviceId, deviceLabel) {
+  if (!library || !library.record || !library.record.calibratedGain) return null;
+  return resolveCalibratedGain(library.record.calibratedGain, deviceId, deviceLabel);
 }
 function setCalibratedGain(deviceId, gain, label) {
   if (!deviceId || typeof gain !== 'number' || !Number.isFinite(gain) || gain <= 0) return;
   ensureRecordCalibrationShape();
-  library.record.calibratedGain[deviceId] = {
+  const map = library.record.calibratedGain;
+  // Prune stale entries for the same physical device (an old rotated deviceId
+  // hash from a previous version, or a "default" alias) so we keep one entry
+  // per device rather than accumulating an orphan on every upgrade.
+  for (const key of staleCalibrationKeys(map, deviceId, label)) delete map[key];
+  map[deviceId] = {
     label:        label || '(unknown device)',
     gain,
     calibratedAt: new Date().toISOString(),
@@ -2146,7 +2181,7 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
       // starting position, so seeding from the prior gain is purely a
       // UX improvement — it lets pass 1 land near-target on the first
       // try instead of requiring the user to re-find the ballpark.
-      const priorCal  = deviceId ? getCalibratedGain(deviceId) : null;
+      const priorCal  = getCalibratedGain(deviceId, deviceLabel);
       const priorGain = priorCal ? priorCal.gain : null;
       if (deviceId) clearCalibratedGain(deviceId);
       showRecordFromJxModal({
@@ -4495,7 +4530,14 @@ function handleDeletePackage(idx) {
 }
 
 function startPackageNameEdit(idx, nm, def, inp) {
-  inp.value = library.packages[idx].customName || '';
+  // Pre-fill with the DISPLAYED name (customName || defaultName), not just
+  // customName. WAV-imported packages carry their name in defaultName with
+  // an empty customName (see the import path's `defaultName: fileLabel`),
+  // so reading customName alone opened the editor blank even though the row
+  // clearly showed a name. The input is .select()-ed below, so typing still
+  // replaces the whole value in one keystroke.
+  const pkg = library.packages[idx];
+  inp.value = (pkg.customName || pkg.defaultName) || '';
   inp.style.display = 'block';
   nm.style.display  = 'none';
   inp.focus();
@@ -4784,7 +4826,11 @@ function animateRowDeleteThenCommit(selector, commit) {
 }
 
 function startSequenceNameEdit(idx, nm, def, inp) {
-  inp.value = library.sequences[idx].customName || '';
+  // Same fix as startPackageNameEdit: pre-fill with the displayed name
+  // (customName || defaultName) so WAV/drop-imported sequences — whose name
+  // lives in defaultName with an empty customName — don't open blank.
+  const seq = library.sequences[idx];
+  inp.value = (seq.customName || seq.defaultName) || '';
   inp.style.display = 'block';
   nm.style.display  = 'none';
   inp.focus();
@@ -5534,7 +5580,7 @@ async function applyToneResult(result, sourcePath, labelOverride = null) {
 // saved gain to clear.
 async function applyToneCapture(tempWavPath, deviceInfo) {
   const di = deviceInfo || {};
-  const calGain = di.deviceId ? (getCalibratedGain(di.deviceId)?.gain ?? null) : null;
+  const calGain = getCalibratedGain(di.deviceId, di.deviceLabel)?.gain ?? null;
   const result = await window.api.tapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
     logCaptureTelemetry({
@@ -6380,7 +6426,7 @@ async function doSequencerSaveFromFile() {
 
 async function applySequencerCapture(tempWavPath, deviceInfo) {
   const di = deviceInfo || {};
-  const calGain = di.deviceId ? (getCalibratedGain(di.deviceId)?.gain ?? null) : null;
+  const calGain = getCalibratedGain(di.deviceId, di.deviceLabel)?.gain ?? null;
   const result = await window.api.seqTapeSaveFromPath(tempWavPath);
   if (!result || !result.loaded) {
     logCaptureTelemetry({
@@ -8859,6 +8905,19 @@ function renderSequenceVisualizer() {
     // ~125 ms/step, 50% default = 250 ms/step).
     `<div class="seq-viz-controls-row">` +
       `<button class="seq-viz-play-btn" type="button" title="Play / Pause (double-click to reset)">▶</button>` +
+      // Repeat (:||) toggle — when active, playback loops the active steps
+      // (the JX repeats after the last entry). Roland-green when on. The
+      // glyph is a hand-drawn end-repeat barline: two dots, thin line,
+      // thick line, reading left→right as ":||".
+      `<button class="seq-viz-repeat-btn${seqPlayRepeat ? ' active' : ''}" type="button" ` +
+        `aria-pressed="${seqPlayRepeat}" title="Repeat — loop the active steps (JX-style)">` +
+        `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">` +
+          `<circle cx="3.4" cy="5.6" r="1.05" fill="currentColor"/>` +
+          `<circle cx="3.4" cy="10.4" r="1.05" fill="currentColor"/>` +
+          `<line x1="6.5" y1="2.6" x2="6.5" y2="13.4" stroke="currentColor" stroke-width="1"/>` +
+          `<rect x="8.6" y="2.6" width="2.3" height="10.8" fill="currentColor"/>` +
+        `</svg>` +
+      `</button>` +
       // Rate control: collapsed default shows just [number][%][›]
       // (carrot pointing right invites expansion). Expanded reveals
       // the slider to the left of the number, carrot flips to ‹ for
@@ -8962,6 +9021,18 @@ function renderSequenceVisualizer() {
   // 'input' fires on every drag/keystroke (live), 'blur' on number
   // re-syncs visible value to the (potentially clamped) actual rate
   // — so typing "150" + tab snaps the box to "100".
+  // Repeat (:||) toggle wiring. seqPlayRepeat is read live in
+  // seqPlaybackTick, so flipping it mid-playback takes effect at the next
+  // loop boundary — no timer restart needed.
+  const repeatBtn = container.querySelector('.seq-viz-repeat-btn');
+  if (repeatBtn) {
+    repeatBtn.addEventListener('click', () => {
+      seqPlayRepeat = !seqPlayRepeat;
+      repeatBtn.classList.toggle('active', seqPlayRepeat);
+      repeatBtn.setAttribute('aria-pressed', String(seqPlayRepeat));
+    });
+  }
+
   const rateSlider = container.querySelector('.seq-viz-rate-slider');
   const rateInput  = container.querySelector('.seq-viz-rate');
   const syncRateUI = () => {
@@ -9566,11 +9637,25 @@ function placePatchInBucket(destBank, destIdx, srcBank, srcSlot) {
   if (!params) return;
   // Pure mutation delegated to bucket-ops.js — keeps the data shape +
   // bounds-checking in one place where the unit tests can reach it.
+  //
+  // v0.7.5: carry the source patch's DEEP PROVENANCE (originLibrary /
+  // originalName / createdAt) into the bucket entry. Without this, building
+  // a custom bank from patches that already live in another library severs
+  // their lineage — the saved bank's load-time enrichment re-roots
+  // originLibrary to the NEW bank's name + date, so the Patch-history modal
+  // showed "Okay Dokay / today" for a patch that's really from "Spils
+  // Sounds / 3 weeks ago". patchOriginLibrary already falls back to the
+  // slot's sourceLabel, and we fall back once more to the current active
+  // source for patches with no recorded provenance (preserves old behavior).
+  const srcMeta = slotMetaAt(srcBank, srcSlot) || {};
   placeBucketEntry(bucketsState(), destBank, destIdx, {
     params: JSON.parse(JSON.stringify(params)),
     name:   patchName(srcBank, srcSlot),
     origin: patchOrigin(srcBank, srcSlot),
-    sourceLabel: activeBanksSourceLabel,
+    sourceLabel:   activeBanksSourceLabel,
+    originLibrary: patchOriginLibrary(srcBank, srcSlot) || activeBanksSourceLabel || null,
+    originalName:  patchOriginalName(srcBank, srcSlot) || patchName(srcBank, srcSlot) || null,
+    createdAt:     srcMeta.createdAt || null,
   });
   saveLibraryDebounced();
   renderCustomBuilder();

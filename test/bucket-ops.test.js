@@ -599,6 +599,30 @@ test('buildSavedBucketSlotMeta — returns {C: 16, D: 16}', () => {
   assert.equal(m.D.length, 16);
 });
 
+// v0.7.5 — deep provenance preserved through a custom-bank save so building
+// a bank from existing-library patches doesn't re-root their lineage.
+test('buildSavedBucketSlotMeta — preserves originLibrary/originalName/createdAt when the entry carries them', () => {
+  const b = freshBuckets();
+  placeBucketEntry(b, 'C', 5, sampleEntry({
+    sourceLabel:   'Okay Dokay',          // the NEW bank being built
+    originLibrary: 'Spils Sounds',        // the TRUE origin — must survive
+    originalName:  'Deep Unrest',
+    createdAt:     '2026-05-21T17:36:51.444Z',
+  }));
+  const m = buildSavedBucketSlotMeta(b);
+  assert.equal(m.C[5].sourceLabel,   'Okay Dokay');
+  assert.equal(m.C[5].originLibrary, 'Spils Sounds');
+  assert.equal(m.C[5].originalName,  'Deep Unrest');
+  assert.equal(m.C[5].createdAt,     '2026-05-21T17:36:51.444Z');
+});
+
+test('buildSavedBucketSlotMeta — omits deep-provenance keys when the entry lacks them (old shape unchanged)', () => {
+  const b = freshBuckets();
+  placeBucketEntry(b, 'C', 5, sampleEntry()); // no originLibrary/originalName/createdAt
+  const m = buildSavedBucketSlotMeta(b);
+  assert.deepEqual(Object.keys(m.C[5]).sort(), ['name', 'origin', 'sourceLabel']);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Integration: realistic CCB flows end-to-end
 // ═══════════════════════════════════════════════════════════════════════════

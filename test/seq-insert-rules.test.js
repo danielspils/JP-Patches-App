@@ -10,7 +10,61 @@ const {
   insertRestIntoStep,
   insertTieIntoStep,
   computeInsertEligibility,
+  lastPopulatedStep,
 } = require('../renderer/seq-insert-rules.js');
+
+// ── lastPopulatedStep — the JX "loop after last entry" boundary ──
+// Self-contained helpers (the file's shared emptyStep/attack/tied are
+// declared further down, so these stay independent): a noteStep has a new
+// attack, a restStep has a tied voice (rests/ties both count as entries),
+// and emptyPage is 16 never-written steps.
+function noteStep(n) { return { voices: [{ note: n, tied: false }, null, null, null, null, null, null], byte7: 1 }; }
+function restStep(n) { return { voices: [{ note: n, tied: true },  null, null, null, null, null, null], byte7: 1 }; }
+function emptyPage() { return Array.from({ length: 16 }, () => ({ voices: [null, null, null, null, null, null, null], byte7: 127 })); }
+
+test('lastPopulatedStep — empty / no pages → -1', () => {
+  assert.equal(lastPopulatedStep([]), -1);
+  assert.equal(lastPopulatedStep([emptyPage()]), -1);
+  assert.equal(lastPopulatedStep(null), -1);
+  assert.equal(lastPopulatedStep(undefined), -1);
+});
+
+test('lastPopulatedStep — single note on page 0 step 0 → 0', () => {
+  const pg = emptyPage(); pg[0] = noteStep(60);
+  assert.equal(lastPopulatedStep([pg]), 0);
+});
+
+test('lastPopulatedStep — last entry mid-page (page 2, step 3) → absolute 35', () => {
+  // Daniel's exact example: notes through the 4th step of page 3 (0-indexed
+  // page 2, step 3) → absStep = 2*16 + 3 = 35. Trailing steps stay empty.
+  const p0 = emptyPage(); p0[0] = noteStep(60); p0[15] = noteStep(62);
+  const p1 = emptyPage(); p1[7] = noteStep(64);
+  const p2 = emptyPage(); p2[0] = noteStep(65); p2[3] = restStep(65); // last entry
+  assert.equal(lastPopulatedStep([p0, p1, p2]), 35);
+});
+
+test('lastPopulatedStep — rests and ties count as entries (not just notes)', () => {
+  const pg = emptyPage(); pg[5] = restStep(60); // only a rest, no fresh note
+  assert.equal(lastPopulatedStep([pg]), 5);
+});
+
+test('lastPopulatedStep — trailing empty pages are ignored', () => {
+  const p0 = emptyPage(); p0[2] = noteStep(60);
+  assert.equal(lastPopulatedStep([p0, emptyPage(), emptyPage(), emptyPage()]), 2);
+});
+
+test('lastPopulatedStep — null / absent pages between content are skipped safely', () => {
+  const p0 = emptyPage(); p0[1] = noteStep(60);
+  const p3 = emptyPage(); p3[4] = noteStep(62); // page index 3 → 3*16+4 = 52
+  assert.equal(lastPopulatedStep([p0, null, undefined, p3]), 52);
+});
+
+test('lastPopulatedStep — content on the very last step (page 7, step 15) → 127', () => {
+  const pages = [emptyPage(), emptyPage(), emptyPage(), emptyPage(),
+                 emptyPage(), emptyPage(), emptyPage(), emptyPage()];
+  pages[7][15] = noteStep(72);
+  assert.equal(lastPopulatedStep(pages), 127);
+});
 
 // ── Small builders to keep the tests readable ──────────────────────
 //

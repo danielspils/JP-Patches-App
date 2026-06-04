@@ -215,6 +215,33 @@
     };
   }
 
+  // ── lastPopulatedStep ──────────────────────────────────────────────────
+  //
+  // Highest absolute step index (0..127) that holds ANY content. Notes,
+  // rests, and ties all write at least one non-null voice; a never-written
+  // step has all-null voices (the byte7=127 sentinel). Returns -1 for an
+  // empty sequence.
+  //
+  // This is the JX-3P's "loop after the last entry" boundary: the hardware
+  // sequencer plays from step 0 through this step and repeats, even when the
+  // last entry lands mid-page. `pages` is the sparse 8-page array — each page
+  // is 16 steps, or null/absent for pages the JX never sent.
+  function lastPopulatedStep(pages) {
+    if (!Array.isArray(pages)) return -1;
+    let last = -1;
+    for (let p = 0; p < pages.length; p++) {
+      const page = pages[p];
+      if (!Array.isArray(page)) continue;
+      for (let s = 0; s < page.length && s < STEPS_PER_PAGE; s++) {
+        const step = page[s];
+        if (step && Array.isArray(step.voices) && step.voices.some((v) => v != null)) {
+          last = p * STEPS_PER_PAGE + s;
+        }
+      }
+    }
+    return last;
+  }
+
   return {
     STEPS_PER_PAGE,
     MAX_POLYPHONY,
@@ -223,5 +250,6 @@
     insertRestIntoStep,
     insertTieIntoStep,
     computeInsertEligibility,
+    lastPopulatedStep,
   };
 });

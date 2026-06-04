@@ -47,6 +47,10 @@ export default [
         computeReorderIdx:      'readonly',
         allPatchesIdentical:    'readonly',
 
+        // Globals exposed by renderer/record-calibration.js
+        normalizeDeviceLabel:         'readonly',
+        resolveCalibratedGain:        'readonly',
+        staleCalibrationKeys:         'readonly',
         // Globals exposed by renderer/bucket-ops.js
         silentDefaultPatch:           'readonly',
         isSilentDefaultPatch:         'readonly',

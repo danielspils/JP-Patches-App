@@ -63,7 +63,7 @@
    * migration is added. Stored in `library.schemaVersion` after the
    * first migrateLibraryToCurrent call on any file.
    */
-  const CURRENT_SCHEMA_VERSION = 1;
+  const CURRENT_SCHEMA_VERSION = 2;
 
   /**
    * @typedef {Object} LibraryMigration
@@ -95,10 +95,44 @@
    *
    * @type {LibraryMigration[]}
    */
+  // Resolve the two pure helpers repairProvenance needs, in whichever
+  // environment we're running: window globals in the renderer, require() in
+  // Node (tests / headless). Returns nulls if neither is available, in which
+  // case the migration skips the repair gracefully rather than throwing.
+  function resolveProvHelpers() {
+    if (typeof window !== 'undefined' && window.paramsFingerprint && window.isSilentDefaultPatch) {
+      return { fp: window.paramsFingerprint, isSilent: window.isSilentDefaultPatch };
+    }
+    if (typeof require === 'function') {
+      try {
+        return {
+          fp:       require('./library-math.js').paramsFingerprint,
+          isSilent: require('./bucket-ops.js').isSilentDefaultPatch,
+        };
+      } catch { /* fall through to nulls */ }
+    }
+    return { fp: null, isSilent: null };
+  }
+
   const migrations = [
-    // (No migrations yet. Adding the schemaVersion field to a fresh load
-    //  doesn't require a migration — migrateLibraryToCurrent stamps the
-    //  current version on any file that's missing schemaVersion entirely.)
+    {
+      from: 0, to: 1,
+      note: 'baseline — schemaVersion field introduced (no data change)',
+      // Pre-versioned files used to jump straight to current via the stamp
+      // path. Now that real migrations exist, we step v0 explicitly to v1 so
+      // it continues through the v1→v2 repair below (otherwise a v0 library
+      // would skip the repair). No-op transform.
+      migrate(library) { return library; },
+    },
+    {
+      from: 1, to: 2,
+      note: 'repair custom-bank provenance (re-root originLibrary to the earliest library containing each patch)',
+      migrate(library) {
+        const { fp, isSilent } = resolveProvHelpers();
+        if (fp && isSilent) repairProvenance(library, fp, isSilent);
+        return library;
+      },
+    },
   ];
 
   /**
@@ -173,9 +207,118 @@
     return library;
   }
 
+  // ── repairProvenance ───────────────────────────────────────────────────
+  //
+  // One-time data fix (schema v1→v2). Before the going-forward fix, building
+  // a custom bank from existing-library patches re-rooted their lineage: the
+  // saved package's load-time enrichment stamped originLibrary with the NEW
+  // bank's name + date, so the Patch-history modal showed e.g. "Okay Dokay /
+  // today" for a patch that's really from "Spils Sounds / weeks ago".
+  //
+  // This walks every package's slotMeta AND the active banks and, for each
+  // non-blank patch, re-roots originLibrary / originalName / createdAt to the
+  // EARLIEST library (by createdAt) that contains that exact patch — the true
+  // deepest origin. Correct under the app's "identity = params" model.
+  //
+  // Safety / idempotence:
+  //   - Skips silent-default fillers (they'd all collide on one fingerprint).
+  //   - Only re-roots to a DIFFERENT, strictly-EARLIER origin — never to a
+  //     later library, never to itself. Re-running is a no-op (originLibrary
+  //     already points at the earliest match).
+  //   - paramsFingerprint + isSilentDefaultPatch are injected so this stays
+  //     pure + unit-testable.
+  //
+  // Returns the same library (mutated in place); sets library._provRepaired
+  // to the number of slots changed (handy for logging / tests).
+  function repairProvenance(library, paramsFingerprint, isSilentDefaultPatch) {
+    if (!library || typeof library !== 'object') return library;
+    if (typeof paramsFingerprint !== 'function' || typeof isSilentDefaultPatch !== 'function') return library;
+    const pkgs = Array.isArray(library.packages) ? library.packages : [];
+    const labelOf = (p) => p.customName || p.defaultName || null;
+
+    // 1. Index: fingerprint → the earliest origin record seen for it.
+    const byFp = new Map();
+    for (const p of pkgs) {
+      const created = p.createdAt || p.savedAt || null;
+      ['C', 'D'].forEach((b, bi) => {
+        const bank = p.banks && p.banks[bi];
+        const meta = p.slotMeta && p.slotMeta[b];
+        if (!Array.isArray(bank)) return;
+        for (let i = 0; i < 16; i++) {
+          const params = bank[i];
+          if (!params || isSilentDefaultPatch(params)) continue;
+          const fp = paramsFingerprint(params);
+          if (!fp) continue;
+          const m = (meta && meta[i]) || {};
+          const rec = { label: labelOf(p), created, originalName: m.originalName || m.name || null };
+          const cur = byFp.get(fp);
+          if (!cur) { byFp.set(fp, rec); continue; }
+          if (created && cur.created && created < cur.created) byFp.set(fp, rec);
+        }
+      });
+    }
+
+    // Re-root one slotMeta entry against the earliest-origin index.
+    // ownerCreated = the createdAt of the thing that OWNS this slot (the
+    // package, or a far-future sentinel for the live active banks so any
+    // package origin counts as strictly earlier).
+    const repairSlot = (params, metaEntry, ownerCreated) => {
+      if (!params || !metaEntry || isSilentDefaultPatch(params)) return false;
+      const fp = paramsFingerprint(params);
+      if (!fp) return false;
+      const earliest = byFp.get(fp);
+      if (!earliest || !earliest.label) return false;
+      const curOL = metaEntry.originLibrary || metaEntry.sourceLabel || null;
+      if (earliest.label === curOL) return false;                          // already deepest
+      if (!(earliest.created && ownerCreated && earliest.created < ownerCreated)) return false;
+      metaEntry.originLibrary = earliest.label;
+      if (earliest.originalName) metaEntry.originalName = earliest.originalName;
+      if (earliest.created)      metaEntry.createdAt    = earliest.created;
+      return true;
+    };
+
+    let changed = 0;
+
+    // 2. Repair every package's stored slotMeta.
+    for (const p of pkgs) {
+      const created = p.createdAt || p.savedAt || null;
+      ['C', 'D'].forEach((b, bi) => {
+        const bank = p.banks && p.banks[bi];
+        const meta = p.slotMeta && p.slotMeta[b];
+        if (!Array.isArray(bank) || !Array.isArray(meta)) return;
+        for (let i = 0; i < 16; i++) {
+          if (repairSlot(bank[i], meta[i], created)) changed++;
+        }
+      });
+    }
+
+    // 3. Repair the currently-loaded active banks (library.slotMeta) so the
+    //    fix shows in the live Patch-history modal without reloading a
+    //    package. The active params aren't stored as a banks[] array on disk;
+    //    instead each active slotMeta entry carries a `cleanParams` baseline
+    //    (the patch loaded into that slot) — fingerprint THAT to identify it.
+    //    Active state is "now" → sentinel date so any package origin counts
+    //    as strictly earlier.
+    const NOW_SENTINEL = '9999-12-31T23:59:59.999Z';
+    if (library.slotMeta) {
+      ['C', 'D'].forEach((b) => {
+        const meta = library.slotMeta[b];
+        if (!Array.isArray(meta)) return;
+        for (let i = 0; i < 16; i++) {
+          const m = meta[i];
+          if (m && m.cleanParams && repairSlot(m.cleanParams, m, NOW_SENTINEL)) changed++;
+        }
+      });
+    }
+
+    library._provRepaired = changed;
+    return library;
+  }
+
   return {
     CURRENT_SCHEMA_VERSION,
     migrations,
     migrateLibraryToCurrent,
+    repairProvenance,
   };
 });
