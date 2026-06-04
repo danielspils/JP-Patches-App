@@ -47,6 +47,17 @@ export default [
         computeReorderIdx:      'readonly',
         allPatchesIdentical:    'readonly',
 
+        // Globals exposed by renderer/bucket-ops.js
+        silentDefaultPatch:           'readonly',
+        isSilentDefaultPatch:         'readonly',
+        placeBucketEntry:             'readonly',
+        swapBucketEntries:            'readonly',
+        clearBucketEntry:             'readonly',
+        setBucketEntryName:           'readonly',
+        buildSavedBuckets:            'readonly',
+        buildSavedBucketSlotMeta:     'readonly',
+        decodeBucketDropAction:       'readonly',
+
         // Globals exposed by renderer/library-schema.js
         CURRENT_SCHEMA_VERSION:   'readonly',
         migrateLibraryToCurrent:  'readonly',

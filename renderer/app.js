@@ -1655,6 +1655,11 @@ function patchOriginalName(b, s) {
   return (m && m.originalName) || null;
 }
 function patchPlaceholder(b, s) {
+  // Silent-default fillers (the "blank" patches written into empty CCB
+  // slots on save) read as "blank" — not the misleading "imported as Cn
+  // from <library>" line, which is for real-but-unnamed patches. Only
+  // applies to the active C/D banks (paramsAt is bank-relative).
+  if ((b === 'C' || b === 'D') && isSilentDefaultPatch(paramsAt(b, s))) return 'blank';
   const o = patchOrigin(b, s);
   if (!o) return 'click to name';
   const src = patchSourceLabel(b, s);
@@ -4237,6 +4242,12 @@ function loadPackageIntoActiveBanks(pkg) {
   renderPatchList();
   updateSvgPatchName();
   updateAllControls(currentPatch());
+  // v0.7.3 fix: re-render the custom-builder toggle. Loading a library
+  // package implicitly switches us off the Library tab to Bank C; the
+  // toggle's disabled state (set by renderCustomBuilder when on Library)
+  // would otherwise stay greyed out even though we're now on a bank
+  // where Create Custom Banks IS valid. Daniel hit this 2026-06-03.
+  renderCustomBuilder();
 
   // Undo: restore the prior active state. Capturing post-snapshot for redo
   // so a redo replays the load without re-finding the package by index
@@ -4271,6 +4282,10 @@ function restoreActiveState(snap) {
   renderPatchList();
   updateSvgPatchName();
   updateAllControls(currentPatch());
+  // v0.7.3 fix: same as loadPackageIntoActiveBanks — undo/redo may
+  // cross Library ↔ Bank tab boundaries, so the custom-builder toggle's
+  // disabled state needs to refresh against the restored selBank.
+  renderCustomBuilder();
 }
 
 // Lightweight confirmation modal.
@@ -4667,7 +4682,8 @@ function reorderSequence(fromIdx, toIdx) {
   const seqs = library.sequences;
   if (!seqs || fromIdx < 0 || fromIdx >= seqs.length) return;
   if (toIdx   < 0 || toIdx   >= seqs.length) return;
-  // Same off-by-one fix as reorderBankSlot / reorderPackage / reorderBucketSlot.
+  // Same off-by-one fix as reorderBankSlot / reorderPackage. (The custom-
+  // bank builder no longer uses insert-reorder — it swaps slots instead.)
   // Shared helper in renderer/library-math.js; tested in test/library-math.test.js.
   const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
   if (fromIdx === effectiveToIdx) return;
@@ -9429,43 +9445,8 @@ function bucketCount(bank) {
 // A "silent" placeholder patch used to pad empty slots on save. Zero VCA level
 // = no sound; other params default to a benign state. Mirrors what jx3p's
 // JX3PPatch dataclass produces when zero-initialised, but with vca_level=0.
-function silentDefaultPatch() {
-  return {
-    dco1_range: "16'",
-    dco1_waveform: 'saw',
-    dco1_fmod_lfo: false,
-    dco1_fmod_env: false,
-    dco2_range: "16'",
-    dco2_waveform: 'saw',
-    dco2_crossmod: 'off',
-    dco2_tune: 0,
-    dco2_fine_tune: 0,
-    dco2_fmod_lfo: false,
-    dco2_fmod_env: false,
-    dco_lfo_amount: 0,
-    dco_env_amount: 0,
-    dco_env_polarity: 'pos',
-    vcf_mix: 0,
-    vcf_hpf: 0,
-    vcf_cutoff: 0,
-    vcf_lfo_mod: 0,
-    vcf_pitch_follow: 0,
-    vcf_resonance: 0,
-    vcf_env_mod: 0,
-    vcf_env_polarity: 'pos',
-    vca_mode: 'env',
-    vca_level: 0,            // silent
-    chorus: false,
-    lfo_waveform: 'sine',
-    lfo_delay: 0,
-    lfo_rate: 0,
-    env_attack: 0,
-    env_decay: 0,
-    env_sustain: 0,
-    env_release: 0,
-    mystery: 0,
-  };
-}
+// silentDefaultPatch() now lives in renderer/bucket-ops.js and is attached
+// to the global window by that file's UMD wrapper. Don't redefine here.
 
 function setupCustomBuilder() {
   const toggle = document.getElementById('custom-builder-toggle');
@@ -9579,138 +9560,130 @@ function placePatchInBucket(destBank, destIdx, srcBank, srcSlot) {
   // First new patch after a CLEAR voids the undo affordance — the buckets are
   // no longer in the empty post-clear state that UNDO would map back from.
   clearUndoSnapshot = null;
-  const arr = bucketsState()[destBank];
-  if (!arr) return;
-  if (destIdx < 0 || destIdx > 15) return;
   const bankIdx = srcBank === 'D' ? 1 : 0;
   const params = patches && patches.banks && patches.banks[bankIdx]
     && patches.banks[bankIdx][srcSlot];
   if (!params) return;
-  arr[destIdx] = {
+  // Pure mutation delegated to bucket-ops.js — keeps the data shape +
+  // bounds-checking in one place where the unit tests can reach it.
+  placeBucketEntry(bucketsState(), destBank, destIdx, {
     params: JSON.parse(JSON.stringify(params)),
     name:   patchName(srcBank, srcSlot),
     origin: patchOrigin(srcBank, srcSlot),
     sourceLabel: activeBanksSourceLabel,
-  };
+  });
   saveLibraryDebounced();
   renderCustomBuilder();
 }
 
 function removePatchFromBucket(bank, idx) {
-  const arr = bucketsState()[bank];
-  if (!arr) return;
-  const removed = arr[idx];
-  arr[idx] = null;
+  // Pure mutation in bucket-ops.js; this wrapper handles the side effects
+  // (autosave, re-render, undo registration).
+  const removed = clearBucketEntry(bucketsState(), bank, idx);
+  if (!removed) return;
   saveLibraryDebounced();
   renderCustomBuilder();
-  if (removed) {
-    pushUndo({
-      undo: () => {
-        const a = bucketsState()[bank];
-        if (!a) return;
-        a[idx] = removed;
-        saveLibraryDebounced();
-        renderCustomBuilder();
-      },
-      redo: () => {
-        const a = bucketsState()[bank];
-        if (!a) return;
-        a[idx] = null;
-        saveLibraryDebounced();
-        renderCustomBuilder();
-      },
-    });
-  }
+  pushUndo({
+    undo: () => {
+      placeBucketEntry(bucketsState(), bank, idx, removed);
+      saveLibraryDebounced();
+      renderCustomBuilder();
+    },
+    redo: () => {
+      clearBucketEntry(bucketsState(), bank, idx);
+      saveLibraryDebounced();
+      renderCustomBuilder();
+    },
+  });
 }
 
-function reorderBucketSlot(bank, fromIdx, toIdx) {
-  if (fromIdx === toIdx) return;
-  const arr = bucketsState()[bank];
-  if (!arr) return;
+// Swap two bucket slots — WITHIN a bank (C→C, D→D) or ACROSS banks (C↔D).
+// This is the single model behind every bucket drag as of v0.7.4. Dragging
+// slot A onto slot B trades their contents and NOTHING else moves.
+//
+// We dropped the old within-bank insert-reorder (splice + shift everything
+// between) because on a sparse bucket it slid the empty slots around — the
+// "strange shift that creates another empty slot" users complained about.
+// A swap touches exactly two slots, so the result always matches the
+// gesture: "A populates B" (and B's old contents go to A).
+//
+// FLIP animation: only the two swapped slots move; everything else stays
+// put. Each translates from its OLD position to its NEW one — for a
+// within-bank swap that's a pure vertical slide; for cross-bank the delta
+// is on BOTH x and y. The same getBoundingClientRect math covers both.
+function swapBucketSlots(srcBank, srcIdx, dstBank, dstIdx) {
+  // FLIP capture: pre-mutation bounding rects of the two affected rows.
+  // Captured BEFORE the mutation so we get the layout that's about to
+  // disappear when renderCustomBuilder() re-creates the slot DOM.
+  const srcSel = `.cb-bucket[data-bank="${srcBank}"] .cb-slot[data-idx="${srcIdx}"]`;
+  const dstSel = `.cb-bucket[data-bank="${dstBank}"] .cb-slot[data-idx="${dstIdx}"]`;
+  const oldSrcRow = document.querySelector(srcSel);
+  const oldDstRow = document.querySelector(dstSel);
+  const oldSrcRect = oldSrcRow ? oldSrcRow.getBoundingClientRect() : null;
+  const oldDstRect = oldDstRow ? oldDstRow.getBoundingClientRect() : null;
 
-  // FLIP animation prep — capture pre-move row positions for this bank's
-  // bucket container, BEFORE we mutate + re-render. Same technique as
-  // reorderBankSlot in the patch list.
-  const bucketEl = document.querySelector(`.cb-bucket[data-bank="${bank}"] .cb-bucket-list`);
-  let prePositions = null;
-  if (bucketEl) {
-    prePositions = new Map();
-    bucketEl.querySelectorAll('.cb-slot').forEach((el) => {
-      const idx = parseInt(el.dataset.idx, 10);
-      if (!Number.isNaN(idx)) prePositions.set(idx, el.getBoundingClientRect().top);
-    });
-  }
+  // Pure swap delegated to bucket-ops.js. Returns false if the swap was
+  // a no-op (dropped on self / both empty / invalid inputs) — bail without
+  // saving or animating.
+  const didSwap = swapBucketEntries(bucketsState(), srcBank, srcIdx, dstBank, dstIdx);
+  if (!didSwap) return;
 
-  // Off-by-one fix — shared helper in renderer/library-math.js. See
-  // reorderBankSlot for the rationale.
-  const effectiveToIdx = computeReorderIdx(fromIdx, toIdx);
-  if (fromIdx === effectiveToIdx) return;
-
-  const [moved] = arr.splice(fromIdx, 1);
-  arr.splice(effectiveToIdx, 0, moved);
-  // Buckets are always length 16; the splice above can shorten the array
-  // (if we move a filled entry past trailing empties). Re-pad.
-  while (arr.length < 16) arr.push(null);
-  arr.length = 16;
   saveLibraryDebounced();
   renderCustomBuilder();
 
-  // Undo: reverse the splice by reordering back.
+  // Undo: reverse the swap (swapping back is its own inverse).
   pushUndo({
-    undo: () => reorderBucketSlot(bank, effectiveToIdx, fromIdx),
-    redo: () => reorderBucketSlot(bank, fromIdx, toIdx),
+    undo: () => swapBucketSlots(dstBank, dstIdx, srcBank, srcIdx),
+    redo: () => swapBucketSlots(srcBank, srcIdx, dstBank, dstIdx),
   });
 
-  // FLIP play — same logic as reorderBankSlot. Bucket re-render replaces
-  // all .cb-slot rows; we translate each new row back to its old top, then
-  // animate to 0. Cream-tint flash on the destination row.
-  if (prePositions) {
-    const newBucketEl = document.querySelector(`.cb-bucket[data-bank="${bank}"] .cb-bucket-list`);
-    if (newBucketEl) {
-      const newToOld = (newIdx) => {
-        if (newIdx === effectiveToIdx) return fromIdx;
-        if (fromIdx < effectiveToIdx && newIdx >= fromIdx && newIdx < effectiveToIdx) return newIdx + 1;
-        if (fromIdx > effectiveToIdx && newIdx > effectiveToIdx && newIdx <= fromIdx) return newIdx - 1;
-        return newIdx;
-      };
-      const movedRows = [];
-      newBucketEl.querySelectorAll('.cb-slot').forEach((el) => {
-        const newIdx = parseInt(el.dataset.idx, 10);
-        if (Number.isNaN(newIdx)) return;
-        const oldIdx = newToOld(newIdx);
-        const oldTop = prePositions.get(oldIdx);
-        if (oldTop === undefined) return;
-        const newTop = el.getBoundingClientRect().top;
-        const delta  = oldTop - newTop;
-        if (Math.abs(delta) < 0.5) return;
-        el.style.transition = 'none';
-        el.style.transform  = `translateY(${delta}px)`;
-        movedRows.push(el);
-      });
-      void newBucketEl.offsetWidth;
-      movedRows.forEach((el) => {
-        el.style.transition = 'transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)';
-        el.style.transform  = 'translateY(0)';
-        el.addEventListener('transitionend', () => {
-          el.style.transition = '';
-          el.style.transform  = '';
-        }, { once: true });
-      });
-      const movedEl = newBucketEl.querySelector(`.cb-slot[data-idx="${effectiveToIdx}"]`);
-      if (movedEl) {
-        movedEl.classList.add('just-moved');
-        setTimeout(() => movedEl.classList.remove('just-moved'), 850);
-      }
+  // FLIP play: post-render, the row at srcSel holds what was at dst (and
+  // vice versa). Translate each new row back to the OTHER's old position,
+  // then animate to 0. Cross-container so we translate on x AND y.
+  if (oldSrcRect && oldDstRect) {
+    const newSrcRow = document.querySelector(srcSel);
+    const newDstRow = document.querySelector(dstSel);
+    const animateFromTo = (el, fromRect) => {
+      if (!el || !fromRect) return;
+      const toRect = el.getBoundingClientRect();
+      const dx = fromRect.left - toRect.left;
+      const dy = fromRect.top  - toRect.top;
+      el.style.transition = 'none';
+      el.style.transform  = `translate(${dx}px, ${dy}px)`;
+    };
+    // newSrcRow now contains what was at oldDstRect; fly it from there.
+    animateFromTo(newSrcRow, oldDstRect);
+    // newDstRow now contains what was at oldSrcRect; fly it from there.
+    animateFromTo(newDstRow, oldSrcRect);
+    // Force reflow then release.
+    void document.body.offsetWidth;
+    [newSrcRow, newDstRow].forEach((el) => {
+      if (!el) return;
+      el.style.transition = 'transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+      el.style.transform  = 'translate(0, 0)';
+      el.addEventListener('transitionend', () => {
+        el.style.transition = '';
+        el.style.transform  = '';
+      }, { once: true });
+    });
+    // Cream-tint highlight on the destination slot (where the dragged
+    // patch landed).
+    if (newDstRow) {
+      newDstRow.classList.add('just-moved');
+      setTimeout(() => newDstRow.classList.remove('just-moved'), 850);
     }
   }
 }
 
 function renameBucketEntry(bank, idx, newName) {
-  const arr = bucketsState()[bank];
+  // setBucketEntryName mutates in place + returns the previous name.
+  // Returns null when the slot is empty / inputs invalid → bail without
+  // saving or registering undo.
+  const buckets = bucketsState();
+  const arr = buckets && buckets[bank];
   if (!arr || !arr[idx]) return;
-  const oldName = arr[idx].name || null;
+  const oldName = setBucketEntryName(buckets, bank, idx, newName);
   const finalName = newName || null;
-  arr[idx].name = finalName;
   saveLibraryDebounced();
   renderCustomBuilder();
   if (oldName !== finalName) {
@@ -9838,7 +9811,9 @@ function renderCustomBuilder() {
             JSON.stringify({ bank, idx: i }));
           row.classList.add('dragging');
         });
-        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragend', () => {
+          row.classList.remove('dragging');
+        });
 
         // Click → edit name inline (matches patch-name-span pattern).
         row.addEventListener('click', (e) => {
@@ -9852,16 +9827,12 @@ function renderCustomBuilder() {
         editInp.addEventListener('blur', () => commitBucketSlotEdit(row, bank, i));
       }
 
-      // Drop target (within-bucket reorder OR cross-list drop from patch list).
-      // For shift-selected ranges, validate the range fits at this slot.
-      //
-      // Within-bucket reorder uses top-half/bottom-half detection so the
-      // user can reach the LAST slot as a destination — without it, the
-      // off-by-one fix in computeReorderIdx makes dragging C15→C16 collapse
-      // to a no-op (raw toIdx=15 minus 1 = 14 = fromIdx). Same pattern as
-      // the Tones-bank and library-package reorders. Cross-list drops
-      // (patch → bucket) still use the raw row index since placement is
-      // an overwrite, not an insert-between.
+      // Drop target. Two kinds of drag land here:
+      //   - bucket→bucket (swap): every such drag is a slot-for-slot swap
+      //     (within OR across banks, as of v0.7.4), so the whole target row
+      //     highlights — no top/bottom-half "insert between" indicator.
+      //   - patch-list → bucket (place/overwrite): single patch or a
+      //     shift-selected range; also full-row highlight.
       row.addEventListener('dragover', (e) => {
         const isPatchSrc  = e.dataTransfer.types.includes('application/x-jp-patch-source');
         const isBucketSrc = e.dataTransfer.types.includes('application/x-jp-bucket-source');
@@ -9869,72 +9840,54 @@ function renderCustomBuilder() {
         if (!isPatchSrc && !isBucketSrc) return;
         e.preventDefault();
         e.stopPropagation();
-        // Multi-patch range: compute size from the dataTransfer types list
-        // (we can't read range contents on dragover — security restriction —
-        // so fall back to a permissive guard here and re-check on drop).
-        // We can't parse the range JSON until drop; on dragover, treat any
-        // range drag as "needs to fit from i to 16" by tightening the
-        // dropEffect when the slot can hold at least one patch.
+        // We can't read range contents on dragover (security restriction —
+        // only the type list is exposed), so use a permissive fit check
+        // (slot must be able to hold at least one patch) and re-validate
+        // the real range size on drop.
         const fits = isRange ? (i < 16) : true;
         e.dataTransfer.dropEffect = isBucketSrc ? 'move' : (fits ? 'copy' : 'none');
-        // Bottom-half indicator only applies to within-bucket reorder —
-        // for patch-source / range drops the placement is an overwrite,
-        // not an insert-between, so the half doesn't matter.
-        if (isBucketSrc) {
-          const rect = row.getBoundingClientRect();
-          const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
-          row.classList.toggle('drag-over',        !isBottomHalf);
-          row.classList.toggle('drag-over-bottom',  isBottomHalf);
-        } else {
-          row.classList.toggle('drag-over', fits);
-          row.classList.remove('drag-over-bottom');
-        }
+        row.classList.toggle('drag-over', isBucketSrc ? true : fits);
       });
       row.addEventListener('dragleave', () => {
-        row.classList.remove('drag-over', 'drag-over-bottom');
+        row.classList.remove('drag-over');
       });
       row.addEventListener('drop', (e) => {
-        row.classList.remove('drag-over', 'drag-over-bottom');
+        row.classList.remove('drag-over');
+        // Read all three MIME payloads up-front so the decoder can
+        // prioritize bucket-source > range > patch-source consistently.
+        // Only one is set per dragstart in practice; the decoder enforces
+        // precedence defensively.
         const bucketJson = e.dataTransfer.getData('application/x-jp-bucket-source');
-        if (bucketJson) {
-          e.preventDefault();
-          e.stopPropagation();
-          try {
-            const src = JSON.parse(bucketJson);
-            if (src.bank === bank) {
-              // Bottom-half = "insert after this row" → toIdx = i + 1.
-              // This is what makes C15 → C16 reachable (raw 15 + 1 = 16,
-              // then computeReorderIdx(14, 16) = 15 → splice lands at 15).
-              const rect = row.getBoundingClientRect();
-              const isBottomHalf = (e.clientY - rect.top) > (rect.height / 2);
-              const toIdx = isBottomHalf ? i + 1 : i;
-              reorderBucketSlot(bank, src.idx, toIdx);
+        const rangeJson  = e.dataTransfer.getData('application/x-jp-patch-range');
+        const patchJson  = e.dataTransfer.getData('application/x-jp-patch-source');
+        if (!bucketJson && !rangeJson && !patchJson) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Pure dispatch in bucket-ops.js — covered by unit tests so the
+        // drag-payload → mutation-call contract can't drift unnoticed.
+        const action = decodeBucketDropAction(
+          { bucketJson, rangeJson, patchJson },
+          { bank, idx: i },
+        );
+
+        switch (action.kind) {
+          case 'bucket-swap':
+            swapBucketSlots(action.srcBank, action.srcIdx, action.dstBank, action.dstIdx);
+            return;
+          case 'range-place':
+            for (let k = 0; k < action.rangeSize; k++) {
+              placePatchInBucket(action.dstBank, action.dstStartIdx + k, action.srcBank, action.srcStart + k);
             }
-          } catch {}
-          return;
-        }
-        // Multi-patch range path (shift-selected drag).
-        const rangeJson = e.dataTransfer.getData('application/x-jp-patch-range');
-        if (rangeJson) {
-          e.preventDefault();
-          e.stopPropagation();
-          let r;
-          try { r = JSON.parse(rangeJson); } catch { return; }
-          const rangeSize = (r.end - r.start) + 1;
-          if (i + rangeSize > 16) return; // doesn't fit
-          for (let k = 0; k < rangeSize; k++) {
-            placePatchInBucket(bank, i + k, r.bank, r.start + k);
-          }
-          return;
-        }
-        const patchJson = e.dataTransfer.getData('application/x-jp-patch-source');
-        if (patchJson) {
-          e.preventDefault();
-          e.stopPropagation();
-          try {
-            const src = JSON.parse(patchJson);
-            placePatchInBucket(bank, i, src.bank, src.slot);
-          } catch {}
+            return;
+          case 'patch-place':
+            placePatchInBucket(action.dstBank, action.dstIdx, action.srcBank, action.srcSlot);
+            return;
+          case 'range-too-big':
+          case 'invalid':
+          case 'none':
+          default:
+            return; // silently no-op (malformed/oversized drop)
         }
       });
 
@@ -9995,43 +9948,14 @@ function handleBuilderSave() {
   if (cCount + dCount === 0) return;
 
   const now = new Date();
-  // Empty bucket slots inherit from the current active C/D banks at the same
-  // position — so the user can iterate on a few slots without nuking the rest
-  // of the bank. silentDefaultPatch() is only the final fallback for the
-  // (unlikely) case where active banks aren't populated for a slot.
-  const activeC = (patches && patches.banks && patches.banks[0]) || [];
-  const activeD = (patches && patches.banks && patches.banks[1]) || [];
-  const activeMeta = (library && library.slotMeta) || {};
-  const fillBank = (bucket, activeBank) =>
-    bucket.map((entry, i) => {
-      if (entry) return JSON.parse(JSON.stringify(entry.params));
-      if (activeBank[i]) return JSON.parse(JSON.stringify(activeBank[i]));
-      return silentDefaultPatch();
-    });
-  const banks = [fillBank(s.C, activeC), fillBank(s.D, activeD)];
-
-  const slotMeta = { C: [], D: [] };
-  ['C', 'D'].forEach((bank) => {
-    for (let i = 0; i < 16; i++) {
-      const entry = s[bank][i];
-      if (entry) {
-        slotMeta[bank][i] = {
-          name:        entry.name || null,
-          origin:      entry.origin || `${bank}${i + 1}`,
-          sourceLabel: entry.sourceLabel || null,
-        };
-      } else {
-        // Inherit slot identity from the active bank position too, so the
-        // saved package's metadata matches the patch params it just adopted.
-        const a = (activeMeta[bank] && activeMeta[bank][i]) || {};
-        slotMeta[bank][i] = {
-          name:        a.name || null,
-          origin:      a.origin || `${bank}${i + 1}`,
-          sourceLabel: a.sourceLabel || activeBanksSourceLabel || null,
-        };
-      }
-    }
-  });
+  // Empty bucket slots are filled with silentDefaultPatch (vca_level=0, no
+  // sound). This is WYSIWYG: empty in the builder = silent in the saved
+  // bank, so the user isn't surprised by leftover patches from whatever
+  // they had loaded. Previous behavior (v0.7.3 and earlier) inherited from
+  // the active C/D banks at the same position — flipped in v0.7.4 to make
+  // the builder's visual state authoritative.
+  const banks    = buildSavedBuckets(s);
+  const slotMeta = buildSavedBucketSlotMeta(s);
 
   const dateStr = now.toLocaleDateString('en-US',
     { month: 'long', day: 'numeric', year: 'numeric' });
@@ -10222,19 +10146,13 @@ async function handleDownloadTonesPackage(idx) {
   if (pkg.slotMeta) exportData._slotMeta = pkg.slotMeta;
   try {
     const result = await window.api.tapeSaveWavToPath(exportData, filename);
-    if (result && result.saved) {
-      showConfirmModal({
-        title: 'WAV saved',
-        body: result.path,
-        confirmLabel: 'OK',
-        hideCancel: true,
-        onConfirm: () => {},
-      });
-    } else if (result && result.error) {
+    // v0.7.4: no success modal — the native Save dialog closing IS the
+    // standard macOS confirmation. Apps don't double-confirm. Error
+    // path still surfaces via the global error banner; cancel is a
+    // silent no-op (result.saved === false with no error).
+    if (result && !result.saved && result.error) {
       showImportError(`Could not write WAV: ${result.error}`);
     }
-    // result.saved === false with no error = user cancelled the dialog;
-    // silent no-op.
   } catch (err) {
     showImportError(`Could not write WAV: ${err && err.message || err}`);
   }
@@ -10259,18 +10177,10 @@ async function handleDownloadSequence(idx) {
   };
   try {
     const result = await window.api.seqTapeSaveWavToPath(exportData, filename);
-    if (result && result.saved) {
-      showConfirmModal({
-        title: 'Sequence WAV saved',
-        body: result.path,
-        confirmLabel: 'OK',
-        hideCancel: true,
-        onConfirm: () => {},
-      });
-    } else if (result && result.error) {
+    // v0.7.4: no success modal — see handleDownloadTonesPackage above.
+    if (result && !result.saved && result.error) {
       showImportError(`Could not write WAV: ${result.error}`);
     }
-    // result.saved === false with no error = user cancelled; silent no-op.
   } catch (err) {
     showImportError(`Could not write WAV: ${err && err.message || err}`);
   }
