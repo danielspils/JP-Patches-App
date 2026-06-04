@@ -25,7 +25,7 @@ This file is the cold-start summary. Pair it with:
 
 ## Status
 
-Current version: **0.7.4** (June 3, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
+Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
 
 - **Phase 1** ✅ shipped — panel UI + patch editing
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
