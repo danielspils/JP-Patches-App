@@ -941,7 +941,11 @@ body {
   font-size: 19px;
   font-weight: 600;
 }
-.community-borrow {
+/* Selector carries .site-content so it outweighs the generic
+   `.site-content a` link rule (Roland-blue underline) — without the
+   prefix, the borrow label rendered as a blue underlined link on the
+   red parallelogram. */
+.site-content a.community-borrow {
   flex: none;
   display: inline-block;
   padding: 7px 22px;
@@ -953,8 +957,9 @@ body {
   text-decoration: none;
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
-.community-borrow:hover {
+.site-content a.community-borrow:hover {
   background: var(--roland-red-hot);
+  color: var(--cream);
 }
 .community-entry-byline {
   margin-top: 4px;
