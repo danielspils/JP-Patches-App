@@ -3903,8 +3903,11 @@ function buildLendRow(entry, isTones) {
   }
   row.appendChild(main);
 
+  // Standard app modal-button primitives (NOT the site's parallelogram):
+  // Roland-red danger fill while borrowable, Roland-green confirm fill
+  // once it's in the library. .lend-borrow-btn only adds row sizing.
   const btn = document.createElement('button');
-  btn.className = 'lend-borrow-btn';
+  btn.className = 'modal-btn modal-btn-danger lend-borrow-btn';
   btn.type = 'button';
   btn.textContent = 'borrow';
   btn.addEventListener('click', async () => {
@@ -3916,7 +3919,8 @@ function buildLendRow(entry, isTones) {
       if (isTones) await handleTonesDropImport(dl.path);
       else         await handleSequenceDropImport(dl.path);
       btn.textContent = 'borrowed';
-      btn.classList.add('borrowed');   // stays disabled — it's in the library now
+      btn.classList.remove('modal-btn-danger');
+      btn.classList.add('modal-btn-confirm');   // green; stays disabled — it's in the library now
     } catch (err) {
       btn.disabled = false;
       btn.textContent = 'borrow';
@@ -3951,14 +3955,19 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
 
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
+  // Upper-right × instead of a bottom-row Close — same primitive the
+  // Record-from-JX modal uses (.modal-close-x); reclaims the action row
+  // for the single green site link.
   const closeBtn = document.createElement('button');
-  closeBtn.className = 'modal-btn modal-btn-cancel';
-  closeBtn.textContent = 'Close';
+  closeBtn.className = 'modal-close-x';
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '×';
   const siteBtn = document.createElement('button');
   siteBtn.className = 'modal-btn modal-btn-confirm';
   siteBtn.textContent = 'explore more on jx-3p.com';
-  actions.appendChild(closeBtn);
   actions.appendChild(siteBtn);
+  modal.appendChild(closeBtn);
 
   modal.appendChild(h);
   modal.appendChild(sub);
