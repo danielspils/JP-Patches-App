@@ -5002,19 +5002,23 @@ function showPackageInfo(idx) {
   const pkgName = pkg.customName || pkg.defaultName || '(unnamed package)';
   const lines = [];
 
-  // Loaded status — compare every slot's fingerprint against active C/D.
+  // Loaded badge — shown ONLY when every slot's fingerprint matches the
+  // active C/D banks ("is this what I'm hearing right now?"). The
+  // negative case is deliberately silent: a different package differing
+  // in most/all 32 slots is just what "a different bank" means, and a
+  // "differs in N slots" line read as a warning while communicating
+  // nothing actionable (Daniel, 2026-06-10). Partial drift after
+  // loading is already covered by the red modified-dot indicators.
   if (pkg.banks && patches && Array.isArray(patches.banks)) {
-    let differing = 0;
+    let matches = true;
     ['C', 'D'].forEach((bank, bankIdx) => {
       for (let s = 0; s < 16; s++) {
         const pkgFp = paramsFingerprint(pkg.banks[bankIdx] && pkg.banks[bankIdx][s]);
         const actFp = paramsFingerprint(patches.banks[bankIdx] && patches.banks[bankIdx][s]);
-        if (pkgFp !== actFp) differing++;
+        if (pkgFp !== actFp) { matches = false; return; }
       }
     });
-    lines.push(differing === 0
-      ? '**Status:** loaded as active C/D'
-      : `**Status:** differs from active C/D in ${differing} slot${differing === 1 ? '' : 's'}`);
+    if (matches) lines.push('**Status:** currently loaded in the active C/D banks');
   }
 
   // Named patches + provenance rollup from the package's frozen slotMeta.
