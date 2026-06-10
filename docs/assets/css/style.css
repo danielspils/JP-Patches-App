@@ -187,14 +187,14 @@ body {
    motif. z-index: 2 keeps them visually on top of stripe-cd so the
    stripe terminates cleanly into the tab edges.
 
-   TEMPORARILY HIDDEN (2026-05-29) — destinations /patches/ and
-   /sequences/ don't exist yet, so visitors clicking the tabs would
-   404. To re-enable: change `display: none` below to `display: flex`. */
+   RE-ENABLED (2026-06-10) — /patches/ and /sequences/ lending-library
+   pages shipped, so the tabs have live destinations. (Was display:none
+   from 2026-05-29 while the pages didn't exist.) */
 .cd-nav-tabs {
   position: absolute;
   top: 145px;
   right: 0;
-  display: none;
+  display: flex;
   gap: 2px;
   z-index: 2;
   /* Body bg fills behind the 2px flex gap so the divider reads the
