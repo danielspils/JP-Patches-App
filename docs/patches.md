@@ -4,9 +4,9 @@ title: Community Patches
 permalink: /patches/
 ---
 
-## USER SHARED PATCHES
+## THE USER LENDING LIBRARY
 
-JX-3P owners sharing their C/D banks. Every file below loads straight into
+JX-3P owners lending out their C/D banks. Every file below loads straight into
 [JP Patches](/) — and from there, straight onto a real JX-3P over the
 tape-dump cable.
 
@@ -27,10 +27,10 @@ package in your library, names included.
 {% endfor %}
 </div>
 
-## SHARE YOUR PATCHES
+## LEND YOUR PATCHES
 
-Sharing from inside the app is coming. Until then:
-[open a share request on GitHub](https://github.com/danielspils/JP-Patches-App/issues/new?template=share-tones.yml)
+Lending from inside the app is coming. Until then:
+[open a lending request on GitHub](https://github.com/danielspils/JP-Patches-App/issues/new?template=share-tones.yml)
 with your bank's `.json` (in JP Patches: hover a library package → click the
 download icon). Banks are reviewed before they appear here — your own work
 only, free for anybody to use.

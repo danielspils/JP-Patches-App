@@ -2682,10 +2682,17 @@ body.seq-dragging-pitch * {
    primary action on the LEFT per Daniel's read of "primary > secondary
    > destructive" weight. Positioning math reads from the right edge:
    trash 10, download 40, LOAD/info further left. Spacing is equidistant
-   (~8px between adjacent right-edges of the three icons). */
+   (~8px between adjacent right-edges of the three icons).
+
+   2026-06-10: Tones rows gained an info icon too, so rows with BOTH a
+   LOAD and an info button stack four-wide: info | LOAD | download |
+   trash (info outermost — least-consequential action furthest left).
+   The :has(.package-load-btn) override below wins over the two-icon
+   rule by document order (equal specificity). */
 .package-download-btn { right: 40px; }
 .package-item:has(.package-load-btn) .package-load-btn { right: 70px; }
 .package-item:has(.package-info-btn) .package-info-btn { right: 70px; }
+.package-item:has(.package-load-btn) .package-info-btn { right: 100px; }
 
 /* Destructive — Roland red solid. Same brand-aligned treatment as
    confirm/alt above. Reserved for delete/remove/force-overwrite. */

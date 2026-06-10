@@ -1,12 +1,12 @@
-name: Share your sequence
-description: Submit a JP Patches sequence for the community library at jx-3p.com/sequences
-title: "[Share Sequence] "
+name: Lend your sequence
+description: Submit a JP Patches sequence to the user lending library at jx-3p.com/sequences
+title: "[Lend Sequence] "
 labels: ["community-sequences"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for sharing! Your sequence will be reviewed before it appears
+        Thanks for lending! Your sequence will be reviewed before it appears
         on [jx-3p.com/sequences](https://jx-3p.com/sequences/). Sequences
         travel with their paired patch, so borrowers hear them as intended.
   - type: input

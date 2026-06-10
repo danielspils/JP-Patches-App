@@ -4,9 +4,9 @@ title: Community Sequences
 permalink: /sequences/
 ---
 
-## USER SHARED SEQUENCES
+## THE USER LENDING LIBRARY
 
-JX-3P owners sharing their sequencer work. Each file carries the sequence
+JX-3P owners lending out their sequencer work. Each file carries the sequence
 plus its paired patch — so it plays back with the sound the creator intended.
 
 **To borrow a sequence:** download the `.json`, then drag it anywhere onto
@@ -26,10 +26,10 @@ your library ready to play, edit, or send to the JX.
 {% endfor %}
 </div>
 
-## SHARE YOUR SEQUENCES
+## LEND YOUR SEQUENCES
 
-Sharing from inside the app is coming. Until then:
-[open a share request on GitHub](https://github.com/danielspils/JP-Patches-App/issues/new?template=share-sequence.yml)
+Lending from inside the app is coming. Until then:
+[open a lending request on GitHub](https://github.com/danielspils/JP-Patches-App/issues/new?template=share-sequence.yml)
 with your sequence's `.json` (in JP Patches: Library → Sequences → select
 the sequence → Tape Memory → Sequencer → Save → "Save WAV file" exports;
 or attach the JSON if you have it). Sequences are reviewed before they

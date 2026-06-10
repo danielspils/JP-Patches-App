@@ -1,12 +1,12 @@
-name: Share your patches (C/D banks)
-description: Submit a JP Patches tone package for the community library at jx-3p.com/patches
-title: "[Share Tones] "
+name: Lend your patches (C/D banks)
+description: Submit a JP Patches tone package to the user lending library at jx-3p.com/patches
+title: "[Lend Tones] "
 labels: ["community-tones"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for sharing! Your bank will be reviewed before it appears on
+        Thanks for lending! Your bank will be reviewed before it appears on
         [jx-3p.com/patches](https://jx-3p.com/patches/). To export the `.json`:
         in JP Patches, go to **Library → Tones**, hover your package, click
         the **download icon**.

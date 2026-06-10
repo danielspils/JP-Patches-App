@@ -3843,14 +3843,14 @@ function renderLibraryActions(actions) {
   // The "load to app" action moved to an inline hover icon on each
   // package row (see buildLoadToAppIcon).
   //
-  // "Explore user shared tones" — placeholder entry point for the
+  // "Explore the user lending library" (tones) — placeholder entry point for the
   // community library (docs/future-features.md → Community library →
   // in-app share + explore workflow). Inactive until the community
   // manifest + tabs exist on jx-3p.com. Mirrors the sequences-tab
   // button in renderSequencesActions.
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';   // reuse the existing visual class
-  btn.textContent = 'explore user shared tones';
+  btn.textContent = 'explore the user lending library';
   btn.disabled = true;
   actions.appendChild(btn);
 }
@@ -3966,6 +3966,7 @@ function renderLibraryList(list) {
       () => handleLoadLibraryBanks(idx),
       'Load this C/D bank package to app',
     ));
+    item.appendChild(buildInfoIcon(() => showPackageInfo(idx), 'Package info'));
     item.appendChild(buildTrashIcon(idx));
     list.appendChild(item);
 
@@ -4949,29 +4950,28 @@ function cancelSequenceNameEdit(nm, inp) {
 }
 
 function renderSequencesActions(actions) {
-  // "Explore user shared sequences" — placeholder entry point for the
+  // "Explore the user lending library" (sequences) — placeholder entry point for the
   // community library (docs/future-features.md → Community library →
   // in-app share + explore workflow). Inactive until the community
   // manifest + tabs exist on jx-3p.com. Create-new-sequence moved to
   // the builder-area key below the panel (see renderCustomBuilder).
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';   // reuse the existing visual class
-  btn.textContent = 'explore user shared sequences';
+  btn.textContent = 'explore the user lending library';
   btn.disabled = true;
   actions.appendChild(btn);
 }
 
-// Sequence info icon (replaces the removed in-app LOAD button). Hover-
-// revealed; clicking opens a read-only modal with the paired-patch
-// reference, any notes the user attached at save time, and the save date.
-// Matches the style of the .patch-info-btn used on active C/D slots so
-// the visual vocabulary is consistent between bank-row and sequence-row
-// info affordances.
-function buildSequenceInfoIcon(idx) {
+// Shared (i) info icon for library rows. Hover-revealed; clicking opens a
+// read-only info modal. Matches the style of the .patch-info-btn used on
+// active C/D slots so the visual vocabulary is consistent across bank-row,
+// sequence-row, and tones-row info affordances. Used by both the Sequences
+// rows (showSequenceInfo) and the Tones package rows (showPackageInfo).
+function buildInfoIcon(onClick, title) {
   const btn = document.createElement('button');
   btn.className = 'package-info-btn';
   btn.type = 'button';
-  btn.title = 'Sequence info';
+  btn.title = title;
   btn.innerHTML =
     '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">' +
       '<circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" stroke-width="0.9"/>' +
@@ -4980,10 +4980,95 @@ function buildSequenceInfoIcon(idx) {
     '</svg>';
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    showSequenceInfo(idx);
+    onClick();
   });
   btn.addEventListener('mousedown', (e) => e.stopPropagation());
   return btn;
+}
+
+function buildSequenceInfoIcon(idx) {
+  return buildInfoIcon(() => showSequenceInfo(idx), 'Sequence info');
+}
+
+// Tones package (i) modal. Surfaces what the package already stores:
+// created date, loaded-vs-active status, named-patch summary, and the
+// provenance rollup (which libraries the patches were drawn from — the
+// bank-level version of the per-patch history modal). slotMeta entries
+// come in two shapes: legacy {name, origin, sourceLabel} and current
+// {customName, defaultName, originLibrary, ...} — read both.
+function showPackageInfo(idx) {
+  const pkg = library.packages && library.packages[idx];
+  if (!pkg) return;
+  const pkgName = pkg.customName || pkg.defaultName || '(unnamed package)';
+  const lines = [];
+
+  // Loaded status — compare every slot's fingerprint against active C/D.
+  if (pkg.banks && patches && Array.isArray(patches.banks)) {
+    let differing = 0;
+    ['C', 'D'].forEach((bank, bankIdx) => {
+      for (let s = 0; s < 16; s++) {
+        const pkgFp = paramsFingerprint(pkg.banks[bankIdx] && pkg.banks[bankIdx][s]);
+        const actFp = paramsFingerprint(patches.banks[bankIdx] && patches.banks[bankIdx][s]);
+        if (pkgFp !== actFp) differing++;
+      }
+    });
+    lines.push(differing === 0
+      ? '**Status:** loaded as active C/D'
+      : `**Status:** differs from active C/D in ${differing} slot${differing === 1 ? '' : 's'}`);
+  }
+
+  // Named patches + provenance rollup from the package's frozen slotMeta.
+  const named = [];
+  const sources = new Map();   // originLibrary/sourceLabel → count
+  ['C', 'D'].forEach((bank) => {
+    const arr = (pkg.slotMeta && pkg.slotMeta[bank]) || [];
+    arr.forEach((m, s) => {
+      if (!m) return;
+      const nm = m.customName || m.name;
+      if (nm) named.push(`${bank}${s + 1} ${nm}`);
+      const src = m.originLibrary || m.sourceLabel;
+      if (src) sources.set(src, (sources.get(src) || 0) + 1);
+    });
+  });
+  const NAMED_SHOWN = 6;
+  if (named.length === 0) {
+    lines.push('**Named patches:** none');
+  } else {
+    const shown = named.slice(0, NAMED_SHOWN).join(', ');
+    const more  = named.length > NAMED_SHOWN ? ` +${named.length - NAMED_SHOWN} more` : '';
+    lines.push(`**Named patches (${named.length} of 32):** ${shown}${more}`);
+  }
+  // Provenance is only interesting when patches came from somewhere other
+  // than this package itself (e.g. a custom bank built from multiple
+  // libraries) — a single source matching the package's own name is just
+  // "saved from active banks", so skip the line.
+  const srcEntries = Array.from(sources.entries());
+  const onlySelf = srcEntries.length === 1 && srcEntries[0][0] === pkgName;
+  if (srcEntries.length > 0 && !onlySelf) {
+    const rollup = srcEntries
+      .sort((a, b) => b[1] - a[1])
+      .map(([src, n]) => `${src} (${n})`)
+      .join(', ');
+    lines.push(`**Patches drawn from:** ${rollup}`);
+  }
+
+  if (pkg.savedAt) {
+    const d = new Date(pkg.savedAt);
+    if (!Number.isNaN(d.getTime())) {
+      const formatted = d.toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      });
+      lines.push(`**Created:** ${formatted}`);
+    }
+  }
+
+  showConfirmModal({
+    title: 'Package info',
+    subtitle: pkgName,
+    body: lines.join('\n\n'),
+    confirmLabel: 'Close',
+    onConfirm: () => {},
+  });
 }
 
 function showSequenceInfo(idx) {
