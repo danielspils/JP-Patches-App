@@ -4086,8 +4086,9 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
 
 // The lend half of the explore modal: consent checkboxes gate Roland-
 // blue lend buttons over the user's OWN library items (mockup design,
-// docs/future-features.md → Modal design v1). Consent persists after
-// the first acceptance; thereafter a one-line fine print stands in.
+// docs/future-features.md → Modal design v1). The checkboxes reset on
+// every modal open — deliberately NOT persisted (Daniel, 2026-06-10:
+// "it's a good reminder").
 function buildLendSection(kind) {
   const isTones = kind === 'tones';
   const section = document.createElement('div');
@@ -4111,48 +4112,35 @@ function buildLendSection(kind) {
     return section;
   }
 
-  const prefs = lendingPrefs();
   const lendBtns = [];
   const setEnabled = (on) => lendBtns.forEach((b) => { b.disabled = !on; });
 
-  if (prefs.consented) {
-    const fine = document.createElement('div');
-    fine.className = 'lend-status';
-    fine.textContent = 'Your own work only — anybody can download and use it.';
-    section.appendChild(fine);
-  } else {
-    // Both boxes must be checked before any lend button activates;
-    // acceptance persists (library.lending.consented) so this is a
-    // one-time gate, not a per-session ritual.
-    const consentWrap = document.createElement('div');
-    consentWrap.className = 'lend-consent';
-    const boxes = [];
-    const mkConsent = (text) => {
-      const label = document.createElement('label');
-      label.className = 'lend-consent-row';
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      boxes.push(box);
-      box.addEventListener('change', () => {
-        const both = boxes.every((b) => b.checked);
-        setEnabled(both);
-        if (both) {
-          lendingPrefs().consented = true;
-          saveLibraryDebounced();
-        }
-      });
-      label.appendChild(box);
-      label.appendChild(document.createTextNode(text));
-      return label;
-    };
-    consentWrap.appendChild(mkConsent(
-      isTones ? "I am lending my own tones (no one else's)"
-              : "I am lending my own sequences (no one else's)"));
-    consentWrap.appendChild(mkConsent(
-      isTones ? 'anybody can download and use these tones'
-              : 'anybody can download and use these sequences'));
-    section.appendChild(consentWrap);
-  }
+  // Both boxes must be checked before any lend button activates — and
+  // they reset on every modal open. Deliberately unpersisted: the
+  // re-check is the recurring reminder of what lending means.
+  const consentWrap = document.createElement('div');
+  consentWrap.className = 'lend-consent';
+  const boxes = [];
+  const mkConsent = (text) => {
+    const label = document.createElement('label');
+    label.className = 'lend-consent-row';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    boxes.push(box);
+    box.addEventListener('change', () => {
+      setEnabled(boxes.every((b) => b.checked));
+    });
+    label.appendChild(box);
+    label.appendChild(document.createTextNode(text));
+    return label;
+  };
+  consentWrap.appendChild(mkConsent(
+    isTones ? "I am lending my own tones (no one else's)"
+            : "I am lending my own sequences (no one else's)"));
+  consentWrap.appendChild(mkConsent(
+    isTones ? 'anybody can download and use these tones'
+            : 'anybody can download and use these sequences'));
+  section.appendChild(consentWrap);
 
   const list = document.createElement('div');
   list.className = 'lend-own-list';
@@ -4179,7 +4167,7 @@ function buildLendSection(kind) {
     btn.className = 'modal-btn modal-btn-alt lend-borrow-btn';   // Roland blue = lend
     btn.type = 'button';
     btn.textContent = 'lend';
-    btn.disabled = !prefs.consented;
+    btn.disabled = true;   // unlocked by the consent checkboxes above
     btn.addEventListener('click', () => {
       showLendConfirmModal(kind, item, displayName, () => {
         btn.textContent = 'request opened';
