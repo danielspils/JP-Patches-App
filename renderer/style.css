@@ -2688,11 +2688,14 @@ body.seq-dragging-pitch * {
    LOAD and an info button stack four-wide: info | LOAD | download |
    trash (info outermost — least-consequential action furthest left).
    The :has(.package-load-btn) override below wins over the two-icon
-   rule by document order (equal specificity). */
+   rule by document order (equal specificity). LOAD is a TEXT button
+   (~52px: "load" at 10px/600 + 10px side padding + 1px borders), not
+   an icon — so the info slot left of it sits at 128px (70 + 52 + 6px
+   gap), not at the 30px rhythm the icon-only slots use. */
 .package-download-btn { right: 40px; }
 .package-item:has(.package-load-btn) .package-load-btn { right: 70px; }
 .package-item:has(.package-info-btn) .package-info-btn { right: 70px; }
-.package-item:has(.package-load-btn) .package-info-btn { right: 100px; }
+.package-item:has(.package-load-btn) .package-info-btn { right: 128px; }
 
 /* Destructive — Roland red solid. Same brand-aligned treatment as
    confirm/alt above. Reserved for delete/remove/force-overwrite. */
