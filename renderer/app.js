@@ -4019,7 +4019,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
     sec.appendChild(input);
     return { sec, input };
   };
-  const nameF     = mkField('NAME:', prefs.name, 'J.P. Patches');
+  const nameF     = mkField('YOUR NAME:', prefs.name, 'Vicki C. Anderson');
   const hometownF = mkField('HOMETOWN:', prefs.hometown, 'Anchorage, AK');
   const notesF    = mkField('NOTES:', '', "e.g. Snail sounds and '80s pads");
 
