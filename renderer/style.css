@@ -3286,3 +3286,25 @@ body.seq-dragging-pitch * {
     transition: none;
   }
 }
+
+/* ── Rename-edit state (2026-06-10) ──────────────────────────────────
+   While the inline rename input is open the hover icon stack (info /
+   LOAD / download / trash) hid BEHIND nothing — it floated on top of
+   the focused input, cramped and clickable mid-edit. The .editing
+   class (added/removed by the start/commit/cancel rename handlers)
+   suppresses all four. Placed after the :hover display rules so
+   equal-specificity document order resolves in favor of hiding. */
+.package-item.editing .package-info-btn,
+.package-item.editing .package-load-btn,
+.package-item.editing .package-download-btn,
+.package-item.editing .package-trash {
+  display: none;
+}
+
+/* Tones rows stack FOUR hover icons (info | LOAD | download | trash,
+   out to ~148px from the right edge) vs three on sequence rows — the
+   shared 110px hover reserve let long names collide with the info
+   icon. Widen it for rows that carry a LOAD button. */
+.package-item:hover:has(.package-load-btn) .package-name-span {
+  max-width: calc(100% - 160px);
+}

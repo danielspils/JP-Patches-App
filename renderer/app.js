@@ -4588,6 +4588,9 @@ function startPackageNameEdit(idx, nm, def, inp) {
   const pkg = library.packages[idx];
   inp.value = (pkg.customName || pkg.defaultName) || '';
   inp.style.display = 'block';
+  // Hide the hover icon stack while editing — see .package-item.editing
+  const row = inp.closest('.package-item');
+  if (row) row.classList.add('editing');
   nm.style.display  = 'none';
   inp.focus();
   inp.select();
@@ -4595,6 +4598,8 @@ function startPackageNameEdit(idx, nm, def, inp) {
 
 function commitPackageNameEdit(idx, nm, def, inp) {
   if (inp.style.display !== 'block') return;
+  const row = inp.closest('.package-item');
+  if (row) row.classList.remove('editing');
   const val = inp.value.trim();
   const oldName = library.packages[idx].customName || '';
   const newName = val;
@@ -4612,6 +4617,8 @@ function commitPackageNameEdit(idx, nm, def, inp) {
 }
 
 function cancelPackageNameEdit(nm, inp) {
+  const row = inp.closest('.package-item');
+  if (row) row.classList.remove('editing');
   inp.style.display = 'none';
   nm.style.display  = '';
 }
@@ -4901,6 +4908,9 @@ function startSequenceNameEdit(idx, nm, def, inp) {
   const seq = library.sequences[idx];
   inp.value = (seq.customName || seq.defaultName) || '';
   inp.style.display = 'block';
+  // Hide the hover icon stack while editing — see .package-item.editing
+  const row = inp.closest('.package-item');
+  if (row) row.classList.add('editing');
   nm.style.display  = 'none';
   inp.focus();
   inp.select();
@@ -4908,6 +4918,8 @@ function startSequenceNameEdit(idx, nm, def, inp) {
 
 function commitSequenceNameEdit(idx, nm, def, inp) {
   if (inp.style.display !== 'block') return;
+  const row = inp.closest('.package-item');
+  if (row) row.classList.remove('editing');
   const val = inp.value.trim();
   const oldName = library.sequences[idx].customName || '';
   const newName = val;
@@ -4945,6 +4957,8 @@ function commitSequenceNameEdit(idx, nm, def, inp) {
 }
 
 function cancelSequenceNameEdit(nm, inp) {
+  const row = inp.closest('.package-item');
+  if (row) row.classList.remove('editing');
   inp.style.display = 'none';
   nm.style.display  = '';
 }
