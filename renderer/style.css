@@ -3315,7 +3315,7 @@ body.seq-dragging-pitch * {
    is Roland red (matching the site + the share-modal mock), flipping
    to Roland green once the entry lands in the local library. */
 .lend-modal {
-  width: 480px;
+  width: 640px;
   max-width: calc(100vw - 80px);
 }
 .lend-list {
@@ -3418,4 +3418,5 @@ body.seq-dragging-pitch * {
   max-height: 168px;              /* ~4 rows, then scroll */
   overflow-y: auto;
   margin-top: 2px;
+  padding-right: 14px;            /* scrollbar gutter — keeps the bar off the lend buttons */
 }
