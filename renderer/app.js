@@ -4168,12 +4168,14 @@ function buildLendSection(kind) {
     label.appendChild(document.createTextNode(text));
     return label;
   };
+  // Sequences read singular — each lend submits ONE sequence (tones
+  // stay plural: a package is 32 of them).
   consentWrap.appendChild(mkConsent(
     isTones ? "I am lending my own tones (no one else's)"
-            : "I am lending my own sequences (no one else's)"));
+            : "I am lending my own sequence (no one else's)"));
   consentWrap.appendChild(mkConsent(
     isTones ? 'anybody can download and use these tones'
-            : 'anybody can download and use these sequences'));
+            : 'anybody can download and use this sequence'));
   section.appendChild(consentWrap);
 
   const list = document.createElement('div');
