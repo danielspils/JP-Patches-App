@@ -3455,3 +3455,28 @@ body.seq-dragging-pitch * {
 .explore-lending-sequences:hover { background: #4264a8; }
 .explore-lending-tones:active { background: #195a4b; }
 .explore-lending-sequences:active { background: #2a4377; }
+
+/* Builder-area key takes its action's bank color (Daniel, 2026-06-10):
+   Create Custom Banks = Roland green (both the Bank C/D toggle mode and
+   the Library→Tones jump mode); Create New Sequence = Roland blue
+   (Library→Sequences mode). data-mode is maintained by
+   renderCustomBuilder. Cream labels; -hot hover, darker :active. */
+#custom-builder-toggle[data-mode="builder"],
+#custom-builder-toggle[data-mode="builder-from-library"] {
+  background: #1f6e5b;
+  color: #f7f1e6;
+}
+#custom-builder-toggle[data-mode="builder"]:hover,
+#custom-builder-toggle[data-mode="builder-from-library"]:hover {
+  background: #2a8870;
+}
+#custom-builder-toggle[data-mode="builder"]:active,
+#custom-builder-toggle[data-mode="builder-from-library"]:active {
+  background: #195a4b;
+}
+#custom-builder-toggle[data-mode="new-sequence"] {
+  background: #33508f;
+  color: #f7f1e6;
+}
+#custom-builder-toggle[data-mode="new-sequence"]:hover  { background: #4264a8; }
+#custom-builder-toggle[data-mode="new-sequence"]:active { background: #2a4377; }
