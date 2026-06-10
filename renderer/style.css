@@ -3366,3 +3366,19 @@ body.seq-dragging-pitch * {
 }
 .lend-borrow-btn:disabled { cursor: default; opacity: 0.75; }
 .lend-borrow-btn.modal-btn-confirm:disabled { opacity: 1; }   /* borrowed = settled, not muted */
+
+/* Lending modal footer — centered text hyperlink to the full catalog
+   on jx-3p.com (replaced the green button 2026-06-10: it leaves the
+   app, so it reads as a link, not an action). */
+.lend-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+.lend-site-link {
+  color: #cfc8b8;                    /* cream secondary */
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.lend-site-link:hover { color: #f7f1e6; }

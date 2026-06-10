@@ -3953,26 +3953,31 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
   statusEl.textContent = 'Fetching the latest from jx-3p.com…';
   listEl.appendChild(statusEl);
 
-  const actions = document.createElement('div');
-  actions.className = 'modal-actions';
   // Upper-right × instead of a bottom-row Close — same primitive the
-  // Record-from-JX modal uses (.modal-close-x); reclaims the action row
-  // for the single green site link.
+  // Record-from-JX modal uses (.modal-close-x).
   const closeBtn = document.createElement('button');
   closeBtn.className = 'modal-close-x';
   closeBtn.type = 'button';
   closeBtn.setAttribute('aria-label', 'Close');
   closeBtn.textContent = '×';
-  const siteBtn = document.createElement('button');
-  siteBtn.className = 'modal-btn modal-btn-confirm';
-  siteBtn.textContent = 'explore more on jx-3p.com';
-  actions.appendChild(siteBtn);
+  // Footer is a centered text hyperlink, not a button — it leaves the
+  // app (opens the site in the browser), and links-leave / buttons-act
+  // is the cleaner affordance split. Real href for the pointer cue;
+  // click is intercepted and routed through the allowlisted
+  // openExternal IPC so the Electron window never navigates.
+  const footer = document.createElement('div');
+  footer.className = 'lend-footer';
+  const siteLink = document.createElement('a');
+  siteLink.className = 'lend-site-link';
+  siteLink.href = isTones ? 'https://jx-3p.com/patches/' : 'https://jx-3p.com/sequences/';
+  siteLink.textContent = 'explore the entire lending library';
+  footer.appendChild(siteLink);
   modal.appendChild(closeBtn);
 
   modal.appendChild(h);
   modal.appendChild(sub);
   modal.appendChild(listEl);
-  modal.appendChild(actions);
+  modal.appendChild(footer);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
@@ -3984,8 +3989,9 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   closeBtn.addEventListener('click', close);
-  siteBtn.addEventListener('click', () => {
-    window.api.openExternal(isTones ? 'https://jx-3p.com/patches/' : 'https://jx-3p.com/sequences/');
+  siteLink.addEventListener('click', (e) => {
+    e.preventDefault();   // never navigate the Electron window itself
+    window.api.openExternal(siteLink.href);
   });
 
   // Fetch the live manifest; fall back to the cached copy on failure.
