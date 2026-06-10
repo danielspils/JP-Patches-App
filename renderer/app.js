@@ -3985,14 +3985,23 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
-  modal.className = 'modal seq-save-modal has-subtitle';
+  modal.className = 'modal seq-save-modal lend-confirm-modal';
 
   const h = document.createElement('h2');
   h.className = 'modal-title';
-  h.textContent = 'Lend to the library';
-  const sub = document.createElement('div');
-  sub.className = 'modal-subtitle';
-  sub.textContent = displayName;
+  h.textContent = 'Lending Library submission';
+
+  // Uneditable "what you're lending" field above the user-editable
+  // ones — reinforces that YOUR NAME is the person, not the file.
+  const lendingSec = document.createElement('div');
+  lendingSec.className = 'seq-modal-section';
+  const lendingLabel = document.createElement('label');
+  lendingLabel.textContent = isTones ? 'TONES YOU ARE LENDING:' : 'SEQUENCE YOU ARE LENDING:';
+  const lendingValue = document.createElement('div');
+  lendingValue.className = 'lend-static-value';
+  lendingValue.textContent = displayName;
+  lendingSec.appendChild(lendingLabel);
+  lendingSec.appendChild(lendingValue);
 
   const body = document.createElement('p');
   body.className = 'modal-body';
@@ -4019,7 +4028,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
     sec.appendChild(input);
     return { sec, input };
   };
-  const nameF     = mkField('YOUR NAME:', prefs.name, 'Vicki C. Anderson');
+  const nameF     = mkField('YOUR NAME:', prefs.name, 'J.P. Patches');
   const hometownF = mkField('HOMETOWN:', prefs.hometown, 'Anchorage, AK');
   const notesF    = mkField('NOTES:', '', "e.g. Snail sounds and '80s pads");
 
@@ -4035,8 +4044,8 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   actions.appendChild(lendBtn);
 
   modal.appendChild(h);
-  modal.appendChild(sub);
   modal.appendChild(body);
+  modal.appendChild(lendingSec);
   modal.appendChild(nameF.sec);
   modal.appendChild(hometownF.sec);
   modal.appendChild(notesF.sec);
