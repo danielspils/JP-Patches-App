@@ -5071,6 +5071,7 @@ function showPackageInfo(idx) {
     subtitle: pkgName,
     body: lines.join('\n\n'),
     confirmLabel: 'Close',
+    hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
   });
 }
@@ -5111,6 +5112,7 @@ function showSequenceInfo(idx) {
     subtitle: seqName,
     body: lines.join('\n'),
     confirmLabel: 'Close',
+    hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
   });
 }
