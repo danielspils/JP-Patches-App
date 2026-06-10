@@ -15,13 +15,14 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 ![JP Patches main panel — PG-200 style knobs and switches on the right, active C/D patch list on the left, Tape Memory controls below](screenshots/jx-hero.png)
 
 ## WHAT CAN JP PATCHES DO?
-* transfer patches JX ⇄ JP
-* transfer sequences JX ⇄ JP
+* transfer patches between JX ⇄ JP
+* transfer sequences between JX ⇄ JP
+* store and name C/D patch banks in the library
+* store and name sequences in the library
+* create custom patch names (e.g. rename C1 as "Warm Pad")
 * build custom patch banks w/ drag & drop reorder
-* custom patch names (e.g. rename C1 as "Warm Pad")
-* sequencer with edit, save and audio playback
-* library for saving & naming C/D banks & sequences
-* fully functional PG-200 dashboard
+* create, edit, and play sequences
+* edit patches with a fully functional onscreen PG-200
 * other features I'm forgetting ...
 
 <div class="gallery">
