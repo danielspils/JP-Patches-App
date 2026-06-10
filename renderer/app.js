@@ -3847,7 +3847,8 @@ function renderLibraryActions(actions) {
   // library modal (docs/future-features.md → Community library).
   // Mirrors the sequences-tab button in renderSequencesActions.
   const btn = document.createElement('button');
-  btn.className = 'save-banks-btn';   // reuse the existing visual class
+  // Bank-colored variant: Roland green to match the active Tones sub-tab.
+  btn.className = 'save-banks-btn explore-lending-btn explore-lending-tones';
   btn.textContent = 'explore the user lending library';
   btn.addEventListener('click', () => showExploreLendingLibraryModal('tones'));
   actions.appendChild(btn);
@@ -5398,7 +5399,8 @@ function renderSequencesActions(actions) {
   // Create-new-sequence moved to the builder-area key below the panel
   // (see renderCustomBuilder).
   const btn = document.createElement('button');
-  btn.className = 'save-banks-btn';   // reuse the existing visual class
+  // Bank-colored variant: Roland blue to match the active Sequences sub-tab.
+  btn.className = 'save-banks-btn explore-lending-btn explore-lending-sequences';
   btn.textContent = 'explore the user lending library';
   btn.addEventListener('click', () => showExploreLendingLibraryModal('sequences'));
   actions.appendChild(btn);

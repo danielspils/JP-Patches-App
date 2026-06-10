@@ -3443,3 +3443,13 @@ body.seq-dragging-pitch * {
 .lend-confirm-modal .seq-modal-name::placeholder {
   font-style: italic;
 }
+
+/* Explore-lending buttons take the active sub-tab's bank color
+   (Daniel, 2026-06-10): Tones green, Sequences blue — same hues as
+   .lib-sub-tab.active. Cream label like the tabs; hover uses the
+   established -hot variants. */
+.explore-lending-btn { color: #f7f1e6; }
+.explore-lending-tones { background: #1f6e5b; }
+.explore-lending-tones:hover { background: #2a8870; }
+.explore-lending-sequences { background: #33508f; }
+.explore-lending-sequences:hover { background: #4264a8; }
