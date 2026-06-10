@@ -915,3 +915,55 @@ body {
   display: inline-block;
   margin-top: 28px;
 }
+
+/* ── Community library pages (/patches/, /sequences/) ─────────────────
+   Entry rows for user-shared tones + sequences. Borrow button is
+   Roland red, mirroring the in-app share-modal mock (borrow=red,
+   share=blue) — see docs/future-features.md → Community library. */
+.community-list {
+  margin: 28px 0 36px;
+}
+.community-entry {
+  padding: 16px 0 14px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.community-entry:first-child {
+  border-top: 1px solid var(--border-dim);
+}
+.community-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.community-entry-name {
+  color: var(--text-bright);
+  font-size: 19px;
+  font-weight: 600;
+}
+.community-borrow {
+  flex: none;
+  display: inline-block;
+  padding: 7px 22px;
+  background: var(--roland-red);
+  color: var(--cream);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-decoration: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+.community-borrow:hover {
+  background: var(--roland-red-hot);
+}
+.community-entry-byline {
+  margin-top: 4px;
+  color: var(--text-mid);
+  font-size: 13px;
+}
+.community-entry-notes {
+  margin: 8px 0 0;
+  color: var(--cream-sec);
+  font-size: 15px;
+  font-style: italic;
+}

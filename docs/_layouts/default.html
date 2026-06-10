@@ -140,8 +140,8 @@
             parallelograms) so they read as tabs, not as a continuation
             of the swoop motif. -->
     <nav class="cd-nav-tabs" aria-label="Community library">
-      <a href="{{ '/patches/' | relative_url }}" class="cd-nav-tab">Patches</a>
-      <a href="{{ '/sequences/' | relative_url }}" class="cd-nav-tab">Sequences</a>
+      <a href="{{ '/patches/' | relative_url }}" class="cd-nav-tab{% if page.url == '/patches/' %} active{% endif %}">Patches</a>
+      <a href="{{ '/sequences/' | relative_url }}" class="cd-nav-tab{% if page.url == '/sequences/' %} active{% endif %}">Sequences</a>
     </nav>
   </header>
 

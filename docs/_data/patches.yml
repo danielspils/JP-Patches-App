@@ -1,0 +1,31 @@
+# Community library — shared Tones (C/D bank packages).
+#
+# One entry per shared package. This file drives BOTH the /patches/ page
+# AND the machine-readable manifest at /library/index.json that the
+# in-app community browser will consume (Phase 2) — so every entry must
+# carry the full field set even if the HTML page doesn't render it yet
+# (machine-consumable-from-day-one rule, docs/future-features.md →
+# Community library).
+#
+# Field reference:
+#   id:            stable slug, never reuse (manifest identity + dedup key)
+#   name:          display name of the package
+#   author:        sharer's name (share-modal "Name" field)
+#   hometown:      sharer's hometown (share-modal "Hometown" field, optional)
+#   description:   sharer's notes (share-modal "Notes" field)
+#   added:         YYYY-MM-DD the entry was published to the catalog
+#   file:          site-relative path to the .json payload
+#   size_bytes:    payload size (manifest convenience)
+#   tags:          optional list (search/filter later; empty is fine)
+#   audio_preview: optional path to a short MP3 audition clip (null = none)
+
+- id: spils-sounds
+  name: Spils Sounds
+  author: Daniel Spils
+  hometown: Anchorage, AK
+  description: My personal C/D banks — the same patches that seed a fresh JP Patches install.
+  added: 2026-06-10
+  file: /library/patches/spils-sounds.json
+  size_bytes: 34433
+  tags: []
+  audio_preview: null

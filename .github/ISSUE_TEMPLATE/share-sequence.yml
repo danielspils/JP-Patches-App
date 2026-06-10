@@ -1,0 +1,57 @@
+name: Share your sequence
+description: Submit a JP Patches sequence for the community library at jx-3p.com/sequences
+title: "[Share Sequence] "
+labels: ["community-sequences"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing! Your sequence will be reviewed before it appears
+        on [jx-3p.com/sequences](https://jx-3p.com/sequences/). Sequences
+        travel with their paired patch, so borrowers hear them as intended.
+  - type: input
+    id: sequence-name
+    attributes:
+      label: Sequence name
+      placeholder: Friday Morning
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Your name
+      placeholder: J.P. Patches
+    validations:
+      required: true
+  - type: input
+    id: hometown
+    attributes:
+      label: Hometown
+      placeholder: Anchorage, AK
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: A line or two about the sequence — tempo, vibe, how to play it.
+      placeholder: e.g. Slow arp, pairs with a warm pad
+    validations:
+      required: false
+  - type: textarea
+    id: payload
+    attributes:
+      label: Sequence JSON
+      description: Paste the full contents of the exported sequence `.json` (or attach the file by dragging it into this field — rename to `.json.txt` if GitHub rejects it).
+      render: json
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Sharing terms
+      options:
+        - label: I am sharing my own sequence (no one else's)
+          required: true
+        - label: Anybody can download and use this sequence
+          required: true

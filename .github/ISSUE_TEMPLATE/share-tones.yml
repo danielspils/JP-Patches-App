@@ -1,0 +1,59 @@
+name: Share your patches (C/D banks)
+description: Submit a JP Patches tone package for the community library at jx-3p.com/patches
+title: "[Share Tones] "
+labels: ["community-tones"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing! Your bank will be reviewed before it appears on
+        [jx-3p.com/patches](https://jx-3p.com/patches/). To export the `.json`:
+        in JP Patches, go to **Library → Tones**, hover your package, click
+        the **download icon**.
+  - type: input
+    id: package-name
+    attributes:
+      label: Package name
+      description: The name your bank should appear under in the catalog.
+      placeholder: Warm Pads Vol. 1
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Your name
+      placeholder: J.P. Patches
+    validations:
+      required: true
+  - type: input
+    id: hometown
+    attributes:
+      label: Hometown
+      placeholder: Anchorage, AK
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: A line or two about what's in the bank.
+      placeholder: e.g. Snail sounds and '80s pads
+    validations:
+      required: false
+  - type: textarea
+    id: payload
+    attributes:
+      label: Package JSON
+      description: Paste the full contents of the exported `.json` file (or attach the file by dragging it into this field — rename to `.json.txt` if GitHub rejects it).
+      render: json
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Sharing terms
+      options:
+        - label: I am sharing my own patches (no one else's)
+          required: true
+        - label: Anybody can download and use these patches
+          required: true

@@ -1,0 +1,35 @@
+---
+permalink: /library/index.json
+---
+{
+  "version": 1,
+  "generated": "{{ site.time | date_to_xmlschema }}",
+  "patches": [
+{% for e in site.data.patches %}    {
+      "id": {{ e.id | jsonify }},
+      "name": {{ e.name | jsonify }},
+      "author": {{ e.author | jsonify }},
+      "hometown": {{ e.hometown | jsonify }},
+      "description": {{ e.description | jsonify }},
+      "addedAt": {{ e.added | date: '%Y-%m-%d' | jsonify }},
+      "downloadUrl": {{ e.file | absolute_url | jsonify }},
+      "sizeBytes": {{ e.size_bytes | jsonify }},
+      "tags": {{ e.tags | jsonify }},
+      "audioPreviewUrl": {% if e.audio_preview %}{{ e.audio_preview | absolute_url | jsonify }}{% else %}null{% endif %}
+    }{% unless forloop.last %},{% endunless %}
+{% endfor %}  ],
+  "sequences": [
+{% for e in site.data.sequences %}    {
+      "id": {{ e.id | jsonify }},
+      "name": {{ e.name | jsonify }},
+      "author": {{ e.author | jsonify }},
+      "hometown": {{ e.hometown | jsonify }},
+      "description": {{ e.description | jsonify }},
+      "addedAt": {{ e.added | date: '%Y-%m-%d' | jsonify }},
+      "downloadUrl": {{ e.file | absolute_url | jsonify }},
+      "sizeBytes": {{ e.size_bytes | jsonify }},
+      "tags": {{ e.tags | jsonify }},
+      "audioPreviewUrl": {% if e.audio_preview %}{{ e.audio_preview | absolute_url | jsonify }}{% else %}null{% endif %}
+    }{% unless forloop.last %},{% endunless %}
+{% endfor %}  ]
+}
