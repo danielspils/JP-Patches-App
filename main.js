@@ -387,6 +387,13 @@ ipcMain.handle('open-external', async (_e, url) => {
 // connect-src widening) and the IPC shape matches every other handler.
 const LENDING_ORIGIN = 'https://jx-3p.com/';
 const LENDING_MANIFEST_URL = 'https://jx-3p.com/library/index.json';
+// The lending relay (relay/ in this repo — a Cloudflare Worker that
+// files lending submissions as GitHub issues so users need no GitHub
+// account). lend.jx-3p.com is the custom-domain route; if the Worker
+// is deployed on its *.workers.dev URL instead, update this constant
+// (see relay/README.md). The renderer falls back to the clipboard +
+// GitHub-form flow whenever this endpoint is unreachable.
+const LENDING_RELAY_URL = 'https://lend.jx-3p.com/lend';
 const LENDING_FETCH_TIMEOUT_MS = 10000;
 const LENDING_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;  // payloads are ~15-35KB; 5MB = generous ceiling
 
@@ -445,6 +452,36 @@ ipcMain.handle('community-download-to-temp', async (_e, url, displayName) => {
     return { ok: true, path: filePath };
   } catch (err) {
     return { ok: false, error: (err && err.message) || 'download failed' };
+  }
+});
+
+// Submit a lending request through the relay (relay/worker.js → GitHub
+// issue). Body is validated server-side too; this handler just ferries
+// it and shapes errors. A non-ok result (relay not deployed, offline,
+// 4xx/5xx) makes the renderer fall back to the clipboard + GitHub-form
+// flow — the relay being down never blocks lending entirely.
+ipcMain.handle('community-lend', async (_e, submission) => {
+  if (!submission || typeof submission !== 'object') {
+    return { ok: false, error: 'invalid submission' };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LENDING_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(LENDING_RELAY_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(submission),
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.ok) {
+      return { ok: false, error: (data && data.error) || `relay HTTP ${res.status}` };
+    }
+    return { ok: true, issueUrl: data.issueUrl || null };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'relay unreachable' };
+  } finally {
+    clearTimeout(timer);
   }
 });
 

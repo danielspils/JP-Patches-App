@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('api', {
   // routes it through the same import handlers as drag-and-drop.
   communityFetchManifest:  ()                  => ipcRenderer.invoke('community-fetch-manifest'),
   communityDownloadToTemp: (url, displayName)  => ipcRenderer.invoke('community-download-to-temp', url, displayName),
+  // One-click lend via the relay (relay/README.md). Renderer falls back
+  // to the clipboard + GitHub-form flow when this returns ok: false.
+  communityLend:           (submission)        => ipcRenderer.invoke('community-lend', submission),
   // App + OS metadata for diagnostic bug-report URLs.
   // Returns { appVersion, platform, macOsRelease }.
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

@@ -3995,10 +3995,8 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   const body = document.createElement('p');
   body.className = 'modal-body';
   body.textContent =
-    'Lending opens a pre-filled request on GitHub. Your ' +
-    (isTones ? "package's" : "sequence's") + ' JSON is copied to the ' +
-    'clipboard — paste it into the JSON field there and submit. ' +
-    'Requests are reviewed before they appear in the lending library.';
+    'Lending submits your ' + (isTones ? 'tones' : 'sequence') +
+    ' for review — they appear in the lending library once approved.';
 
   const mkField = (labelText, value, placeholder) => {
     const sec = document.createElement('div');
@@ -4071,17 +4069,52 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
     prefsNow.hometown = hometown;
     saveLibraryDebounced();
 
-    const payload = JSON.stringify(buildLendPayload(kind, item), null, 2);
+    lendBtn.disabled = true;
+    lendBtn.textContent = 'Submitting…';
+
+    // Relay first: one click, no GitHub account needed. The token is
+    // the future self-serve-withdraw hook; it persists on the item.
+    const payloadObj = buildLendPayload(kind, item);
+    const token = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `tok-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const res = await window.api.communityLend({
+      kind, lendName, author: name, hometown, notes, token, payload: payloadObj,
+    });
+    if (res && res.ok) {
+      item.lending = { token, submittedAt: new Date().toISOString(), issueUrl: res.issueUrl || null };
+      saveLibraryDebounced();
+      close();
+      if (typeof onOpened === 'function') onOpened('submitted');
+      return;
+    }
+
+    // Fallback — relay not deployed / offline / rejected: the original
+    // clipboard + pre-filled GitHub form flow. Lending is never blocked
+    // by the relay being down.
+    lendBtn.disabled = false;
+    lendBtn.textContent = 'Open lending request';
+    const payload = JSON.stringify(payloadObj, null, 2);
+    let clipboardOk = true;
     try {
       await navigator.clipboard.writeText(payload);
-    } catch {
-      showImportError(
-        'Could not copy the JSON to the clipboard. Use the download icon ' +
-        'on the library row instead, then attach the file to the GitHub request.');
-    }
-    window.api.openExternal(buildLendIssueUrl(kind, lendName, name, hometown, notes));
-    close();
-    if (typeof onOpened === 'function') onOpened();
+    } catch { clipboardOk = false; }
+    showConfirmModal({
+      title: 'Direct submit unavailable',
+      body:
+        'Could not reach the lending relay — opening the GitHub request ' +
+        'form instead.' + (clipboardOk
+          ? ' Your JSON is on the clipboard: paste it into the JSON field and submit.'
+          : ' Use the download icon on the library row to get the JSON, then attach it.') +
+        ' (A GitHub account is required for this path.)',
+      confirmLabel: 'Open GitHub form',
+      hideCancel: false,
+      onConfirm: () => {
+        window.api.openExternal(buildLendIssueUrl(kind, lendName, name, hometown, notes));
+        close();
+        if (typeof onOpened === 'function') onOpened('request opened');
+      },
+    });
   });
 }
 
@@ -4167,15 +4200,24 @@ function buildLendSection(kind) {
     const btn = document.createElement('button');
     btn.className = 'modal-btn modal-btn-alt lend-borrow-btn';   // Roland blue = lend
     btn.type = 'button';
-    btn.textContent = 'lend';
-    btn.disabled = true;   // unlocked by the consent checkboxes above
-    btn.addEventListener('click', () => {
-      showLendConfirmModal(kind, item, displayName, () => {
-        btn.textContent = 'request opened';
-        btn.disabled = true;   // session-only state; relay version will track for real
+    const alreadySubmitted = !!(item.lending && item.lending.submittedAt);
+    if (alreadySubmitted) {
+      // Persisted state from a successful relay submission — stays
+      // disabled across opens. (Withdraw via the stored token is the
+      // future enhancement.)
+      btn.textContent = 'submitted';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'lend';
+      btn.disabled = true;   // unlocked by the consent checkboxes above
+      btn.addEventListener('click', () => {
+        showLendConfirmModal(kind, item, displayName, (label) => {
+          btn.textContent = label || 'submitted';
+          btn.disabled = true;
+        });
       });
-    });
-    lendBtns.push(btn);
+      lendBtns.push(btn);   // only consent-gated buttons join the unlock set
+    }
     row.appendChild(btn);
     list.appendChild(row);
   });
