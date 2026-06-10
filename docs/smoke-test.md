@@ -92,7 +92,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Check | Expected | Result |
 |---|---|---|
 | Library → Tones with packages already present | dashed-border zone at bottom of list: WAV-file icon + label *"drop a WAV or click to upload a WAV"* (compact horizontal variant) | |
-| Library → Tones with NO packages (empty state) | zone renders larger + centered (prominent variant); placeholder text above mentions both "save C/D banks to library" + "upload a WAV below" | |
+| Library → Tones with NO packages (empty state) | zone renders larger + centered (prominent variant); placeholder text above mentions both "save active C/D banks to library" + "upload a WAV below" | |
 | Library → Sequences | same zone (compact when populated, prominent when empty) | |
 | Hover the zone | border + label brighten (text-bright color); cursor reads as pointer | |
 | Drag a .wav file over the zone (don't drop yet) | border + label brighten via `.drag-over` class | |

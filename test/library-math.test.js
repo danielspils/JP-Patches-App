@@ -15,6 +15,9 @@ const {
   paramsFingerprint,
   computeReorderIdx,
   allPatchesIdentical,
+  remapIndexAfterRemoval,
+  remapIndexAfterInsertion,
+  remapIndexAfterReorder,
 } = require('../renderer/library-math.js');
 
 // ─── paramsFingerprint ──────────────────────────────────────────────────────
@@ -215,4 +218,90 @@ test('allPatchesIdentical — fingerprint is order-insensitive (key order varies
     fillBank({ env_attack: 64, dco1_range: 8, vcf_cutoff: 128 }),
   ];
   assert.equal(allPatchesIdentical(banks), true);
+});
+
+// ─── remapIndexAfter* (index-keyed dirty/snapshot tracking) ─────────────────
+//
+// These pin the 2026-06-10 bug class: dirtySequences /
+// originalSequenceSnapshots are keyed by position in library.sequences,
+// so every splice (delete, undo, reorder, unshift) must remap them.
+
+test('remapIndexAfterRemoval — removed index itself drops (returns null)', () => {
+  assert.equal(remapIndexAfterRemoval(0, 0), null);
+  assert.equal(remapIndexAfterRemoval(5, 5), null);
+});
+
+test('remapIndexAfterRemoval — indices above the removal shift down', () => {
+  assert.equal(remapIndexAfterRemoval(3, 1), 2);
+  assert.equal(remapIndexAfterRemoval(1, 0), 0);
+});
+
+test('remapIndexAfterRemoval — indices below the removal are untouched', () => {
+  assert.equal(remapIndexAfterRemoval(0, 3), 0);
+  assert.equal(remapIndexAfterRemoval(2, 3), 2);
+});
+
+test('remapIndexAfterRemoval — the 2026-06-10 repro: dirty isNew at 0 deleted, neighbor must NOT inherit the flag', () => {
+  // Create-new unshifts a dirty isNew sequence at 0 (Danny's Bass moves
+  // 0 → 1). Hover-trash deletes it. Danny's Bass returns to index 0.
+  // The dirty entry for the DELETED index must drop — not survive to
+  // accuse Danny's Bass in the nav-away modal.
+  const dirty = new Set([0]);          // the isNew sequence
+  const remapped = new Set();
+  dirty.forEach((i) => {
+    const n = remapIndexAfterRemoval(i, 0);
+    if (n !== null) remapped.add(n);
+  });
+  assert.equal(remapped.size, 0);      // nothing left dirty
+});
+
+test('remapIndexAfterInsertion — indices at/above the insertion shift up', () => {
+  assert.equal(remapIndexAfterInsertion(0, 0), 1);   // unshift case
+  assert.equal(remapIndexAfterInsertion(2, 0), 3);
+  assert.equal(remapIndexAfterInsertion(2, 2), 3);
+});
+
+test('remapIndexAfterInsertion — indices below the insertion are untouched', () => {
+  assert.equal(remapIndexAfterInsertion(1, 3), 1);
+});
+
+test('remapIndexAfterReorder — the moved element follows to its destination', () => {
+  assert.equal(remapIndexAfterReorder(2, 2, 5), 5);
+  assert.equal(remapIndexAfterReorder(5, 5, 1), 1);
+});
+
+test('remapIndexAfterReorder — down-move shifts the passed-over range down', () => {
+  // Element moves 1 → 4: tracked indices 2,3,4 each shift down by one.
+  assert.equal(remapIndexAfterReorder(2, 1, 4), 1);
+  assert.equal(remapIndexAfterReorder(4, 1, 4), 3);
+  assert.equal(remapIndexAfterReorder(5, 1, 4), 5);  // outside range: untouched
+});
+
+test('remapIndexAfterReorder — up-move shifts the passed-over range up', () => {
+  // Element moves 4 → 1: tracked indices 1,2,3 each shift up by one.
+  assert.equal(remapIndexAfterReorder(1, 4, 1), 2);
+  assert.equal(remapIndexAfterReorder(3, 4, 1), 4);
+  assert.equal(remapIndexAfterReorder(0, 4, 1), 0);  // outside range: untouched
+});
+
+test('remapIndexAfterReorder — matches the selSequence adjustment in reorderSequence', () => {
+  // reorderSequence adjusts selSequence with the same three-branch
+  // logic; the helper must agree with it for every (sel, from, to).
+  const referenceAdjust = (sel, fromIdx, toIdx) => {
+    if (sel === fromIdx) return toIdx;
+    if (fromIdx < sel && toIdx >= sel) return sel - 1;
+    if (fromIdx > sel && toIdx <= sel) return sel + 1;
+    return sel;
+  };
+  for (let from = 0; from < 6; from++) {
+    for (let to = 0; to < 6; to++) {
+      for (let idx = 0; idx < 6; idx++) {
+        assert.equal(
+          remapIndexAfterReorder(idx, from, to),
+          referenceAdjust(idx, from, to),
+          `idx=${idx} from=${from} to=${to}`
+        );
+      }
+    }
+  }
 });

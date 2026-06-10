@@ -366,6 +366,33 @@ let activeInsertTipDismiss = null;
 const dirtySequences = new Set();
 const originalSequenceSnapshots = new Map();   // index → deep clone of the original
 
+// Both structures above are INDEX-keyed into library.sequences — so any
+// splice of that array (delete, undo-of-delete, drag-reorder) must remap
+// them in the same operation, or the stale indices migrate onto innocent
+// neighbors (2026-06-10 bug: deleted isNew sequence left idx 0 dirty;
+// the next sequence inherited the flag + a bogus nav-away modal, and
+// SAVE would mint a junk "(edited)" copy of it). `mapFn` is one of the
+// pure remapIndexAfter* helpers from renderer/library-math.js; null
+// from the mapper drops the entry (the tracked sequence itself was
+// removed).
+function remapSequenceTracking(mapFn) {
+  const newDirty = [];
+  dirtySequences.forEach((i) => {
+    const n = mapFn(i);
+    if (n !== null) newDirty.push(n);
+  });
+  dirtySequences.clear();
+  newDirty.forEach((i) => dirtySequences.add(i));
+
+  const newSnaps = [];
+  originalSequenceSnapshots.forEach((snap, i) => {
+    const n = mapFn(i);
+    if (n !== null) newSnaps.push([n, snap]);
+  });
+  originalSequenceSnapshots.clear();
+  newSnaps.forEach(([i, snap]) => originalSequenceSnapshots.set(i, snap));
+}
+
 // JSON deep-clone for sequence objects. Sequence shape is plain JSON
 // (no Date instances, no functions, no circular refs) so JSON round-
 // trip is the cheapest correct deep-clone.
@@ -442,8 +469,18 @@ function isEditedSequenceName(name) {
  *     (rather than reverting to a non-existent snapshot)
  * After first SAVE, isNew is dropped and the sequence transitions
  * to the normal save-as-new-copy flow for subsequent edits.
+ *
+ * Wrapped in guardSeqNav: creating a new sequence navigates away from
+ * whatever sequence is currently being edited, AND the unshift below
+ * shifts every library.sequences index — both require the dirty set
+ * to be resolved (saved/reverted) first, or stale dirty indices land
+ * on the wrong rows (same bug class as delete-without-remap).
  */
 function handleCreateNewSequence() {
+  guardSeqNav(() => createNewSequenceUnguarded());
+}
+
+function createNewSequenceUnguarded() {
   const now = new Date();
   // Match the existing default-name pattern from seed sequences:
   // "Sequence May 18, 2026 at 12:23 PM"
@@ -3758,7 +3795,7 @@ function renderPatchList() {
 
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';
-  btn.textContent = 'save C/D banks to library';
+  btn.textContent = 'save active C/D banks to library';
   btn.addEventListener('click', handleSaveBanksToLibrary);
   actions.appendChild(btn);
 }
@@ -3802,9 +3839,20 @@ function buildDownloadWavIcon(onClick, title) {
   return btn;
 }
 
-function renderLibraryActions(_actions) {
+function renderLibraryActions(actions) {
   // The "load to app" action moved to an inline hover icon on each
-  // package row (see buildLoadToAppIcon). No bottom-of-list button.
+  // package row (see buildLoadToAppIcon).
+  //
+  // "Explore user shared tones" — placeholder entry point for the
+  // community library (docs/future-features.md → Community library →
+  // in-app share + explore workflow). Inactive until the community
+  // manifest + tabs exist on jx-3p.com. Mirrors the sequences-tab
+  // button in renderSequencesActions.
+  const btn = document.createElement('button');
+  btn.className = 'save-banks-btn';   // reuse the existing visual class
+  btn.textContent = 'explore user shared tones';
+  btn.disabled = true;
+  actions.appendChild(btn);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3874,7 +3922,7 @@ function renderLibraryList(list) {
     selPackage = null;
     const ph = document.createElement('div');
     ph.className = 'library-placeholder';
-    ph.textContent = 'No saved packages yet.\nUse "save C/D banks to library" on a bank tab, or upload a WAV below.';
+    ph.textContent = 'No saved packages yet.\nUse "save active C/D banks to library" on a bank tab, or upload a WAV below.';
     list.appendChild(ph);
     list.appendChild(buildWavUploadZone('tones', { variant: 'prominent' }));
     return;
@@ -4187,7 +4235,7 @@ function handleLoadLibraryBanks(idx) {
   // confirm — no extra friction when there's nothing at risk.
   if (modifiedCount === 0) {
     showConfirmModal({
-      title: 'Loading new C/D banks to JP Patches',
+      title: 'Loading to active C/D banks',
       body: `*${pkgName}* will replace the current C and D banks in the JP Patches app.`,
       confirmLabel: 'Load',
       onConfirm: () => loadPackageIntoActiveBanks(pkg),
@@ -4201,7 +4249,7 @@ function handleLoadLibraryBanks(idx) {
   // opt-in to lose the modifications).
   const editLabel = modifiedCount === 1 ? '1 unsaved edit' : `${modifiedCount} unsaved edits`;
   showConfirmModal({
-    title: 'Loading new C/D banks to JP Patches',
+    title: 'Loading to active C/D banks',
     body:
       `Your active C/D banks have **${editLabel}**. Loading *${pkgName}* ` +
       'will replace them.',
@@ -4731,6 +4779,9 @@ function reorderSequence(fromIdx, toIdx) {
   if (fromIdx === effectiveToIdx) return;
   const [moved] = seqs.splice(fromIdx, 1);
   seqs.splice(effectiveToIdx, 0, moved);
+  // Keep index-keyed dirty/snapshot tracking in step with the move —
+  // same bug class as delete-without-remap (see remapSequenceTracking).
+  remapSequenceTracking((i) => remapIndexAfterReorder(i, fromIdx, effectiveToIdx));
   if (selSequence !== null) {
     if (selSequence === fromIdx) selSequence = effectiveToIdx;
     else if (fromIdx < selSequence && effectiveToIdx >= selSequence) selSequence -= 1;
@@ -4777,26 +4828,43 @@ function handleDeleteSequence(idx) {
         if (curIdx === -1) return;
         const removed = library.sequences[curIdx];
         library.sequences.splice(curIdx, 1);
+        // Remap index-keyed dirty/snapshot tracking past the splice —
+        // drops the deleted sequence's own entries, shifts the rest.
+        // Without this the deleted row's dirty flag lands on whichever
+        // sequence inherits its index (2026-06-10 bug).
+        remapSequenceTracking((i) => remapIndexAfterRemoval(i, curIdx));
         const prevSelSequence = selSequence;
         if (selSequence === curIdx) selSequence = null;
         else if (selSequence !== null && selSequence > curIdx) selSequence -= 1;
         saveLibraryDebounced();
         renderPatchList();
+        // Deleting the SELECTED sequence nulls selSequence — re-render
+        // the builder area so the dead sequence's visualizer (and its
+        // stale SAVE badge) doesn't linger below the panel.
+        renderCustomBuilder();
         pushUndo({
           undo: () => {
             library.sequences.splice(curIdx, 0, removed);
+            remapSequenceTracking((i) => remapIndexAfterInsertion(i, curIdx));
+            // An undone isNew delete restores a sequence that only ever
+            // existed dirty — re-flag it so the SAVE badge returns and
+            // discard/commit flows still know about it.
+            if (removed.isNew) dirtySequences.add(curIdx);
             selSequence = prevSelSequence;
             saveLibraryDebounced();
             renderPatchList();
+            renderCustomBuilder();
           },
           redo: () => {
             const i = library.sequences.indexOf(seqRef);
             if (i === -1) return;
             library.sequences.splice(i, 1);
+            remapSequenceTracking((j) => remapIndexAfterRemoval(j, i));
             if (selSequence === i) selSequence = null;
             else if (selSequence !== null && selSequence > i) selSequence -= 1;
             saveLibraryDebounced();
             renderPatchList();
+            renderCustomBuilder();
           },
         });
       };
@@ -4881,17 +4949,15 @@ function cancelSequenceNameEdit(nm, inp) {
 }
 
 function renderSequencesActions(actions) {
-  // "Create new sequence" — mirrors the active-banks "save C/D banks
-  // to library" button visually + structurally. Click → blank sequence
-  // appears in the library list at the top, dirty + isNew so the SAVE
-  // button shows immediately AND the nav-away modal's DISCARD removes
-  // it cleanly if the user changes their mind. After first SAVE, the
-  // isNew flag is dropped and subsequent edits use the standard
-  // save-as-new-copy flow.
+  // "Explore user shared sequences" — placeholder entry point for the
+  // community library (docs/future-features.md → Community library →
+  // in-app share + explore workflow). Inactive until the community
+  // manifest + tabs exist on jx-3p.com. Create-new-sequence moved to
+  // the builder-area key below the panel (see renderCustomBuilder).
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';   // reuse the existing visual class
-  btn.textContent = 'create new sequence';
-  btn.addEventListener('click', handleCreateNewSequence);
+  btn.textContent = 'explore user shared sequences';
+  btn.disabled = true;
   actions.appendChild(btn);
 }
 
@@ -9527,6 +9593,35 @@ function setupCustomBuilder() {
   if (!toggle || !abort || !save || !clear) return;
 
   toggle.addEventListener('click', () => {
+    // Mode is set by renderCustomBuilder per tab/sub-tab:
+    //   new-sequence         → Library → Sequences: create a sequence
+    //   builder-from-library → Library → Tones: jump to Bank C + open
+    //   builder              → Bank C/D: plain open/close toggle
+    if (toggle.dataset.mode === 'new-sequence') {
+      handleCreateNewSequence();
+      return;
+    }
+    if (toggle.dataset.mode === 'builder-from-library') {
+      // Switch to Bank C first (mirrors the load-package nav pattern:
+      // selBank + tab classes + re-renders), then open the builder on
+      // a tab where its C/D sources are actually visible. Preview +
+      // phantom reset matches the setupTabs L → C/D path.
+      selBank = 'C';
+      selSlot = 0;
+      if (currentPreviewPatch && !writePending) currentPreviewPatch = null;
+      phantomPatch = null;
+      document.querySelectorAll('.tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.bank === 'C');
+      });
+      const sLib = bucketsState();
+      sLib.active = true;
+      saveLibraryDebounced();
+      renderPatchList();
+      updateSvgPatchName();
+      updateAllControls(currentPatch());
+      renderCustomBuilder();
+      return;
+    }
     const s = bucketsState();
     s.active = !s.active;
     saveLibraryDebounced();
@@ -9794,8 +9889,22 @@ function renderCustomBuilder() {
   // banks aren't visible. The staged patches themselves persist
   // (bucketsState is unchanged) so reopening from Bank C/D resumes
   // exactly where the user left off.
+  //
+  // Exceptions (2026-06-10): on the Library tab the key stays active
+  // and repurposes per sub-tab. dataset.mode tells the click handler
+  // which behavior applies; renderCustomBuilder owns label + state.
+  //   - Library → Sequences: "Create New Sequence" — same action the
+  //     sequences-list button carried before it became the (inactive)
+  //     community-explore placeholder.
+  //   - Library → Tones: "Create Custom Banks" — switches to Bank C
+  //     and opens the builder there (the builder still only stages
+  //     from active C/D banks; the key is just reachable from Tones).
   const onLibrary = selBank === 'L';
-  toggle.disabled = onLibrary;
+  const onSeqTab  = onLibrary && selLibTab === 'sequences';
+  toggle.dataset.mode = onSeqTab ? 'new-sequence'
+    : (onLibrary ? 'builder-from-library' : 'builder');
+  toggle.textContent  = onSeqTab ? 'Create New Sequence' : 'Create Custom Banks';
+  toggle.disabled     = false;
   if (onLibrary && s.active) {
     s.active = false;
     saveLibraryDebounced();

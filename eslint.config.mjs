@@ -43,9 +43,12 @@ export default [
         formatGain:             'readonly',
 
         // Globals exposed by renderer/library-math.js
-        paramsFingerprint:      'readonly',
-        computeReorderIdx:      'readonly',
-        allPatchesIdentical:    'readonly',
+        paramsFingerprint:        'readonly',
+        computeReorderIdx:        'readonly',
+        allPatchesIdentical:      'readonly',
+        remapIndexAfterRemoval:   'readonly',
+        remapIndexAfterInsertion: 'readonly',
+        remapIndexAfterReorder:   'readonly',
 
         // Globals exposed by renderer/record-calibration.js
         normalizeDeviceLabel:         'readonly',

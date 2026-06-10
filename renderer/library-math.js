@@ -132,9 +132,72 @@
     return true;
   }
 
+  // ── Index remapping for index-keyed tracking structures ────────────────
+  //
+  // dirtySequences (Set of indices) and originalSequenceSnapshots (Map of
+  // idx → snapshot) in app.js are keyed by position in library.sequences.
+  // Any splice of that array — delete, undo-of-delete, drag-reorder,
+  // create-new (unshift) — silently invalidates those keys unless they're
+  // remapped in the same operation. Bug class hit 2026-06-10: create new
+  // sequence (dirty idx 0) → delete it via hover-trash → Danny's Bass
+  // Sequence inherits idx 0 AND its stale dirty flag → nav-away modal
+  // accuses the wrong sequence; SAVE mints a junk "(edited)" copy.
+  //
+  // Each function maps ONE old index to its new home. Callers apply it
+  // across whole Sets/Maps (see remapSequenceTracking in app.js).
+
+  /**
+   * Where does index `idx` land after removing the element at
+   * `removedIdx`?
+   *
+   * @param {number} idx        Index under tracking (pre-removal)
+   * @param {number} removedIdx Index that was spliced out
+   * @returns {number | null}   New index, or null if `idx` WAS the
+   *                            removed element (tracking entry should
+   *                            be dropped).
+   */
+  function remapIndexAfterRemoval(idx, removedIdx) {
+    if (idx === removedIdx) return null;
+    return idx > removedIdx ? idx - 1 : idx;
+  }
+
+  /**
+   * Where does index `idx` land after inserting an element at
+   * `insertedIdx`? (unshift = insertion at 0)
+   *
+   * @param {number} idx         Index under tracking (pre-insertion)
+   * @param {number} insertedIdx Index the new element was spliced into
+   * @returns {number}           New index (never null — insertion
+   *                             displaces, never removes).
+   */
+  function remapIndexAfterInsertion(idx, insertedIdx) {
+    return idx >= insertedIdx ? idx + 1 : idx;
+  }
+
+  /**
+   * Where does index `idx` land after moving the element at `fromIdx`
+   * to `toIdx`? `toIdx` is the POST-REMOVAL insertion index — i.e. the
+   * output of computeReorderIdx, matching the selSequence adjustment
+   * logic in reorderSequence.
+   *
+   * @param {number} idx     Index under tracking (pre-move)
+   * @param {number} fromIdx Source index of the moved element
+   * @param {number} toIdx   Post-removal insertion index
+   * @returns {number}       New index.
+   */
+  function remapIndexAfterReorder(idx, fromIdx, toIdx) {
+    if (idx === fromIdx) return toIdx;
+    if (fromIdx < idx && toIdx >= idx) return idx - 1;
+    if (fromIdx > idx && toIdx <= idx) return idx + 1;
+    return idx;
+  }
+
   return {
     paramsFingerprint,
     computeReorderIdx,
     allPatchesIdentical,
+    remapIndexAfterRemoval,
+    remapIndexAfterInsertion,
+    remapIndexAfterReorder,
   };
 });
