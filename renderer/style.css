@@ -3364,8 +3364,23 @@ body.seq-dragging-pitch * {
 .lend-borrow-btn {
   flex: none;
 }
-.lend-borrow-btn:disabled { cursor: default; opacity: 0.75; }
-.lend-borrow-btn.modal-btn-confirm:disabled { opacity: 1; }   /* borrowed = settled, not muted */
+/* Disabled = light grey, the same treatment as .save-banks-btn:disabled
+   (the explore buttons themselves) — a dimmed Roland blue still read as
+   clickable, which made the consent gate unclear (Daniel, 2026-06-10).
+   Covers both unconsented lend buttons and the mid-borrow busy state. */
+.lend-borrow-btn:disabled {
+  background: #c8c4ba;
+  border-color: #c8c4ba;
+  color: #8a7f70;
+  cursor: not-allowed;
+}
+/* Borrowed = settled, not muted — stays solid Roland green. */
+.lend-borrow-btn.modal-btn-confirm:disabled {
+  background: #1f6e5b;
+  border-color: #1f6e5b;
+  color: #f7f1e6;
+  cursor: default;
+}
 
 /* Lending modal footer — centered text hyperlink to the full catalog
    on jx-3p.com (replaced the green button 2026-06-10: it leaves the
