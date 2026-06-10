@@ -433,7 +433,12 @@ ipcMain.handle('community-download-to-temp', async (_e, url, displayName) => {
   try {
     const text = await lendingFetch(url);
     JSON.parse(text);  // validate before writing — garbage never reaches the import path
-    const base = sanitizeWavFilename(String(displayName || 'borrowed')) || 'borrowed';
+    // sanitizeWavFilename APPENDS .wav (it's the WAV-export helper) —
+    // strip it back off or the borrowed entry's label reads
+    // "Spils Sounds.wav" (temp file "….wav.json" → labelFromPath only
+    // removes the outer extension). Daniel hit this 2026-06-10.
+    const base = sanitizeWavFilename(String(displayName || 'borrowed'))
+      .replace(/\.wav$/i, '') || 'borrowed';
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jp_lend_'));
     const filePath = path.join(dir, `${base}.json`);
     fs.writeFileSync(filePath, text, 'utf8');
