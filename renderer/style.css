@@ -3453,3 +3453,5 @@ body.seq-dragging-pitch * {
 .explore-lending-tones:hover { background: #2a8870; }
 .explore-lending-sequences { background: #33508f; }
 .explore-lending-sequences:hover { background: #4264a8; }
+.explore-lending-tones:active { background: #195a4b; }
+.explore-lending-sequences:active { background: #2a4377; }
