@@ -384,7 +384,11 @@ Browsable / downloadable user-contributed patches and sequences. Multi-phase rol
     - Top: "Recent User Shared Tones" — list of latest community files, each with a Roland-red **borrow** button (one-click import into local library, with community marker + re-download conflict prompt).
     - Middle: "Share Your Tones" — two consent checkboxes ("I am sharing my own tones (no one else's)", "anybody can download and use these tones") gate the Roland-blue **share** buttons. Persist acceptance in library.json prefs after first check (don't re-ask every session). Packages carrying a community marker are excluded from the shareable list — structurally can't re-share someone else's files.
     - Share button states: share (blue) → shared (activated blue tone) → click again to unshare. Implement the change-your-mind window as an undo toast ("Shared — undo, 30s"), not a literal delayed send.
-    - **Share-click confirm step (decided 2026-06-10):** clicking share opens a small confirm modal — sharer name field, notes field, then the actual Share commit. This is also where the undo toast lives after commit. One extra click, but it's what makes the community catalog readable (name → manifest `author`, notes → manifest `description`). Remember the sharer's name across shares (library.json prefs) so repeat sharers only type it once.
+    - **Share-click confirm step (decided 2026-06-10):** clicking share opens a small confirm modal with three fields, then the actual Share commit. This is also where the undo toast lives after commit. One extra click, but it's what makes the community catalog readable. Fields + example placeholder copy (Daniel's):
+      - **Name** — placeholder `J.P. Patches` → manifest `author`
+      - **Notes** — placeholder `e.g. Snail sounds and '80s pads` → manifest `description`
+      - **Hometown** — placeholder `Anchorage, AK` → manifest `hometown` (new field — add to the Phase 1 YAML/manifest schema NOW per the machine-consumable-from-day-one rule below)
+      Remember name + hometown across shares (library.json prefs) so repeat sharers only type them once; notes are per-share.
     - Bottom: green "explore more tones on JX-3P.com" → deep-links to the site's community tab.
     - Sequences get the same modal with language swapped.
     - **Unsettled:** instant-publish vs curated-queue semantics — decides whether the third state reads "shared" or "submitted", and whether unshare needs an identity story (a local secret share-token per submission allows self-serve unshare without accounts).
