@@ -4037,13 +4037,13 @@ function renderLibraryList(list) {
 // state appends a smaller version below the list.
 function buildWavUploadZone(kind, opts) {
   const variant = (opts && opts.variant) || 'compact';   // 'prominent' | 'compact'
-  const labelText = 'drop a WAV or click to upload a WAV';
+  const labelText = 'drop a WAV or JSON, or click to upload';
 
   const zone = document.createElement('div');
   zone.className = `lib-upload-zone lib-upload-zone-${variant}`;
   zone.setAttribute('role', 'button');
   zone.setAttribute('tabindex', '0');
-  zone.title = 'Click to browse, or drag a .wav file onto this area';
+  zone.title = 'Click to browse, or drag a .wav or .json file onto this area';
 
   // WAV-file icon: rounded-rect document shape with folded corner +
   // music note + "WAV" text label. Stroked in currentColor so it picks
@@ -4066,7 +4066,7 @@ function buildWavUploadZone(kind, opts) {
   // Hidden file input — click on zone triggers the native picker.
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.wav';
+  input.accept = '.wav,.json';
   input.style.display = 'none';
   zone.appendChild(input);
   zone.addEventListener('click', () => input.click());
@@ -10297,8 +10297,13 @@ function setupPatchListDropZone() {
       showImportError('Could not read the dropped file path.');
       return;
     }
-    if (!filePath.toLowerCase().endsWith('.wav')) {
-      showImportError('Only .wav files can be dropped here.');
+    // .json joins .wav (2026-06-10): community-library downloads + app
+    // exports are .json payloads; main-side decodeTapeFile/decodeSeqFile
+    // both handle the format, including embedded _slotMeta/_sequenceMeta
+    // name restoration.
+    const lower = filePath.toLowerCase();
+    if (!lower.endsWith('.wav') && !lower.endsWith('.json')) {
+      showImportError('Only .wav and .json files can be dropped here.');
       return;
     }
     routeWavDrop(filePath);

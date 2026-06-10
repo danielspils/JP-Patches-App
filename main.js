@@ -636,8 +636,15 @@ async function decodeTapeFile(filePath) {
       try { fs.unlinkSync(outputPath); } catch {}
     }
   }
+  // JSON file (app export / community-library download): the payload
+  // carries `_slotMeta` inline — the same per-slot names a WAV export
+  // embeds as a jPpS chunk. Strip it from the data and surface it on the
+  // same `slotMeta` field the WAV path uses, so name restoration works
+  // identically for both formats (renderer reads result.slotMeta).
   const txt = fs.readFileSync(filePath, 'utf8');
-  return { loaded: true, kind: 'json', data: JSON.parse(txt), path: filePath };
+  const parsed = JSON.parse(txt);
+  const { _slotMeta, ...data } = parsed || {};
+  return { loaded: true, kind: 'json', data, slotMeta: _slotMeta || null, path: filePath };
 }
 
 ipcMain.handle('tape-save', async (e) => {
@@ -833,6 +840,17 @@ ipcMain.handle('seq-tape-encode-to-temp', async (_e, data) => {
 });
 
 async function decodeSeqFile(filePath) {
+  // JSON sequence file (app export / community-library download): no jx3p
+  // decode needed. The payload carries `_sequenceMeta` inline (the same
+  // metadata a WAV export embeds as a jPpS v:2 chunk) — strip it from the
+  // data and surface it on the same field the WAV path uses, so the
+  // renderer's name/notes restoration works identically for both formats.
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== '.wav') {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const { _sequenceMeta, ...data } = parsed || {};
+    return { loaded: true, data, sequenceMeta: _sequenceMeta || null, path: filePath };
+  }
   const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
   try {
     const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
@@ -860,7 +878,11 @@ ipcMain.handle('seq-tape-save', async (e) => {
     const result = await dialog.showOpenDialog(win, {
       title: 'Save — import sequencer dump from JX-3P',
       properties: ['openFile'],
-      filters: [{ name: 'WAV tape dump', extensions: ['wav'] }],
+      filters: [
+        { name: 'JX-3P files',    extensions: ['wav', 'json'] },
+        { name: 'WAV tape dump',  extensions: ['wav'] },
+        { name: 'JSON sequence',  extensions: ['json'] },
+      ],
     });
     if (result.canceled || !result.filePaths.length) return { loaded: false };
     return await decodeSeqFile(result.filePaths[0]);
