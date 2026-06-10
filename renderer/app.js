@@ -3937,14 +3937,11 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
-  modal.className = 'modal lend-modal has-subtitle';
+  modal.className = 'modal lend-modal';
 
   const h = document.createElement('h2');
   h.className = 'modal-title';
   h.textContent = 'The User Lending Library';
-  const sub = document.createElement('div');
-  sub.className = 'modal-subtitle';
-  sub.textContent = isTones ? 'Recently lent tones' : 'Recently lent sequences';
 
   const listEl = document.createElement('div');
   listEl.className = 'lend-list';
@@ -3975,7 +3972,6 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
   modal.appendChild(closeBtn);
 
   modal.appendChild(h);
-  modal.appendChild(sub);
   modal.appendChild(listEl);
   modal.appendChild(footer);
   overlay.appendChild(modal);
