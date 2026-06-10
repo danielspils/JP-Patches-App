@@ -3991,18 +3991,6 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   h.className = 'modal-title';
   h.textContent = 'Lending Library submission';
 
-  // Uneditable "what you're lending" field above the user-editable
-  // ones — reinforces that YOUR NAME is the person, not the file.
-  const lendingSec = document.createElement('div');
-  lendingSec.className = 'seq-modal-section';
-  const lendingLabel = document.createElement('label');
-  lendingLabel.textContent = isTones ? 'TONES YOU ARE LENDING:' : 'SEQUENCE YOU ARE LENDING:';
-  const lendingValue = document.createElement('div');
-  lendingValue.className = 'lend-static-value';
-  lendingValue.textContent = displayName;
-  lendingSec.appendChild(lendingLabel);
-  lendingSec.appendChild(lendingValue);
-
   const body = document.createElement('p');
   body.className = 'modal-body';
   body.textContent =
@@ -4028,6 +4016,12 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
     sec.appendChild(input);
     return { sec, input };
   };
+  // "What you're lending" — pre-filled with the library name but
+  // editable, so the catalog name can differ from the local one
+  // (reinforces that YOUR NAME below is the person, not the file).
+  const lendingF  = mkField(
+    isTones ? 'TONES YOU ARE LENDING:' : 'SEQUENCE YOU ARE LENDING:',
+    displayName, '');
   const nameF     = mkField('YOUR NAME:', prefs.name, 'J.P. Patches');
   const hometownF = mkField('HOMETOWN:', prefs.hometown, 'Anchorage, AK');
   const notesF    = mkField('NOTES:', '', "e.g. Snail sounds and '80s pads");
@@ -4045,7 +4039,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
 
   modal.appendChild(h);
   modal.appendChild(body);
-  modal.appendChild(lendingSec);
+  modal.appendChild(lendingF.sec);
   modal.appendChild(nameF.sec);
   modal.appendChild(hometownF.sec);
   modal.appendChild(notesF.sec);
@@ -4064,6 +4058,8 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   cancelBtn.addEventListener('click', close);
 
   lendBtn.addEventListener('click', async () => {
+    const lendName = lendingF.input.value.trim();
+    if (!lendName) { lendingF.input.focus(); return; }   // the catalog needs a name
     const name = nameF.input.value.trim();
     if (!name) { nameF.input.focus(); return; }   // author is required by the issue form
     const hometown = hometownF.input.value.trim();
@@ -4082,7 +4078,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
         'Could not copy the JSON to the clipboard. Use the download icon ' +
         'on the library row instead, then attach the file to the GitHub request.');
     }
-    window.api.openExternal(buildLendIssueUrl(kind, displayName, name, hometown, notes));
+    window.api.openExternal(buildLendIssueUrl(kind, lendName, name, hometown, notes));
     close();
     if (typeof onOpened === 'function') onOpened();
   });

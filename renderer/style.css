@@ -3439,14 +3439,7 @@ body.seq-dragging-pitch * {
 /* Lend confirm modal (2026-06-10). Placeholders italicized so the
    sample texts (J.P. Patches / Anchorage, AK / snail sounds) read as
    examples, not values — they're HTML placeholders, so an untouched
-   field always submits empty. .lend-static-value is the uneditable
-   "what you're lending" display above the editable fields. */
+   field always submits empty. */
 .lend-confirm-modal .seq-modal-name::placeholder {
   font-style: italic;
-}
-.lend-static-value {
-  color: var(--text-bright);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 2px 0 0 1px;
 }
