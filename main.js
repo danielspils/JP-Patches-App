@@ -357,14 +357,17 @@ ipcMain.handle('get-app-info', () => {
 });
 
 // Open an external URL in the user's default browser. Hardlocked to the
-// danielspils/JP-Patches-App repo on github.com so a renderer-side bug
-// can't be turned into "open arbitrary URLs" (e.g. file://, javascript:,
-// phishing). Currently only the Audio Diagnostics "Report this bug"
-// flow uses it; widen the allowlist if other GitHub-issue prefill links
-// get added later.
+// danielspils/JP-Patches-App repo on github.com + the jx-3p.com site so
+// a renderer-side bug can't be turned into "open arbitrary URLs" (e.g.
+// file://, javascript:, phishing). Callers: Audio Diagnostics "Report
+// this bug" (GitHub) and the lending-library modal's "explore more"
+// (jx-3p.com).
 ipcMain.handle('open-external', async (_e, url) => {
   if (typeof url !== 'string') return { ok: false, reason: 'not-a-string' };
-  if (!url.startsWith('https://github.com/danielspils/JP-Patches-App/')) {
+  const allowed =
+    url.startsWith('https://github.com/danielspils/JP-Patches-App/') ||
+    url.startsWith('https://jx-3p.com/');
+  if (!allowed) {
     return { ok: false, reason: 'not-allowlisted' };
   }
   try {
@@ -372,6 +375,71 @@ ipcMain.handle('open-external', async (_e, url) => {
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: (err && err.message) || 'open-failed' };
+  }
+});
+
+// ── User lending library (community) ─────────────────────────────────
+// The app's only outbound network surface besides auto-update. Both
+// handlers are hardlocked to https://jx-3p.com/ — the manifest URL is a
+// constant and download URLs are validated against the origin, so a
+// renderer-side bug can't turn these into arbitrary fetchers. Network
+// lives main-side on purpose: the renderer stays network-free (no CSP
+// connect-src widening) and the IPC shape matches every other handler.
+const LENDING_ORIGIN = 'https://jx-3p.com/';
+const LENDING_MANIFEST_URL = 'https://jx-3p.com/library/index.json';
+const LENDING_FETCH_TIMEOUT_MS = 10000;
+const LENDING_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;  // payloads are ~15-35KB; 5MB = generous ceiling
+
+async function lendingFetch(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LENDING_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    if (text.length > LENDING_MAX_PAYLOAD_BYTES) throw new Error('payload too large');
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Fetch + parse the lending-library manifest. Returns {ok, manifest} or
+// {ok: false, error} — renderer decides whether to fall back to its
+// cached copy in library.json.
+ipcMain.handle('community-fetch-manifest', async () => {
+  try {
+    const manifest = JSON.parse(await lendingFetch(LENDING_MANIFEST_URL));
+    if (!manifest || !Array.isArray(manifest.patches) || !Array.isArray(manifest.sequences)) {
+      return { ok: false, error: 'manifest shape invalid' };
+    }
+    return { ok: true, manifest };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'fetch failed' };
+  }
+});
+
+// Download one lending-library payload to a temp .json file and return
+// the path. The renderer then routes the path through the SAME import
+// handlers as drag-and-drop (handleTonesDropImport /
+// handleSequenceDropImport) — so schema handling, name restoration via
+// _slotMeta/_sequenceMeta, and misroute detection all come for free.
+// The temp file is named after the entry (sanitized) because the import
+// path derives the new library entry's display label from the filename.
+ipcMain.handle('community-download-to-temp', async (_e, url, displayName) => {
+  if (typeof url !== 'string' || !url.startsWith(LENDING_ORIGIN)) {
+    return { ok: false, error: 'url not allowlisted' };
+  }
+  try {
+    const text = await lendingFetch(url);
+    JSON.parse(text);  // validate before writing — garbage never reaches the import path
+    const base = sanitizeWavFilename(String(displayName || 'borrowed')) || 'borrowed';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jp_lend_'));
+    const filePath = path.join(dir, `${base}.json`);
+    fs.writeFileSync(filePath, text, 'utf8');
+    return { ok: true, path: filePath };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'download failed' };
   }
 });
 

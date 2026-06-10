@@ -49,6 +49,7 @@ export default [
         remapIndexAfterRemoval:   'readonly',
         remapIndexAfterInsertion: 'readonly',
         remapIndexAfterReorder:   'readonly',
+        latestLendingEntries:     'readonly',
 
         // Globals exposed by renderer/record-calibration.js
         normalizeDeviceLabel:         'readonly',

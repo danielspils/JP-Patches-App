@@ -192,6 +192,29 @@
     return idx;
   }
 
+  // ── latestLendingEntries ────────────────────────────────────────────
+  //
+  // Pick the N most recent lending-library manifest entries for the
+  // explore modal. Sorts by addedAt descending (ISO YYYY-MM-DD strings
+  // sort lexicographically; full ISO timestamps too). Entries missing
+  // addedAt sort last. Does not mutate the input. Invalid input → [].
+  /**
+   * @param {Array<{addedAt?: string}> | any} entries Manifest entries
+   * @param {number} n Max entries to return
+   * @returns {Array} Up to n entries, newest first
+   */
+  function latestLendingEntries(entries, n) {
+    if (!Array.isArray(entries) || !(n > 0)) return [];
+    return entries
+      .slice()
+      .sort((a, b) => {
+        const aa = (a && a.addedAt) || '';
+        const bb = (b && b.addedAt) || '';
+        return bb < aa ? -1 : bb > aa ? 1 : 0;
+      })
+      .slice(0, n);
+  }
+
   return {
     paramsFingerprint,
     computeReorderIdx,
@@ -199,5 +222,6 @@
     remapIndexAfterRemoval,
     remapIndexAfterInsertion,
     remapIndexAfterReorder,
+    latestLendingEntries,
   };
 });

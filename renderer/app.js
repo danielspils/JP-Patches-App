@@ -3843,16 +3843,182 @@ function renderLibraryActions(actions) {
   // The "load to app" action moved to an inline hover icon on each
   // package row (see buildLoadToAppIcon).
   //
-  // "Explore the user lending library" (tones) — placeholder entry point for the
-  // community library (docs/future-features.md → Community library →
-  // in-app share + explore workflow). Inactive until the community
-  // manifest + tabs exist on jx-3p.com. Mirrors the sequences-tab
-  // button in renderSequencesActions.
+  // "Explore the user lending library" (tones) — opens the lending-
+  // library modal (docs/future-features.md → Community library).
+  // Mirrors the sequences-tab button in renderSequencesActions.
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';   // reuse the existing visual class
   btn.textContent = 'explore the user lending library';
-  btn.disabled = true;
+  btn.addEventListener('click', () => showExploreLendingLibraryModal('tones'));
   actions.appendChild(btn);
+}
+
+// ── User lending library — explore modal (Phase 2) ─────────────────
+// Opened from the "explore the user lending library" buttons on both
+// Library sub-tabs. Fetches the manifest from jx-3p.com (main-side
+// IPC, hardlocked to that origin), shows the 3 most recent entries
+// for the sub-tab's kind with one-click borrow, and deep-links to the
+// site for the full catalog. Borrow downloads the payload to a temp
+// .json and routes it through the SAME import handlers as
+// drag-and-drop (handleTonesDropImport / handleSequenceDropImport) —
+// so schema validation, name restoration via _slotMeta/_sequenceMeta,
+// and the package label (from the temp filename) all come for free.
+// The last good manifest is cached in library.community so the modal
+// still renders offline, with a stale note.
+const LENDING_MODAL_COUNT = 3;
+
+function formatLendDate(addedAt) {
+  if (!addedAt) return null;
+  // Date-only strings (YYYY-MM-DD) parse as UTC midnight — anchor to
+  // local midnight instead so the displayed day never shifts back.
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(addedAt) ? `${addedAt}T00:00:00` : addedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function buildLendRow(entry, isTones) {
+  const row = document.createElement('div');
+  row.className = 'lend-row';
+
+  const main = document.createElement('div');
+  main.className = 'lend-row-main';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'lend-row-name';
+  nameEl.textContent = entry.name || '(unnamed)';
+  main.appendChild(nameEl);
+
+  const bylineBits = [entry.author, entry.hometown, formatLendDate(entry.addedAt)].filter(Boolean);
+  if (bylineBits.length) {
+    const byline = document.createElement('div');
+    byline.className = 'lend-row-byline';
+    byline.textContent = bylineBits.join(' · ');
+    main.appendChild(byline);
+  }
+  if (entry.description) {
+    const notes = document.createElement('div');
+    notes.className = 'lend-row-notes';
+    notes.textContent = entry.description;
+    main.appendChild(notes);
+  }
+  row.appendChild(main);
+
+  const btn = document.createElement('button');
+  btn.className = 'lend-borrow-btn';
+  btn.type = 'button';
+  btn.textContent = 'borrow';
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'borrowing…';
+    try {
+      const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name);
+      if (!dl || !dl.ok) throw new Error((dl && dl.error) || 'download failed');
+      if (isTones) await handleTonesDropImport(dl.path);
+      else         await handleSequenceDropImport(dl.path);
+      btn.textContent = 'borrowed';
+      btn.classList.add('borrowed');   // stays disabled — it's in the library now
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'borrow';
+      showImportError(`Could not borrow "${entry.name}": ${err.message}`);
+    }
+  });
+  row.appendChild(btn);
+  return row;
+}
+
+async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
+  const isTones = kind === 'tones';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal lend-modal has-subtitle';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = 'The User Lending Library';
+  const sub = document.createElement('div');
+  sub.className = 'modal-subtitle';
+  sub.textContent = isTones ? 'Recently lent tones' : 'Recently lent sequences';
+
+  const listEl = document.createElement('div');
+  listEl.className = 'lend-list';
+  const statusEl = document.createElement('div');
+  statusEl.className = 'lend-status';
+  statusEl.textContent = 'Fetching the latest from jx-3p.com…';
+  listEl.appendChild(statusEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-btn modal-btn-cancel';
+  closeBtn.textContent = 'Close';
+  const siteBtn = document.createElement('button');
+  siteBtn.className = 'modal-btn modal-btn-confirm';
+  siteBtn.textContent = 'explore more on jx-3p.com';
+  actions.appendChild(closeBtn);
+  actions.appendChild(siteBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(sub);
+  modal.appendChild(listEl);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  closeBtn.addEventListener('click', close);
+  siteBtn.addEventListener('click', () => {
+    window.api.openExternal(isTones ? 'https://jx-3p.com/patches/' : 'https://jx-3p.com/sequences/');
+  });
+
+  // Fetch the live manifest; fall back to the cached copy on failure.
+  let manifest = null;
+  let stale = false;
+  try {
+    const res = await window.api.communityFetchManifest();
+    if (res && res.ok) {
+      manifest = res.manifest;
+      library.community = { fetchedAt: new Date().toISOString(), manifest };
+      saveLibraryDebounced();
+    }
+  } catch { /* fall through to cache */ }
+  if (!manifest && library.community && library.community.manifest) {
+    manifest = library.community.manifest;
+    stale = true;
+  }
+  if (!overlay.isConnected) return;   // user closed during the fetch
+  if (!manifest) {
+    statusEl.textContent = 'Could not reach jx-3p.com — check your connection and try again.';
+    return;
+  }
+
+  const entries = latestLendingEntries(
+    isTones ? manifest.patches : manifest.sequences, LENDING_MODAL_COUNT);
+  listEl.innerHTML = '';
+  if (stale) {
+    const note = document.createElement('div');
+    note.className = 'lend-status';
+    note.textContent = 'Offline — showing the last fetched list.';
+    listEl.appendChild(note);
+  }
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'lend-status';
+    empty.textContent = isTones
+      ? 'Nothing in the lending library yet — be the first to lend a bank.'
+      : 'Nothing in the lending library yet — be the first to lend a sequence.';
+    listEl.appendChild(empty);
+    return;
+  }
+  entries.forEach((entry) => listEl.appendChild(buildLendRow(entry, isTones)));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4964,15 +5130,14 @@ function cancelSequenceNameEdit(nm, inp) {
 }
 
 function renderSequencesActions(actions) {
-  // "Explore the user lending library" (sequences) — placeholder entry point for the
-  // community library (docs/future-features.md → Community library →
-  // in-app share + explore workflow). Inactive until the community
-  // manifest + tabs exist on jx-3p.com. Create-new-sequence moved to
-  // the builder-area key below the panel (see renderCustomBuilder).
+  // "Explore the user lending library" (sequences) — opens the lending-
+  // library modal (docs/future-features.md → Community library).
+  // Create-new-sequence moved to the builder-area key below the panel
+  // (see renderCustomBuilder).
   const btn = document.createElement('button');
   btn.className = 'save-banks-btn';   // reuse the existing visual class
   btn.textContent = 'explore the user lending library';
-  btn.disabled = true;
+  btn.addEventListener('click', () => showExploreLendingLibraryModal('sequences'));
   actions.appendChild(btn);
 }
 

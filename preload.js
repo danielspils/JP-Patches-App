@@ -48,10 +48,16 @@ contextBridge.exposeInMainWorld('api', {
   // no payload needed.
   onAudioDiagnosticsOpen: (cb) => ipcRenderer.on('audio-diagnostics-open', () => cb()),
   // Open an external URL via the OS default browser. Main-side handler
-  // is allowlisted to the JP Patches GitHub repo only (the only caller
-  // today is the Audio Diagnostics "Report this bug" pre-filled issue
-  // URL). Returns {ok, reason?}.
+  // is allowlisted to the JP Patches GitHub repo + jx-3p.com (callers:
+  // Audio Diagnostics "Report this bug", lending-library "explore
+  // more"). Returns {ok, reason?}.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // User lending library (community). Manifest fetch + payload download
+  // — both main-side, hardlocked to https://jx-3p.com/. Download writes
+  // a temp .json named after the entry and returns its path; renderer
+  // routes it through the same import handlers as drag-and-drop.
+  communityFetchManifest:  ()                  => ipcRenderer.invoke('community-fetch-manifest'),
+  communityDownloadToTemp: (url, displayName)  => ipcRenderer.invoke('community-download-to-temp', url, displayName),
   // App + OS metadata for diagnostic bug-report URLs.
   // Returns { appVersion, platform, macOsRelease }.
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

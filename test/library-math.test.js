@@ -18,6 +18,7 @@ const {
   remapIndexAfterRemoval,
   remapIndexAfterInsertion,
   remapIndexAfterReorder,
+  latestLendingEntries,
 } = require('../renderer/library-math.js');
 
 // ─── paramsFingerprint ──────────────────────────────────────────────────────
@@ -304,4 +305,40 @@ test('remapIndexAfterReorder — matches the selSequence adjustment in reorderSe
       }
     }
   }
+});
+
+// ─── latestLendingEntries (lending-library explore modal) ───────────────────
+
+test('latestLendingEntries — newest first, capped at n', () => {
+  const entries = [
+    { id: 'a', addedAt: '2026-06-01' },
+    { id: 'b', addedAt: '2026-06-10' },
+    { id: 'c', addedAt: '2026-05-20' },
+    { id: 'd', addedAt: '2026-06-08' },
+  ];
+  const out = latestLendingEntries(entries, 3);
+  assert.deepEqual(out.map((e) => e.id), ['b', 'd', 'a']);
+});
+
+test('latestLendingEntries — does not mutate the input order', () => {
+  const entries = [
+    { id: 'a', addedAt: '2026-06-01' },
+    { id: 'b', addedAt: '2026-06-10' },
+  ];
+  latestLendingEntries(entries, 2);
+  assert.deepEqual(entries.map((e) => e.id), ['a', 'b']);
+});
+
+test('latestLendingEntries — entries missing addedAt sort last', () => {
+  const entries = [
+    { id: 'a' },
+    { id: 'b', addedAt: '2026-06-10' },
+  ];
+  assert.deepEqual(latestLendingEntries(entries, 2).map((e) => e.id), ['b', 'a']);
+});
+
+test('latestLendingEntries — invalid input returns empty array', () => {
+  assert.deepEqual(latestLendingEntries(null, 3), []);
+  assert.deepEqual(latestLendingEntries('nope', 3), []);
+  assert.deepEqual(latestLendingEntries([{ id: 'a' }], 0), []);
 });

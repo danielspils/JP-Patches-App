@@ -3308,3 +3308,71 @@ body.seq-dragging-pitch * {
 .package-item:hover:has(.package-load-btn) .package-name-span {
   max-width: calc(100% - 160px);
 }
+
+/* ── User lending library — explore modal (2026-06-10) ───────────────
+   Opened from the "explore the user lending library" buttons on both
+   Library sub-tabs. Rows mirror the jx-3p.com catalog pages; borrow
+   is Roland red (matching the site + the share-modal mock), flipping
+   to Roland green once the entry lands in the local library. */
+.lend-modal {
+  width: 480px;
+  max-width: calc(100vw - 80px);
+}
+.lend-list {
+  margin: 14px 0 4px;
+  text-align: left;
+}
+.lend-status {
+  color: var(--text-mid);
+  font-size: 12px;
+  font-style: italic;
+  padding: 6px 0;
+}
+.lend-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+.lend-row:last-child { border-bottom: none; }
+.lend-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.lend-row-name {
+  color: #e8e2d3;
+  font-size: 14px;
+  font-weight: 600;
+}
+.lend-row-byline {
+  color: var(--text-mid);
+  font-size: 11px;
+  margin-top: 1px;
+}
+.lend-row-notes {
+  color: #cfc8b8;
+  font-size: 12px;
+  font-style: italic;
+  margin-top: 3px;
+}
+.lend-borrow-btn {
+  flex: none;
+  padding: 6px 18px;
+  background: #b94a2e;            /* Roland red */
+  color: #f7f1e6;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  transition: background 0.12s;
+}
+.lend-borrow-btn:hover:not(:disabled) { background: #d05a3a; }
+.lend-borrow-btn:disabled { cursor: default; opacity: 0.7; }
+.lend-borrow-btn.borrowed {
+  background: #1f6e5b;            /* Roland green — it's yours now */
+  opacity: 1;
+}
