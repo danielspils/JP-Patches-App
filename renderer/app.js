@@ -4032,7 +4032,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
   cancelBtn.textContent = 'Cancel';
   const lendBtn = document.createElement('button');
   lendBtn.className = 'modal-btn modal-btn-confirm';
-  lendBtn.textContent = 'Open lending request';
+  lendBtn.textContent = 'Lend';
   actions.appendChild(cancelBtn);
   actions.appendChild(lendBtn);
 
@@ -4093,7 +4093,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
     // clipboard + pre-filled GitHub form flow. Lending is never blocked
     // by the relay being down.
     lendBtn.disabled = false;
-    lendBtn.textContent = 'Open lending request';
+    lendBtn.textContent = 'Lend';
     const payload = JSON.stringify(payloadObj, null, 2);
     let clipboardOk = true;
     try {
