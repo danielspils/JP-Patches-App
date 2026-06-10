@@ -4,9 +4,9 @@ name = "jp-patches-lend"
 main = "worker.js"
 compatibility_date = "2026-06-01"
 
-# Optional: serve at lend.jx-3p.com instead of the *.workers.dev URL.
-# Requires jx-3p.com's DNS to be on this Cloudflare account. Uncomment
-# after the first deploy, then `npx wrangler deploy` again.
-# routes = [
-#   { pattern = "lend.jx-3p.com", custom_domain = true }
-# ]
+# Served at lend.jx-3p.com (jx-3p.com's zone lives on this Cloudflare
+# account). This custom-domain route doubles as the Worker's only
+# address — workers.dev subdomain deliberately not registered.
+routes = [
+  { pattern = "lend.jx-3p.com", custom_domain = true }
+]
