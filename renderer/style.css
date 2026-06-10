@@ -3382,3 +3382,40 @@ body.seq-dragging-pitch * {
   cursor: pointer;
 }
 .lend-site-link:hover { color: #f7f1e6; }
+
+/* Lend half of the lending-library modal (2026-06-10). Consent
+   checkboxes gate the blue lend buttons; the own-items list scrolls
+   past 4-ish rows so big libraries don't blow out the modal. */
+.lend-section {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #2a2a2a;
+  text-align: left;
+}
+.lend-section-title {
+  color: #e8e2d3;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.lend-consent {
+  margin: 8px 0 2px;
+}
+.lend-consent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfc8b8;
+  font-size: 12px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.lend-consent-row input[type="checkbox"] {
+  accent-color: #33508f;          /* Roland blue — matches the lend buttons they unlock */
+  cursor: pointer;
+}
+.lend-own-list {
+  max-height: 168px;              /* ~4 rows, then scroll */
+  overflow-y: auto;
+  margin-top: 2px;
+}

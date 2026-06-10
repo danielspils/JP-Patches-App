@@ -3931,6 +3931,264 @@ function buildLendRow(entry, isTones) {
   return row;
 }
 
+// ── Lend (v1 — GitHub-issue transport) ──────────────────────────────
+// The lend half of the modal ships WITHOUT the relay endpoint: lending
+// opens a pre-filled GitHub lending-request (the same issue forms the
+// site links to) with the payload JSON on the clipboard. The curated
+// queue + review flow is identical to the eventual relay version —
+// only the submission mechanics change when the relay lands (one-click
+// submit + token-based withdraw; see docs/future-features.md).
+// Consent + sharer identity persist in library.lending:
+//   { consented: bool, name: string, hometown: string }
+
+function lendingPrefs() {
+  if (!library.lending || typeof library.lending !== 'object') library.lending = {};
+  return library.lending;
+}
+
+// Build the lend payload for one library item — EXACTLY the shapes the
+// download/export paths emit, so a lent file is indistinguishable from
+// a downloaded one (and round-trips through borrow identically).
+function buildLendPayload(kind, item) {
+  if (kind === 'tones') {
+    const payload = { format_version: '1.0', banks: item.banks };
+    if (item.slotMeta) payload._slotMeta = item.slotMeta;
+    return payload;
+  }
+  return {
+    format_version: '1.0',
+    kind: 'sequence',
+    pages: item.tape && item.tape.pages,
+    _sequenceMeta: buildSequenceMetaForExport(item),
+  };
+}
+
+function buildLendIssueUrl(kind, displayName, name, hometown, notes) {
+  const isTones = kind === 'tones';
+  const params = new URLSearchParams();
+  params.set('template', isTones ? 'share-tones.yml' : 'share-sequence.yml');
+  params.set('title', `[Lend ${isTones ? 'Tones' : 'Sequence'}] ${displayName}`);
+  params.set(isTones ? 'package-name' : 'sequence-name', displayName);
+  params.set('author', name);
+  if (hometown) params.set('hometown', hometown);
+  if (notes) params.set('notes', notes);
+  return `https://github.com/danielspils/JP-Patches-App/issues/new?${params.toString()}`;
+}
+
+// Confirm step (decided 2026-06-10): name / hometown / notes, then the
+// actual lend commit. Name + hometown prefill from prefs so repeat
+// lenders type them once. Reuses the seq-save modal field primitives.
+function showLendConfirmModal(kind, item, displayName, onOpened) {
+  const isTones = kind === 'tones';
+  const prefs = lendingPrefs();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal seq-save-modal has-subtitle';
+
+  const h = document.createElement('h2');
+  h.className = 'modal-title';
+  h.textContent = 'Lend to the library';
+  const sub = document.createElement('div');
+  sub.className = 'modal-subtitle';
+  sub.textContent = displayName;
+
+  const body = document.createElement('p');
+  body.className = 'modal-body';
+  body.textContent =
+    'Lending opens a pre-filled request on GitHub. Your ' +
+    (isTones ? "package's" : "sequence's") + ' JSON is copied to the ' +
+    'clipboard — paste it into the JSON field there and submit. ' +
+    'Requests are reviewed before they appear in the lending library.';
+
+  const mkField = (labelText, value, placeholder) => {
+    const sec = document.createElement('div');
+    sec.className = 'seq-modal-section';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'seq-modal-name';
+    input.maxLength = 80;
+    input.spellcheck = false;
+    input.autocomplete = 'off';
+    input.value = value || '';
+    input.placeholder = placeholder;
+    sec.appendChild(label);
+    sec.appendChild(input);
+    return { sec, input };
+  };
+  const nameF     = mkField('NAME:', prefs.name, 'J.P. Patches');
+  const hometownF = mkField('HOMETOWN:', prefs.hometown, 'Anchorage, AK');
+  const notesF    = mkField('NOTES:', '', "e.g. Snail sounds and '80s pads");
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'modal-btn modal-btn-cancel';
+  cancelBtn.textContent = 'Cancel';
+  const lendBtn = document.createElement('button');
+  lendBtn.className = 'modal-btn modal-btn-confirm';
+  lendBtn.textContent = 'Open lending request';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(lendBtn);
+
+  modal.appendChild(h);
+  modal.appendChild(sub);
+  modal.appendChild(body);
+  modal.appendChild(nameF.sec);
+  modal.appendChild(hometownF.sec);
+  modal.appendChild(notesF.sec);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  nameF.input.focus();
+
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  cancelBtn.addEventListener('click', close);
+
+  lendBtn.addEventListener('click', async () => {
+    const name = nameF.input.value.trim();
+    if (!name) { nameF.input.focus(); return; }   // author is required by the issue form
+    const hometown = hometownF.input.value.trim();
+    const notes    = notesF.input.value.trim();
+    // Remember name + hometown for next time; notes are per-lend.
+    const prefsNow = lendingPrefs();
+    prefsNow.name = name;
+    prefsNow.hometown = hometown;
+    saveLibraryDebounced();
+
+    const payload = JSON.stringify(buildLendPayload(kind, item), null, 2);
+    try {
+      await navigator.clipboard.writeText(payload);
+    } catch {
+      showImportError(
+        'Could not copy the JSON to the clipboard. Use the download icon ' +
+        'on the library row instead, then attach the file to the GitHub request.');
+    }
+    window.api.openExternal(buildLendIssueUrl(kind, displayName, name, hometown, notes));
+    close();
+    if (typeof onOpened === 'function') onOpened();
+  });
+}
+
+// The lend half of the explore modal: consent checkboxes gate Roland-
+// blue lend buttons over the user's OWN library items (mockup design,
+// docs/future-features.md → Modal design v1). Consent persists after
+// the first acceptance; thereafter a one-line fine print stands in.
+function buildLendSection(kind) {
+  const isTones = kind === 'tones';
+  const section = document.createElement('div');
+  section.className = 'lend-section';
+
+  const title = document.createElement('div');
+  title.className = 'lend-section-title';
+  title.textContent = isTones ? 'Lend your tones' : 'Lend your sequences';
+  section.appendChild(title);
+
+  const items = isTones
+    ? (Array.isArray(library.packages) ? library.packages : [])
+    : (Array.isArray(library.sequences) ? library.sequences : []);
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'lend-status';
+    empty.textContent = isTones
+      ? 'No packages in your library yet — save your active C/D banks first.'
+      : 'No sequences in your library yet.';
+    section.appendChild(empty);
+    return section;
+  }
+
+  const prefs = lendingPrefs();
+  const lendBtns = [];
+  const setEnabled = (on) => lendBtns.forEach((b) => { b.disabled = !on; });
+
+  if (prefs.consented) {
+    const fine = document.createElement('div');
+    fine.className = 'lend-status';
+    fine.textContent = 'Your own work only — anybody can download and use it.';
+    section.appendChild(fine);
+  } else {
+    // Both boxes must be checked before any lend button activates;
+    // acceptance persists (library.lending.consented) so this is a
+    // one-time gate, not a per-session ritual.
+    const consentWrap = document.createElement('div');
+    consentWrap.className = 'lend-consent';
+    const boxes = [];
+    const mkConsent = (text) => {
+      const label = document.createElement('label');
+      label.className = 'lend-consent-row';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      boxes.push(box);
+      box.addEventListener('change', () => {
+        const both = boxes.every((b) => b.checked);
+        setEnabled(both);
+        if (both) {
+          lendingPrefs().consented = true;
+          saveLibraryDebounced();
+        }
+      });
+      label.appendChild(box);
+      label.appendChild(document.createTextNode(text));
+      return label;
+    };
+    consentWrap.appendChild(mkConsent(
+      isTones ? "I am lending my own tones (no one else's)"
+              : "I am lending my own sequences (no one else's)"));
+    consentWrap.appendChild(mkConsent(
+      isTones ? 'anybody can download and use these tones'
+              : 'anybody can download and use these sequences'));
+    section.appendChild(consentWrap);
+  }
+
+  const list = document.createElement('div');
+  list.className = 'lend-own-list';
+  items.forEach((item) => {
+    const displayName = item.customName || item.defaultName || '(unnamed)';
+    const row = document.createElement('div');
+    row.className = 'lend-row';
+    const main = document.createElement('div');
+    main.className = 'lend-row-main';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'lend-row-name';
+    nameEl.textContent = displayName;
+    main.appendChild(nameEl);
+    const when = relativeTime(item.savedAt);
+    if (when) {
+      const byline = document.createElement('div');
+      byline.className = 'lend-row-byline';
+      byline.textContent = when;
+      main.appendChild(byline);
+    }
+    row.appendChild(main);
+
+    const btn = document.createElement('button');
+    btn.className = 'modal-btn modal-btn-alt lend-borrow-btn';   // Roland blue = lend
+    btn.type = 'button';
+    btn.textContent = 'lend';
+    btn.disabled = !prefs.consented;
+    btn.addEventListener('click', () => {
+      showLendConfirmModal(kind, item, displayName, () => {
+        btn.textContent = 'request opened';
+        btn.disabled = true;   // session-only state; relay version will track for real
+      });
+    });
+    lendBtns.push(btn);
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+  section.appendChild(list);
+  return section;
+}
+
 async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
   const isTones = kind === 'tones';
 
@@ -3973,6 +4231,7 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
 
   modal.appendChild(h);
   modal.appendChild(listEl);
+  modal.appendChild(buildLendSection(kind));
   modal.appendChild(footer);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
