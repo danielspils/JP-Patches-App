@@ -5554,13 +5554,14 @@ function lendingInfoLines(item) {
   const l = item && item.lending;
   if (!l || !l.submittedAt) return [];
   const lines = [];
+  if (l.author) lines.push(`**Created by:** ${l.author}`);
+  if (l.hometown) lines.push(`**Hometown:** ${l.hometown}`);
+  // Lent-to-library details come last (same ordering as Patch History).
   const when = infoDate(l.submittedAt);
   if (when) lines.push(`**Lent to library:** ${when}`);
   // Only when it went out under a different name than the row shows.
   const display = (item.customName || item.defaultName || '').trim();
   if (l.lendName && l.lendName !== display) lines.push(`**Lent as:** *${l.lendName}*`);
-  if (l.author) lines.push(`**Created by:** ${l.author}`);
-  if (l.hometown) lines.push(`**Hometown:** ${l.hometown}`);
   if (l.notes) lines.push(`**Lend notes:** ${l.notes}`);
   return lines;
 }
