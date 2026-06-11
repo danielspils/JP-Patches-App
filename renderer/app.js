@@ -4147,9 +4147,13 @@ function buildLendSection(kind) {
   title.textContent = isTones ? 'Lend your tones' : 'Lend your sequences';
   section.appendChild(title);
 
-  const items = isTones
+  const all = isTones
     ? (Array.isArray(library.packages) ? library.packages : [])
     : (Array.isArray(library.sequences) ? library.sequences : []);
+  // Borrowed copies are someone else's work — the consent checkbox
+  // ("my own, no one else's") rules them out, so don't offer a lend
+  // button that the auto-publish dedup would bounce anyway.
+  const items = all.filter((item) => !item.borrowed);
   if (items.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'lend-status';
@@ -4309,8 +4313,10 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
 
   modal.appendChild(h);
   modal.appendChild(listEl);
-  modal.appendChild(buildLendSection(kind));
+  // The site link sits right under the borrow list — that's the moment
+  // users want more than 3 entries — with the lend section after.
   modal.appendChild(footer);
+  modal.appendChild(buildLendSection(kind));
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
