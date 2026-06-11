@@ -5637,8 +5637,11 @@ function showPackageInfo(idx) {
     lines.push(`**Patches drawn from:** ${rollup}`);
   }
 
-  if (pkg.savedAt) {
-    const d = new Date(pkg.savedAt);
+  // Same createdAt-over-savedAt preference as the sequence info modal —
+  // savedAt resets every time a copy lands (e.g. on borrow).
+  const pkgCreated = pkg.createdAt || pkg.savedAt;
+  if (pkgCreated) {
+    const d = new Date(pkgCreated);
     if (!Number.isNaN(d.getTime())) {
       const formatted = d.toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
@@ -5680,8 +5683,12 @@ function showSequenceInfo(idx) {
   const lines = [`**Paired patch:** ${where} / ${pName}`];
   lines.push('');
   lines.push(`**Notes:** ${note || '(none)'}`);
-  if (seq.savedAt) {
-    const d = new Date(seq.savedAt);
+  // createdAt preserves the ORIGINAL creation date across lend/borrow
+  // round trips (it travels in _sequenceMeta); savedAt is when this
+  // copy landed in this library. Prefer the original.
+  const seqCreated = seq.createdAt || seq.savedAt;
+  if (seqCreated) {
+    const d = new Date(seqCreated);
     if (!Number.isNaN(d.getTime())) {
       const formatted = d.toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
