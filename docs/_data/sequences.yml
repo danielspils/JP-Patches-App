@@ -16,18 +16,6 @@
   audio_preview: null
   token_hash: fb6d3a64b76574cd719c41df69daac5e8da987dcedcf9c863838b986e27755ca
 
-- id: spils-sequence
-  name: 'Spils Sequence'
-  author: 'Daniel Spils'
-  hometown: 'Anchorage, AK'
-  description: 'Watch me making this sequence at the bottom of the JX-3P homepage.'
-  added: 2026-06-11
-  file: /library/sequences/spils-sequence.json
-  size_bytes: 13954
-  tags: []
-  audio_preview: null
-  token_hash: d95df746d77d03fba3ebc4ff60a23925f1cfd4a3ff79238c64e5b4a1389f5005
-
 - id: friday-morning
   name: 'Friday Morning'
   author: 'Daniel Spils'
