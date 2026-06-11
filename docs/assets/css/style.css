@@ -1046,7 +1046,8 @@ body {
 .lend-howto-caption {
   display: block;
   margin: -14px 0 22px;
-  font-size: 13px;
+  text-align: center;            /* centered under the image (Daniel) */
+  font-size: 11px;
   font-style: italic;
   color: var(--body-text-mid);
 }
