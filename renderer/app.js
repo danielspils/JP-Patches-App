@@ -5654,7 +5654,7 @@ function showPackageInfo(idx) {
   lines.push(...lendingInfoLines(pkg));
 
   showConfirmModal({
-    title: 'Package info',
+    title: 'Package Info',
     subtitle: pkgName,
     body: lines.join('\n\n'),
     confirmLabel: 'Close',
@@ -5700,7 +5700,7 @@ function showSequenceInfo(idx) {
   lines.push(...lendingInfoLines(seq));
 
   showConfirmModal({
-    title: 'Sequence info',
+    title: 'Sequence Info',
     subtitle: seqName,
     body: lines.join('\n\n'),
     confirmLabel: 'Close',
