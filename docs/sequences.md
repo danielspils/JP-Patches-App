@@ -62,9 +62,6 @@ JP Patches (hover the sequence row → click the download icon), then:
   <div class="lend-form-status" role="status"></div>
 </form>
 
-<p class="lend-form-fallback">Prefer GitHub? You can also
-<a href="https://github.com/danielspils/JP-Patches-App/issues/new?template=share-sequence.yml">open a lending request</a> there.</p>
-
 Sequences are reviewed before they appear above — your own work only,
 free for anybody to use. (In-app lending works too: Library → Sequences →
 *explore the user lending library*.)

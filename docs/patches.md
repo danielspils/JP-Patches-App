@@ -63,9 +63,6 @@ JP Patches (hover the library package → click the download icon), then:
   <div class="lend-form-status" role="status"></div>
 </form>
 
-<p class="lend-form-fallback">Prefer GitHub? You can also
-<a href="https://github.com/danielspils/JP-Patches-App/issues/new?template=share-tones.yml">open a lending request</a> there.</p>
-
 Banks are reviewed before they appear above — your own work only, free
 for anybody to use. (In-app lending works too: Library → Tones →
 *explore the user lending library*.)
