@@ -4213,6 +4213,9 @@ function buildLendSection(kind) {
     const renderLendState = () => {
       const submitted = !!(item.lending && item.lending.submittedAt);
       btn.textContent = submitted ? 'submitted' : 'lend';
+      // Roland green once it's in the library, blue while lendable.
+      btn.classList.toggle('modal-btn-confirm', submitted);
+      btn.classList.toggle('modal-btn-alt', !submitted);
       btn.disabled = false;
     };
     renderLendState();
