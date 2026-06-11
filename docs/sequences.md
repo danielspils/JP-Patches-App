@@ -48,8 +48,8 @@ Your sequence travels with its paired patch automatically, so borrowers
 hear it with the sound you intended.
 
 Your sequence appears on this page (and in everyone's app) within a
-couple of minutes. Change your mind? Click **submitted** in the app to
-remove it. Your own work only — anybody can download and use what you
+couple of minutes. Change your mind? Click the **submitted** button in the app to
+remove it for future users. Your own work only — anybody can download and use what you
 lend.
 
 Looking for patch banks instead? [Community Patches](/patches/).
