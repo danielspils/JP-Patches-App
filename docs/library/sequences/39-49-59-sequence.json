@@ -1,0 +1,371 @@
+{
+  "format_version": "1.0",
+  "kind": "sequence",
+  "pages": [
+    [
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          {
+            "note": 82,
+            "tied": false
+          },
+          {
+            "note": 75,
+            "tied": false
+          },
+          {
+            "note": 87,
+            "tied": false
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          {
+            "note": 82,
+            "tied": true
+          },
+          {
+            "note": 75,
+            "tied": true
+          },
+          {
+            "note": 87,
+            "tied": true
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 72,
+            "tied": false
+          },
+          {
+            "note": 85,
+            "tied": false
+          },
+          {
+            "note": 80,
+            "tied": false
+          },
+          {
+            "note": 73,
+            "tied": false
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 68,
+            "tied": false
+          },
+          {
+            "note": 85,
+            "tied": true
+          },
+          {
+            "note": 80,
+            "tied": true
+          },
+          {
+            "note": 73,
+            "tied": true
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          {
+            "note": 82,
+            "tied": false
+          },
+          {
+            "note": 87,
+            "tied": false
+          },
+          {
+            "note": 75,
+            "tied": false
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 66,
+            "tied": false
+          },
+          {
+            "note": 82,
+            "tied": true
+          },
+          {
+            "note": 87,
+            "tied": true
+          },
+          {
+            "note": 75,
+            "tied": true
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 72,
+            "tied": false
+          },
+          {
+            "note": 80,
+            "tied": false
+          },
+          {
+            "note": 73,
+            "tied": false
+          },
+          {
+            "note": 85,
+            "tied": false
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 68,
+            "tied": false
+          },
+          {
+            "note": 80,
+            "tied": true
+          },
+          {
+            "note": 73,
+            "tied": true
+          },
+          {
+            "note": 85,
+            "tied": true
+          },
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      }
+    ],
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "_sequenceMeta": {
+    "customName": "39, 49, 59 sequence",
+    "pairedPatch": {
+      "bank": "C",
+      "slot": 0,
+      "params": {
+        "dco1_range": "16'",
+        "dco1_waveform": "saw",
+        "dco1_fmod_lfo": true,
+        "dco1_fmod_env": true,
+        "dco2_range": "16'",
+        "dco2_waveform": "square",
+        "dco2_crossmod": "sync",
+        "dco2_tune": 111,
+        "dco2_fine_tune": 158,
+        "dco2_fmod_lfo": true,
+        "dco2_fmod_env": false,
+        "dco_lfo_amount": 0,
+        "dco_env_amount": 0,
+        "dco_env_polarity": "pos",
+        "vcf_mix": 115,
+        "vcf_hpf": 0,
+        "vcf_cutoff": 135,
+        "vcf_lfo_mod": 56,
+        "vcf_pitch_follow": 54,
+        "vcf_resonance": 115,
+        "vcf_env_mod": 98,
+        "vcf_env_polarity": "pos",
+        "vca_mode": "env",
+        "vca_level": 184,
+        "chorus": true,
+        "lfo_waveform": "sine",
+        "lfo_delay": 0,
+        "lfo_rate": 0,
+        "env_attack": 0,
+        "env_decay": 63,
+        "env_sustain": 60,
+        "env_release": 59,
+        "mystery": 0
+      },
+      "patchName": "BassBell Seq1",
+      "sourceLibrary": "Espen Kraft Roland JX3P New Patches"
+    }
+  }
+}

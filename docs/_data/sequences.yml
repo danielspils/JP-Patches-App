@@ -52,3 +52,15 @@
   tags: []
   audio_preview: null
   token_hash: 5b6dbd96515fddd75977858f43124174f3ffbf0aa524a6d192605f404f024320
+
+- id: 39-49-59-sequence
+  name: '39, 49, 59 sequence'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'I play acoustic piano chords over this sequence as it repeats.'
+  added: 2026-06-11
+  file: /library/sequences/39-49-59-sequence.json
+  size_bytes: 6554
+  tags: []
+  audio_preview: null
+  token_hash: 3d3085f3068160db04a94676fa9a27c9788c83db30fea866b053fc96d9dd024a
