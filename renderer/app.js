@@ -3917,8 +3917,16 @@ function buildLendRow(entry, isTones) {
     try {
       const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name, entry.id);
       if (!dl || !dl.ok) throw new Error((dl && dl.error) || 'download failed');
-      if (isTones) await handleTonesDropImport(dl.path);
-      else         await handleSequenceDropImport(dl.path, { direct: true });
+      // Provenance marker, persisted on the saved item — feeds the
+      // "Borrowed on / Lender" lines in the (i) info modals.
+      const borrowed = {
+        lender:     entry.author || '',
+        hometown:   entry.hometown || '',
+        entryId:    entry.id || '',
+        borrowedAt: new Date().toISOString(),
+      };
+      if (isTones) await handleTonesDropImport(dl.path, { borrowed });
+      else         await handleSequenceDropImport(dl.path, { direct: true, borrowed });
       btn.textContent = 'borrowed';
       btn.classList.remove('modal-btn-danger');
       btn.classList.add('modal-btn-confirm');   // green; stays disabled — it's in the library now
@@ -5547,6 +5555,22 @@ function lendingInfoLines(item) {
   return lines;
 }
 
+// Borrowed-from-the-lending-library lines for the same (i) modals.
+// item.borrowed = { lender, hometown, entryId, borrowedAt }, attached at
+// borrow time — doubles as the community marker on borrowed items.
+function borrowedInfoLines(item) {
+  const b = item && item.borrowed;
+  if (!b || !b.borrowedAt) return [];
+  const lines = [];
+  const d = new Date(b.borrowedAt);
+  if (!Number.isNaN(d.getTime())) {
+    lines.push(`**Borrowed on:** ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`);
+  }
+  const who = [b.lender, b.hometown].filter(Boolean).join(', ');
+  if (who) lines.push(`**Lender:** ${who}`);
+  return lines;
+}
+
 // Tones package (i) modal. Surfaces what the package already stores:
 // created date, loaded-vs-active status, named-patch summary, and the
 // provenance rollup (which libraries the patches were drawn from — the
@@ -5623,6 +5647,7 @@ function showPackageInfo(idx) {
     }
   }
 
+  lines.push(...borrowedInfoLines(pkg));
   lines.push(...lendingInfoLines(pkg));
 
   showConfirmModal({
@@ -5664,6 +5689,12 @@ function showSequenceInfo(idx) {
       lines.push('');
       lines.push(`**Created:** ${formatted}`);
     }
+  }
+
+  const borrowLines = borrowedInfoLines(seq);
+  if (borrowLines.length) {
+    lines.push('');
+    lines.push(...borrowLines.flatMap((l, i) => i ? ['', l] : [l]));
   }
 
   lines.push('');
@@ -8958,7 +8989,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
   guardAsync(startRecording(), 'Start recording');
 }
 
-function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '', sequenceMeta = null } = {}) {
+function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null, customName = '', sequenceMeta = null, borrowed = null } = {}) {
   if (!library) return;
   const now = new Date();
   // pairedPatch precedence: chunk wins (the original creator's intended
@@ -9002,6 +9033,7 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null
       patchNote: patchNote || '',
       pairedPatch,
     },
+    ...(borrowed ? { borrowed } : {}),
   };
   if (!Array.isArray(library.sequences)) library.sequences = [];
   library.sequences.unshift(entry);
@@ -11043,7 +11075,7 @@ async function handleDownloadSequence(idx) {
 // for unit-testability — see test/library-math.test.js). The UMD wrapper
 // attaches it to window, so the call site below picks it up as a global.
 
-async function handleSequenceDropImport(filePath, { direct = false } = {}) {
+async function handleSequenceDropImport(filePath, { direct = false, borrowed = null } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
@@ -11076,6 +11108,7 @@ async function handleSequenceDropImport(filePath, { direct = false } = {}) {
       defaultName: meta.customName || labelFromPath(filePath) || null,
       customName: '',
       sequenceMeta: meta,
+      borrowed,
     });
     return;
   }
@@ -11099,7 +11132,7 @@ async function handleSequenceDropImport(filePath, { direct = false } = {}) {
   });
 }
 
-async function handleTonesDropImport(filePath) {
+async function handleTonesDropImport(filePath, { borrowed = null } = {}) {
   const result = await window.api.tapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
@@ -11151,6 +11184,7 @@ async function handleTonesDropImport(filePath) {
     savedAt: now.toISOString(),
     banks,
     slotMeta,
+    ...(borrowed ? { borrowed } : {}),
   };
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);

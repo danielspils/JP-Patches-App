@@ -371,6 +371,7 @@ openExternal:            (url)       → shell.openExternal, allowlisted (GitHub
   "community": { /* June 10 — cached lending-library manifest {fetchedAt, manifest} for offline explore */ },
   "lending":   { /* June 10 — lender prefs {name, hometown}; consent deliberately NOT persisted */ },
   // packages[i].lending / sequences[i].lending — {token, submittedAt, issueUrl, lendName, author, hometown, notes}
+  // packages[i].borrowed / sequences[i].borrowed — {lender, hometown, entryId, borrowedAt} (set at borrow time; community marker + "Borrowed on / Lender" (i) lines)
   "record": {                 // v0.5.11 — Record-from-JX persistence
     "calibratedGain": {       // per-MediaDeviceInfo.deviceId
       "<deviceId>": { "label": "KT USB Audio (…)", "gain": 11.07, "calibratedAt": "ISO" }
