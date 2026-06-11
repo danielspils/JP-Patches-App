@@ -4130,12 +4130,12 @@ function buildLendSection(kind) {
     return section;
   }
 
-  const lendBtns = [];
-  const setEnabled = (on) => lendBtns.forEach((b) => { b.disabled = !on; });
-
-  // Both boxes must be checked before any lend button activates — and
-  // they reset on every modal open. Deliberately unpersisted: the
-  // re-check is the recurring reminder of what lending means.
+  // Progressive disclosure (Daniel, 2026-06-10): lending is a big
+  // concept for a new user, so the item list stays HIDDEN until both
+  // consent boxes are checked — the modal grows as the user's thinking
+  // progresses. Boxes reset on every modal open (deliberately
+  // unpersisted: the re-check is the recurring reminder of what
+  // lending means). Unchecking either box re-hides the list.
   const consentWrap = document.createElement('div');
   consentWrap.className = 'lend-consent';
   const boxes = [];
@@ -4146,7 +4146,7 @@ function buildLendSection(kind) {
     box.type = 'checkbox';
     boxes.push(box);
     box.addEventListener('change', () => {
-      setEnabled(boxes.every((b) => b.checked));
+      list.hidden = !boxes.every((b) => b.checked);
     });
     label.appendChild(box);
     label.appendChild(document.createTextNode(text));
@@ -4164,6 +4164,7 @@ function buildLendSection(kind) {
 
   const list = document.createElement('div');
   list.className = 'lend-own-list';
+  list.hidden = true;   // revealed by the consent checkboxes above
   items.forEach((item) => {
     const displayName = item.customName || item.defaultName || '(unnamed)';
     const row = document.createElement('div');
@@ -4194,15 +4195,15 @@ function buildLendSection(kind) {
       btn.textContent = 'submitted';
       btn.disabled = true;
     } else {
+      // Active blue from the moment it's visible — visibility itself is
+      // the consent gate now (the whole list hides until both boxes).
       btn.textContent = 'lend';
-      btn.disabled = true;   // unlocked by the consent checkboxes above
       btn.addEventListener('click', () => {
         showLendConfirmModal(kind, item, displayName, (label) => {
           btn.textContent = label || 'submitted';
           btn.disabled = true;
         });
       });
-      lendBtns.push(btn);   // only consent-gated buttons join the unlock set
     }
     row.appendChild(btn);
     list.appendChild(row);

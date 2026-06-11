@@ -355,9 +355,10 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 
 | Check | Expected | Result |
 |---|---|---|
-| Open explore modal → lend section lists YOUR packages/sequences | lend buttons **light grey** (disabled) until consent | |
-| Check both consent boxes | all lend buttons flip to Roland blue | |
-| Close + reopen the modal | consent boxes are UNCHECKED again (deliberately per-open) | |
+| Open explore modal → "Lend your tones/sequences" section | only the two consent checkboxes visible — **no item list yet** | |
+| Check both consent boxes | your packages/sequences list appears, lend buttons active Roland blue | |
+| Uncheck either box | the list hides again | |
+| Close + reopen the modal | consent boxes are UNCHECKED again, list hidden (deliberately per-open) | |
 | Click **lend** | "Lending Library submission" confirm: editable TONES/SEQUENCE YOU ARE LENDING (pre-filled), YOUR NAME / HOMETOWN / NOTES with *italic* placeholders | |
 | Submit with empty name | blocked — focus jumps to the empty field, nothing sent | |
 | Submit with all fields | button → "Submitting…" → modal closes → row button reads **submitted**; a `[Lend …]` issue appears in the GitHub queue with metadata + JSON payload | |
