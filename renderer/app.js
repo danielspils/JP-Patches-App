@@ -5599,6 +5599,9 @@ function showPackageInfo(idx) {
   // "differs in N slots" line read as a warning while communicating
   // nothing actionable (Daniel, 2026-06-10). Partial drift after
   // loading is already covered by the red modified-dot indicators.
+  // Loaded state renders as an italic second subheader line under the
+  // package name (was a body Status row — Daniel, 2026-06-11).
+  let loadedNote = '';
   if (pkg.banks && patches && Array.isArray(patches.banks)) {
     let matches = true;
     ['C', 'D'].forEach((bank, bankIdx) => {
@@ -5608,7 +5611,7 @@ function showPackageInfo(idx) {
         if (pkgFp !== actFp) { matches = false; return; }
       }
     });
-    if (matches) lines.push('**Status:** currently loaded in the active C/D banks');
+    if (matches) loadedNote = '\n*current active C/D banks*';
   }
 
   // Named patches + provenance rollup from the package's frozen slotMeta.
@@ -5656,7 +5659,7 @@ function showPackageInfo(idx) {
 
   showConfirmModal({
     title: 'Package Info',
-    subtitle: pkgName,
+    subtitle: pkgName + loadedNote,
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
