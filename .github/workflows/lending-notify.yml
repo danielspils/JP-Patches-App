@@ -1,0 +1,33 @@
+# Lending-library submission notification.
+#
+# Every relay-filed lending request is authored by Daniel's own PAT —
+# and GitHub never notifies you about your own activity, so submissions
+# (including other users') would land silently. This workflow has the
+# Actions bot @mention Daniel on every community-labeled issue; mentions
+# from another actor DO trigger email/notifications.
+#
+# Fires fine on relay-created issues: the skip-recursive-workflows rule
+# only applies to events caused by the workflow GITHUB_TOKEN, and the
+# relay uses a PAT.
+name: Lending submission notification
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  notify:
+    if: contains(join(github.event.issue.labels.*.name, ','), 'community-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the curator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue comment "$NUMBER" --repo "$REPO" --body \
+            "@danielspils — new lending-library submission to review. (Automated curator ping.)"
