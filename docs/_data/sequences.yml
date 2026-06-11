@@ -64,3 +64,15 @@
   tags: []
   audio_preview: null
   token_hash: 3d3085f3068160db04a94676fa9a27c9788c83db30fea866b053fc96d9dd024a
+
+- id: espen-d6-sequence
+  name: 'Espen D6 sequence'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'I used Espen Kraft''s patch D6 as inspriration for this sequence.'
+  added: 2026-06-11
+  file: /library/sequences/espen-d6-sequence.json
+  size_bytes: 6437
+  tags: []
+  audio_preview: null
+  token_hash: cd6325c6ea15990a00a18246d06466d73bb0f449bc3a2734bc3ff43a763577a9
