@@ -5657,7 +5657,7 @@ function showPackageInfo(idx) {
   showConfirmModal({
     title: 'Package Info',
     subtitle: pkgName,
-    body: lines.join('\n\n'),
+    body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
@@ -5703,7 +5703,7 @@ function showSequenceInfo(idx) {
   showConfirmModal({
     title: 'Sequence Info',
     subtitle: seqName,
-    body: lines.join('\n\n'),
+    body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
