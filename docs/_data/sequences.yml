@@ -4,3 +4,15 @@
 # there). Drives the /sequences/ page and the /library/index.json
 # manifest.
 
+
+- id: david-nixon-s-first-sequence
+  name: 'David Nixon''s First Sequence!'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'David came over and we created this sequence to try out JP Patches.'
+  added: 2026-06-11
+  file: /library/sequences/david-nixon-s-first-sequence.json
+  size_bytes: 4958
+  tags: []
+  audio_preview: null
+  token_hash: 3ceeb28d880d4b973b471df7eff9454d08ba11cf3590b33304d4f53788197a05
