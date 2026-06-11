@@ -217,3 +217,90 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (images.length > 1 && e.key === 'ArrowRight') showAt(currentIndex + 1);
   });
 });
+
+/* ── Lending form (/patches/ + /sequences/) ──────────────────────────
+   Posts directly to the lending relay (lend.jx-3p.com — the same
+   Cloudflare Worker the app uses), so web lenders skip the GitHub
+   form entirely. Consent checkboxes gate the submit button; the
+   payload .json (exported from JP Patches via the download icon) is
+   read client-side, sanity-checked, and shipped with the metadata.
+   Reviewed-before-publish semantics are identical to in-app lending. */
+(function () {
+  var RELAY = 'https://lend.jx-3p.com/lend';
+
+  document.querySelectorAll('.lend-form').forEach(function (form) {
+    var kind = form.getAttribute('data-kind') === 'sequences' ? 'sequences' : 'tones';
+    var boxes = form.querySelectorAll('.lend-consent-box');
+    var submit = form.querySelector('.lend-form-submit');
+    var status = form.querySelector('.lend-form-status');
+
+    var setStatus = function (msg, cls) {
+      status.textContent = msg;
+      status.className = 'lend-form-status' + (cls ? ' ' + cls : '');
+    };
+
+    boxes.forEach(function (box) {
+      box.addEventListener('change', function () {
+        var both = Array.prototype.every.call(boxes, function (b) { return b.checked; });
+        submit.disabled = !both;
+      });
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var lendName = form.lendName.value.trim();
+      var author   = form.author.value.trim();
+      var hometown = form.hometown.value.trim();
+      var notes    = form.notes.value.trim();
+      var file     = form.payload.files && form.payload.files[0];
+
+      if (!lendName) { setStatus('Give your ' + (kind === 'tones' ? 'patches' : 'sequence') + ' a name.', 'lend-err'); form.lendName.focus(); return; }
+      if (!file)     { setStatus('Choose the .json file exported from JP Patches.', 'lend-err'); return; }
+      if (!author)   { setStatus('Add your name — it appears in the catalog.', 'lend-err'); form.author.focus(); return; }
+
+      file.text().then(function (text) {
+        var payload;
+        try { payload = JSON.parse(text); } catch (_e) {
+          setStatus("That file isn't valid JSON — export it from JP Patches via the download icon.", 'lend-err');
+          return;
+        }
+        var shapeOk = payload && payload.format_version === '1.0' &&
+          (kind === 'tones' ? Array.isArray(payload.banks) : Array.isArray(payload.pages));
+        if (!shapeOk) {
+          setStatus("That JSON doesn't look like a " + (kind === 'tones' ? 'patches' : 'sequence') +
+            ' export — check you exported the right kind.', 'lend-err');
+          return;
+        }
+
+        submit.disabled = true;
+        submit.textContent = 'submitting…';
+        setStatus('', '');
+        var token = (window.crypto && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'tok-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+
+        fetch(RELAY, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            kind: kind, lendName: lendName, author: author,
+            hometown: hometown, notes: notes, token: token, payload: payload,
+          }),
+        }).then(function (res) { return res.json().catch(function () { return null; }); })
+          .then(function (data) {
+            if (data && data.ok) {
+              submit.textContent = 'submitted';
+              setStatus('Submitted for review — it appears above once approved. Thanks for lending!', 'lend-ok');
+            } else {
+              throw new Error((data && data.error) || 'submission failed');
+            }
+          })
+          .catch(function (err) {
+            submit.disabled = false;
+            submit.textContent = 'lend';
+            setStatus('Could not submit (' + err.message + ') — try again, or use the GitHub link below.', 'lend-err');
+          });
+      });
+    });
+  });
+})();

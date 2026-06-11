@@ -972,3 +972,78 @@ body {
   font-size: 15px;
   font-style: italic;
 }
+
+/* ── Lending form (/patches/ + /sequences/) ──────────────────────────
+   Direct-to-relay lend form. Body palette (white page); the submit is
+   the Roland-blue parallelogram — blue = lend, matching the app. */
+.lend-form {
+  margin: 24px 0 8px;
+  padding: 20px 22px;
+  border: 1px solid var(--body-border);
+  background: #fafafa;
+}
+.lend-form-row { margin-bottom: 14px; }
+.lend-form-row label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--body-text-mid);
+  margin-bottom: 4px;
+}
+.lend-form-row input[type="text"] {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--body-text);
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 0;
+}
+.lend-form-row input[type="text"]:focus {
+  outline: none;
+  border-color: var(--roland-blue);
+}
+.lend-form-row input[type="text"]::placeholder { font-style: italic; color: #9a9a9a; }
+.lend-form-row input[type="file"] { font-size: 14px; }
+.lend-form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--body-text-mid);
+}
+.lend-form-consent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--body-text-sec);
+  padding: 3px 0;
+  cursor: pointer;
+}
+.lend-form-consent input { accent-color: var(--roland-blue); cursor: pointer; }
+.lend-form-submit {
+  margin-top: 14px;
+  padding: 9px 34px;
+  background: var(--roland-blue);
+  color: var(--cream);
+  border: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+.lend-form-submit:hover:not(:disabled) { background: var(--roland-blue-hot); }
+.lend-form-submit:disabled {
+  background: #c8c4ba;
+  color: #8a7f70;
+  cursor: not-allowed;
+}
+.lend-form-status { margin-top: 10px; font-size: 14px; min-height: 1.2em; }
+.lend-form-status.lend-ok  { color: var(--roland-green); font-weight: 600; }
+.lend-form-status.lend-err { color: var(--roland-red); }
+.lend-form-fallback { font-size: 14px; color: var(--body-text-mid); }
