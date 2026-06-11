@@ -5672,8 +5672,14 @@ function showSequenceInfo(idx) {
 
   const pp = (seq.app && seq.app.pairedPatch) || {};
   const note = (seq.app && seq.app.patchNote) || '';
-  const where = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '?';
-  const pName = pp.patchName || '(unnamed)';
+  // Lead with the patch NAME (its real identity — the params travel with
+  // it); fall back to the slot it occupied at pairing time only when
+  // unnamed. Append the source library when known: "Late Bloomer from
+  // Spils Sounds" / "D10 from Martin Crane DUMBO Sounds". Slot-only
+  // references go stale as banks load, so they're the last resort.
+  const ppLabel = pp.patchName
+    || (pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '');
+  const ppSource = (pp.sourceLibrary || '').replace(/\.(wav|json)$/i, '');
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
 
@@ -5681,7 +5687,9 @@ function showSequenceInfo(idx) {
   // 2026-06-11: "if no notes > don't show field. Same with other empty
   // fields."). Collect non-empty lines, then join with blank-line gaps.
   const lines = [];
-  if (pp.bank) lines.push(`**Paired patch:** ${where} / ${pName}`);
+  if (ppLabel) {
+    lines.push(`**Paired patch:** ${ppLabel}${ppSource ? ` from ${ppSource}` : ''}`);
+  }
   if (note) lines.push(`**Notes:** ${note}`);
   // createdAt preserves the ORIGINAL creation date across lend/borrow
   // round trips (it travels in _sequenceMeta); savedAt is when this
@@ -9003,6 +9011,10 @@ function saveSequenceEntry({ tapeData = null, patchNote = '', defaultName = null
       slot,
       params:    JSON.parse(JSON.stringify(activeBankPatch() || {})),
       patchName: patchName(bank, slot),
+      // Which library the patch came from — slot numbers go stale the
+      // moment another bank loads, so the (i) modal leads with
+      // "name from library" and only falls back to the slot.
+      sourceLibrary: patchOriginLibrary(bank, slot) || null,
     };
   }
   const entry = {
