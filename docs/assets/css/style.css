@@ -949,7 +949,7 @@ body {
   flex: none;
   display: inline-block;
   padding: 7px 22px;
-  background: var(--roland-red);
+  background: var(--roland-green);
   color: var(--cream);
   font-size: 14px;
   font-weight: 600;
@@ -958,7 +958,7 @@ body {
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
 .site-content a.community-borrow:hover {
-  background: var(--roland-red-hot);
+  background: var(--roland-green-hot);
   color: var(--cream);
 }
 .community-entry-byline {
@@ -1061,22 +1061,35 @@ body {
 .community-heart {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   background: none;
   border: none;
-  padding: 4px 2px;
+  /* Kill the native button chrome — without this Safari draws its own
+     pill/border around the glyph. */
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 0;
+  padding: 0 2px;
   font: inherit;
-  font-size: 20px;
+  font-size: 40px;
   line-height: 1;
-  color: #c9c4ba;                 /* unhearted: quiet warm grey */
+  /* Unhearted = outline heart: white fill + warm-grey stroke. Clicking
+     fills it Roland red. */
+  color: #ffffff;
+  -webkit-text-stroke: 1.5px #b0a99a;
   cursor: pointer;
-  transition: color 0.12s, transform 0.08s;
+  transition: color 0.12s, -webkit-text-stroke-color 0.12s, transform 0.08s;
 }
-.community-heart:hover:not(.hearted) { color: var(--roland-red-hot); }
-.community-heart:active:not(.hearted) { transform: scale(1.15); }
-.community-heart.hearted { color: var(--roland-red); cursor: default; }
+.community-heart:hover:not(.hearted) { -webkit-text-stroke-color: var(--roland-red-hot); }
+.community-heart:active:not(.hearted) { transform: scale(1.1); }
+.community-heart.hearted {
+  color: var(--roland-red);
+  -webkit-text-stroke: 1.5px var(--roland-red);
+  cursor: default;
+}
 .community-heart-count {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--body-text-mid);
+  -webkit-text-stroke: 0;        /* count digits stay solid, not outlined */
 }
