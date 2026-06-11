@@ -40,3 +40,15 @@
   size_bytes: 37007
   tags: []
   audio_preview: null
+
+- id: withdraw-lifecycle-test
+  name: 'Withdraw lifecycle test'
+  author: 'Daniel (lifecycle test)'
+  hometown: ''
+  description: 'Publish-then-withdraw robot test.'
+  added: 2026-06-11
+  file: /library/patches/withdraw-lifecycle-test.json
+  size_bytes: 34429
+  tags: []
+  audio_preview: null
+  token_hash: f1318d3a8c49e58ae399ad3f6090abf5d4c5ec43faf8e4a4ce2d35f57688564c
