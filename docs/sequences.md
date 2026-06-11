@@ -40,10 +40,10 @@ Lending happens right inside JP Patches — no account, no upload, no form:
 2. Check the two lending boxes
 3. Click **lend** next to your sequence, add your name and notes, and submit
 
-The flow looks just like lending tones (shown below for the Tones tab —
-Sequences works the same way, paired patch included automatically):
+<img class="lend-howto-shot" src="/screenshots/jx-lend-sequences-from-app.png" alt="Lending a sequence from inside JP Patches — the Sequences tab's explore button opens the lending modal; checking the two consent boxes reveals lend buttons next to your sequences">
 
-<img class="lend-howto-shot" src="/screenshots/jx-lend-from-app.png" alt="Lending from inside JP Patches — the Library tab's explore button opens the lending modal; checking the two consent boxes reveals lend buttons">
+Your sequence travels with its paired patch automatically, so borrowers
+hear it with the sound you intended.
 
 Your sequence appears on this page (and in everyone's app) within a
 couple of minutes. Change your mind? Click **submitted** in the app to
