@@ -5577,10 +5577,14 @@ function borrowedInfoLines(item) {
   const b = item && item.borrowed;
   if (!b || !b.borrowedAt) return [];
   const lines = [];
+  // "Created by", not "Lender" — the consent checkbox makes every
+  // submission an explicit own-work claim, so the lender IS the
+  // creator, and one label serves both sides (Daniel, 2026-06-11).
+  // Person rows first, transaction rows after — lend-side convention.
+  if (b.lender) lines.push(`**Created by:** ${b.lender}`);
+  if (b.hometown) lines.push(`**Hometown:** ${b.hometown}`);
   const when = infoDate(b.borrowedAt);
   if (when) lines.push(`**Borrowed on:** ${when}`);
-  if (b.lender) lines.push(`**Lender:** ${b.lender}`);
-  if (b.hometown) lines.push(`**Hometown:** ${b.hometown}`);
   if (b.notes) lines.push(`**Lend notes:** ${b.notes}`);
   return lines;
 }
@@ -5672,14 +5676,14 @@ function showSequenceInfo(idx) {
 
   const pp = (seq.app && seq.app.pairedPatch) || {};
   const note = (seq.app && seq.app.patchNote) || '';
-  // Lead with the patch NAME (its real identity — the params travel with
-  // it); fall back to the slot it occupied at pairing time only when
-  // unnamed. Append the source library when known: "Late Bloomer from
-  // Spils Sounds" / "D10 from Martin Crane DUMBO Sounds". Slot-only
-  // references go stale as banks load, so they're the last resort.
-  const ppLabel = pp.patchName
-    || (pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '');
+  // Slash-separated provenance: slot at pairing time / name / source
+  // library — each part skipped when unknown ("C1 / Square Pants /
+  // Spils Sounds", Daniel 2026-06-11).
+  const ppParts = [];
+  if (pp.bank) ppParts.push(`${pp.bank}${(pp.slot || 0) + 1}`);
+  if (pp.patchName) ppParts.push(pp.patchName);
   const ppSource = (pp.sourceLibrary || '').replace(/\.(wav|json)$/i, '');
+  if (ppSource) ppParts.push(ppSource);
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
 
@@ -5687,9 +5691,7 @@ function showSequenceInfo(idx) {
   // 2026-06-11: "if no notes > don't show field. Same with other empty
   // fields."). Collect non-empty lines, then join with blank-line gaps.
   const lines = [];
-  if (ppLabel) {
-    lines.push(`**Paired patch:** ${ppLabel}${ppSource ? ` from ${ppSource}` : ''}`);
-  }
+  if (ppParts.length) lines.push(`**Paired patch:** ${ppParts.join(' / ')}`);
   if (note) lines.push(`**Notes:** ${note}`);
   // createdAt preserves the ORIGINAL creation date across lend/borrow
   // round trips (it travels in _sequenceMeta); savedAt is when this
