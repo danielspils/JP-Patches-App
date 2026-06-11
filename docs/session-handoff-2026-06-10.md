@@ -26,7 +26,18 @@ Tests: 423 → **438** (remap, latestLendingEntries, lending URL/payload, catalo
 - **Secret `GITHUB_TOKEN`** on the Worker: Daniel's fine-grained PAT (`jp-patches-lend-relay`, repo-scoped to JP-Patches-App, Issues read+write only). **Expires ~June 2027** — renewal = new PAT on github.com + `npx wrangler secret put GITHUB_TOKEN` (no redeploy needed). Token never touches repo/app/chat.
 - **KV namespace `HEARTS`** (id in wrangler.toml): `c:<id>` counts + `h:<id>:<salted-ip-hash>` dedupe markers. Increments non-atomic by accepted design.
 
-## The curation workflow (Daniel's recurring job)
+## ~~The curation workflow (Daniel's recurring job)~~ — SUPERSEDED June 11
+
+> **Submissions auto-publish now** (Daniel: "Why do I need to review the submissions?").
+> `.github/workflows/lending-publish.yml` + `scripts/publish-lend.mjs` validate, dedupe
+> (content hash of banks/pages), gate on the catalog test, commit, and close with a
+> receipt — live in ~3 min. Doubtful submissions get `needs-review` and stay open.
+> Withdraw shipped too (in-app **submitted** button → token-hash-matched removal via
+> `lending-withdraw.yml`). Post-moderation: email ping (lending-notify.yml) +
+> `scripts/remove-lend.sh <id>`. Pure logic in `scripts/lend-publish-lib.mjs`
+> (unit-tested in `test/lend-publish-lib.test.js`). See CLAUDE.md → User Lending Library.
+
+The original manual flow, for the record:
 
 1. Email arrives (Actions bot @mention) → open the `[Lend …]` issue.
 2. Review: own work? reasonable content? Payload JSON is in the issue body.
@@ -36,7 +47,7 @@ Tests: 423 → **438** (remap, latestLendingEntries, lending URL/payload, catalo
 ## Open threads / next moves (pickup-ready)
 
 1. **v0.8.0 release** — the natural cut for all of today. Needs: release notes (user-facing voice; this is a marquee feature), full smoke run incl. §8a, `./scripts/release.sh 0.8.0`. Issue #2 should probably be curated first so the catalog has a real second entry at launch.
-2. **Withdraw endpoint** — `item.lending.token` is persisted and embedded in each issue (`<!-- lend-token: … -->`) for exactly this; Worker endpoint + "submitted → withdraw" button not built.
+2. ~~**Withdraw endpoint**~~ — ✅ built June 11: `/withdraw` on the Worker + author-gated `lending-withdraw.yml`; in-app **submitted** (now Roland green) → "Remove from Lending Library" confirm, works for patches AND sequences.
 3. **Community markers on borrow** — borrowed items aren't tagged, so they appear in the user's own lend list (honor-system consent is the only guard) and re-borrowing creates duplicates (no "borrow anyway?" conflict prompt — spec'd in future-features).
 4. **Hearts in-app giving?** Display-only in-app today (IP dedupe misbehaves behind shared NAT). Revisit if requested.
 5. **Parked UI experiment**: align the green explore button with the PG-200's red bottom border (Daniel asked, then redirected to QA — never built).
@@ -46,7 +57,7 @@ Tests: 423 → **438** (remap, latestLendingEntries, lending URL/payload, catalo
 ## Decisions log (today's verbal/design calls)
 
 - **Terminology: borrow / lend** ("the user lending library") — everywhere.
-- **Curated queue** (not instant publish): lend = "submitted", Daniel reviews. Third button state reads **submitted**.
+- ~~**Curated queue** (not instant publish): lend = "submitted", Daniel reviews.~~ Reversed June 11 → auto-publish. Third button state reads **submitted** (Roland green) and doubles as the withdraw affordance.
 - **Consent checkboxes re-check on every modal open** — deliberately unpersisted.
 - **Explore modal caps at 3 latest** (was 10 in spec) — browse-at-scale lives on the site.
 - **Blue = lend, red = borrow** — and all green/blue UI now uses the two canonical hexes (`#1f6e5b` / `#33508f`) verified app-wide.

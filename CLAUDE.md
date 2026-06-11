@@ -18,7 +18,7 @@ This file is the cold-start summary. Pair it with:
 - **[`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md)** — authoritative design spec for Phases 1–4. Phase 2 has an "As-shipped summary" noting where the actual implementation diverged from the original design.
 - **[`docs/record-from-jx.md`](docs/record-from-jx.md)** — shipped-feature reference for in-app JX-3P tape capture + two-pass auto-calibration. The place to land when reading `showRecordFromJxModal` in `app.js`.
 - **[`docs/smoke-test.md`](docs/smoke-test.md)** — pre-release manual QA checklist (11 sections, ~50 individual checks). Run before publishing any release; catches integration issues unit tests can't.
-- **[`docs/session-handoff-2026-06-10.md`](docs/session-handoff-2026-06-10.md)** — most-recent session-end snapshot: the User Lending Library day (borrow/lend/relay/hearts), the new Cloudflare infrastructure Daniel owns, the curation workflow, open threads. **A fresh Claude session should read this right after CLAUDE.md.** Supersede with a newer dated doc as state moves on.
+- **[`docs/session-handoff-2026-06-10.md`](docs/session-handoff-2026-06-10.md)** — most-recent session-end snapshot: the User Lending Library day (borrow/lend/relay/hearts), the new Cloudflare infrastructure Daniel owns, open threads. **A fresh Claude session should read this right after CLAUDE.md.** Note: its manual-curation section is superseded — submissions auto-publish since June 11 (see the User Lending Library section below). Supersede with a newer dated doc as state moves on.
 - **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, app-level Undo/Redo, etc.).
 - **[`README.md`](README.md)** — end-user docs (install, first run, Tape Memory reference, Library, Custom Banks, Roadmap).
 - **GitHub Releases — [github.com/danielspils/JP-Patches-App/releases](https://github.com/danielspils/JP-Patches-App/releases)** — every shipped version has detailed user-facing release notes. The best chronological record of recent UX and behavior changes. `gh release list` and `gh api repos/danielspils/JP-Patches-App/releases --paginate -q '.[].body'` to pull locally.
@@ -31,7 +31,7 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
 - **Phase 3** ⏳ blocked — MIDI integration, deferred until the Series Circuits JX-3P MIDI Upgrade Kit is installed. CC map and architecture already drafted in the spec doc §Phase 3.
 - **Phase 4** 🚧 in progress — distribution. **Signed + notarized DMGs ship via `scripts/release.sh`** (Developer ID since May 29 — Gatekeeper-clean, auto-update working). Marketing/onboarding site lives at jx-3p.com.
-- **User Lending Library** ✅ built (June 10, UNRELEASED — next cut is the natural v0.8.0): borrow + lend in-app and on the site, backed by the `relay/` Cloudflare Worker at **lend.jx-3p.com** (Daniel's first hosted infra). See `docs/session-handoff-2026-06-10.md` for architecture + the curation workflow.
+- **User Lending Library** ✅ built (June 10–11, UNRELEASED — next cut is the natural v0.8.0): borrow + lend in-app, backed by the `relay/` Cloudflare Worker at **lend.jx-3p.com** (Daniel's first hosted infra). Fully automated end-to-end: submissions auto-publish (~3 min to live, strict validation + dedup, `needs-review` on doubt), withdraw via the in-app **submitted** button, hearts + borrow counts on the site, 5/day rate limit. Architecture in the "User Lending Library" section below; session narrative in `docs/session-handoff-2026-06-10.md` (its curation section is superseded by auto-publish).
 
 **System requirement**: macOS 12+ on **Apple Silicon (arm64) only**. Intel Macs are not supported by the published DMGs.
 
@@ -70,12 +70,20 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
 │   ├── RELEASE.md                release workflow + recovery doc (companion to scripts/release.sh)
 │   └── future-features.md        parking lot beyond the formal roadmap
 ├── relay/                        Cloudflare Worker — the lending relay at lend.jx-3p.com
-│   ├── worker.js                 POST /lend → GitHub issue; POST /heart + GET /hearts (KV)
+│   ├── worker.js                 POST /lend (→ GitHub issue, 5/IP/day) · /heart (toggle) · /borrow (deduped count) · /withdraw · GET /hearts — KV-backed
 │   ├── wrangler.toml             custom-domain route + HEARTS KV binding
 │   └── README.md                 deploy steps, PAT renewal, smoke test
 ├── scripts/
 │   ├── setup-vendor.sh           populates vendor/ before `npm run dist`
-│   └── release.sh                one-command release — bumps version, builds DMG, tags, ships GH release
+│   ├── release.sh                one-command release — bumps version, builds DMG, tags, ships GH release
+│   ├── lend-publish-lib.mjs      PURE lending-automation logic (validation, dedup hash, YAML quoting, withdraw matching) — the auto-publish trust boundary, unit-tested
+│   ├── publish-lend.mjs          auto-publish pipeline (runs in CI): issue → validate → dedup → catalog commit → close
+│   ├── withdraw-lend.mjs         withdraw pipeline (runs in CI): token-hash match → remove entry + payload → close
+│   └── remove-lend.sh            manual takedown by catalog id (post-moderation)
+├── .github/workflows/
+│   ├── lending-publish.yml       auto-publish on community-labeled issues (serialized via concurrency group)
+│   ├── lending-withdraw.yml      withdraw on community-withdraw issues — AUTHOR-GATED to repo owner (trust boundary)
+│   └── lending-notify.yml        @mentions Daniel per submission (own-PAT issues are silent — pitfall #23)
 ├── build/
 │   ├── icon.png                  1024×1024 source for the app icon
 │   └── entitlements.mac.plist    macOS hardened-runtime entitlements
@@ -108,7 +116,7 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
     │   └── patches.json          first-run active C/D banks
     └── assets/jp-logo.png        chrome JP logo embedded in panel
 
-test/                             438 unit tests across 16 pure-logic/consistency suites
+test/                             455 unit tests across 17 pure-logic/consistency suites
 ├── calibration-math.test.js
 ├── library-math.test.js
 ├── library-schema.test.js
@@ -122,7 +130,8 @@ test/                             438 unit tests across 16 pure-logic/consistenc
 ├── transmission-sounds.test.js  selector allowlist + cable-exclusion + degenerate input
 ├── audio-diagnostic.test.js     categorizer status branches + GitHub Issue URL builder
 ├── lending.test.js              lend payload shapes + issue-URL encoding edge cases
-└── community-catalog.test.js    docs/_data ↔ docs/library consistency (curation guard)
+├── lend-publish-lib.test.js     auto-publish trust boundary: payload validation, dedup hash, YAML-injection guard, withdraw matcher
+└── community-catalog.test.js    docs/_data ↔ docs/library consistency (also the CI gate inside auto-publish/withdraw)
 ```
 
 ## External runtime dependencies
@@ -233,11 +242,14 @@ Public-facing site for JP Patches, hosted on GitHub Pages from the `docs/` sourc
 - **Mobile layout** (`@media (max-width: 540px)`) drops the JX swoops, stripes, and panel button; logo + short subtitle only.
 - **Logo** is a transparent-cream redesign (1306×872 PNG) that lives at `renderer/assets/jp-logo.png` AND `docs/assets/img/jp-logo.png` — two copies because the panel embed references the renderer path and the site references the docs path. Update both together. Favicons (32, 192, apple-touch 180) are regenerated from the same source via `sips` center-crop → resize.
 
-### User Lending Library (June 10, unreleased)
+### User Lending Library (June 10–11, unreleased)
 - **Borrow**: Library sub-tab explore buttons (green Tones / blue Sequences) → modal with the 3 latest catalog entries → one-click borrow through the standard import path (names restore via embedded `_slotMeta`/`_sequenceMeta`). Manifest cached in `library.community` for offline.
 - **Lend**: per-open consent checkboxes gate blue lend buttons over the user's own items → confirm step (editable catalog name; YOUR NAME / HOMETOWN / NOTES — name+hometown persist in `library.lending`) → relay POST → persisted `item.lending` ("submitted" state, surfaced in the (i) info modals). Relay-down fallback: clipboard + pre-filled GitHub issue form.
 - **Relay**: `relay/` Cloudflare Worker at lend.jx-3p.com — files `community-*`-labeled GitHub issues with Daniel's PAT (users need no GitHub account); hearts endpoints on KV (one-per-IP salted-hash dedupe). CORS locked to jx-3p.com. A GitHub Action @mention-pings Daniel per submission (see pitfall #23).
-- **Site**: /patches/ + /sequences/ catalog pages (borrow buttons, lend form, hearts) driven by `docs/_data/*.yml`; `/library/index.json` manifest feeds the in-app modal. Curation = hand-edit YAML + drop payload file; `test/community-catalog.test.js` guards against typos.
+- **Auto-publish** (June 11 — replaced manual curation): `lending-publish.yml` runs on every community-labeled issue → strict payload validation + content-hash dedup (banks/pages only, so renames can't beat it) + catalog consistency test → commit + close with a receipt. Anything doubtful gets `needs-review` and stays open. Submit → live on site + in-app in ~3 min. Rate limit: 5 lends/IP/UTC-day ("Easy there, lender!" modal — no GitHub-form fallback, which would bypass it). Post-moderation: `scripts/remove-lend.sh <id>`.
+- **Withdraw**: clicking a (green) **submitted** button → "Remove from Lending Library" confirm → relay `/withdraw` hashes the item's secret `lending.token` → author-gated workflow matches the public `token_hash` in the catalog YAML and removes entry + payload. Only relay-filed (owner-authored) withdraw issues are processed — a stranger copying the public hash gets ignored.
+- **Hearts + borrows**: site hearts are toggle-able (outline → Roland red, one per visitor via salted-IP-hash markers in KV); borrow counts dedupe per IP and combine site + in-app downloads ("N borrows" on site, `♥ N · M borrows` bylines in the modal).
+- **Site**: /patches/ + /sequences/ catalog pages (green borrow buttons, hearts, borrow counts) driven by `docs/_data/*.yml`; `/library/index.json` manifest feeds the in-app modal. Lend forms were removed from the site — lending is in-app only, documented with screenshots + a 3-step walkthrough on both pages.
 
 ### Release automation (May 29)
 - **`scripts/release.sh`** — one-command release. Usage: `./scripts/release.sh 0.6.1`. Pre-flight checks (git/gh/npm installed, gh authenticated, on `main`, clean tree, in-sync with origin, release-notes file exists, tag not taken). Bumps `package.json` version + the `Status` line in `CLAUDE.md` with today's date. Runs `npm test`; aborts and rolls back the version bump on failure. Builds DMG via `npm run dist:unsigned`. Prompts for explicit confirmation before any push. Commits, tags (lightweight, matching the existing convention), pushes, creates the GitHub release with notes file + DMG + blockmap attached.

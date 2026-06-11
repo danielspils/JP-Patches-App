@@ -361,10 +361,33 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Close + reopen the modal | consent boxes are UNCHECKED again, list hidden (deliberately per-open) | |
 | Click **lend** | "Lending Library submission" confirm: editable TONES/SEQUENCE YOU ARE LENDING (pre-filled), YOUR NAME / HOMETOWN / NOTES with *italic* placeholders | |
 | Submit with empty name | blocked — focus jumps to the empty field, nothing sent | |
-| Submit with all fields | button → "Submitting…" → modal closes → row button reads **submitted**; a `[Lend …]` issue appears in the GitHub queue with metadata + JSON payload | |
+| Submit with all fields | button → "Submitting…" → modal closes → row button reads **submitted** in Roland **green** (lendable rows stay blue); a `[Lend …]` issue appears in the GitHub queue with metadata + JSON payload | |
 | Quit + relaunch → reopen explore modal | the lent item still reads **submitted** (persisted) | |
 | Second lend: name + hometown | pre-filled from the previous lend; notes empty | |
 | Relay down (Wi-Fi off) → lend | "Direct submit unavailable" → Open GitHub form: browser opens pre-filled issue form, JSON on clipboard | |
+| 6th lend in one UTC day | "Easy there, lender!" rate-limit modal — **no** GitHub-form fallback offered (that would bypass the limit) | |
+
+**Auto-publish + withdraw round trip** (the full robot pipeline — allow ~3 min per direction):
+
+| Check | Expected | Result |
+|---|---|---|
+| After a lend: watch the issue | Auto-publish workflow validates → commits payload + YAML → closes the issue with a ✅ receipt comment within ~1–2 min | |
+| ~3 min after lending | entry is live on jx-3p.com/patches/ (or /sequences/) AND in the in-app explore modal (reopen it) | |
+| Daniel gets an email | the notify workflow @mentions him on every `community-*` issue (own-PAT issues are otherwise silent — pitfall #23) | |
+| Re-lend the SAME banks/sequence under a different name | NOT published — issue gets `needs-review` + "this exact content is already in the catalog" comment, stays open | |
+| Click **submitted** (Tones row) | "Remove from Lending Library" confirm — body names the lent file, warns future users can't download | |
+| Confirm Remove | button → "removing…" → flips back to blue **lend**; withdraw issue files + closes; entry gone from site + modal in ~3 min | |
+| Click **submitted** on a SEQUENCE row | same withdraw flow as patches (regression: was disabled-grey in-session) | |
+| Withdraw → re-lend the same item | publishes again cleanly (dedup checks the live catalog, not history) | |
+
+**Site hearts + borrow counts** (jx-3p.com/patches/ + /sequences/):
+
+| Check | Expected | Result |
+|---|---|---|
+| Heart outline (28px, grey stroke) on an entry | click → fills Roland red, count +1; click again → un-fills, count −1 (toggle, one per visitor) | |
+| Green **borrow** button on the site | downloads the payload; "N borrows" under the button ticks up (unique per IP — repeat downloads don't double-count) | |
+| Borrow the same entry in-app | the same borrow counter increments (site + app share KV counts) | |
+| Explore-modal bylines in-app | show `♥ N · M borrows` when counts are nonzero | |
 
 **Library row info (i):**
 

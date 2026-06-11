@@ -15,6 +15,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { findEntryByTokenHash } from './lend-publish-lib.mjs';
 
 const REPO = process.env.GITHUB_REPOSITORY;
 const ISSUE = process.env.ISSUE_NUMBER;
@@ -58,17 +59,8 @@ const hash = m[1];
 let found = null;
 for (const kind of ['patches', 'sequences']) {
   const yamlPath = `docs/_data/${kind}.yml`;
-  const text = fs.readFileSync(yamlPath, 'utf8');
-  // Entry blocks start at "- id:"; find the block containing the hash.
-  const blocks = text.split(/^(?=- id: )/m);
-  for (const block of blocks) {
-    if (block.includes(`token_hash: ${hash}`)) {
-      const idM = block.match(/^- id: (.+)$/m);
-      found = { kind, yamlPath, id: idM[1].trim(), block };
-      break;
-    }
-  }
-  if (found) break;
+  const match = findEntryByTokenHash(fs.readFileSync(yamlPath, 'utf8'), hash);
+  if (match) { found = { kind, yamlPath, ...match }; break; }
 }
 if (!found) {
   await needsReview(
