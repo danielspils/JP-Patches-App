@@ -5,3 +5,4 @@ vendor/
 
 # Signing/notarization credentials — never commit
 .env
+relay/.wrangler/
