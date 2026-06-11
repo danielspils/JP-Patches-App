@@ -26,12 +26,14 @@ const CATALOGS = [
   { kind: 'sequences', dataFile: '_data/sequences.yml', payloadKey: 'pages' },
 ];
 
-const load = (rel) => yaml.load(fs.readFileSync(path.join(DOCS, rel), 'utf8'));
+// yaml.load returns null/undefined for a comments-only file — an EMPTY
+// catalog is legitimate now that withdraw exists, so normalize to [].
+const load = (rel) => yaml.load(fs.readFileSync(path.join(DOCS, rel), 'utf8')) || [];
 
 for (const { kind, dataFile, payloadKey } of CATALOGS) {
   test(`catalog ${kind} — entries carry every required field`, () => {
     const entries = load(dataFile);
-    assert.ok(Array.isArray(entries) && entries.length > 0, `${dataFile} is a non-empty list`);
+    assert.ok(Array.isArray(entries), `${dataFile} parses to a list`);
     for (const e of entries) {
       for (const field of ['id', 'name', 'author', 'description', 'added', 'file', 'size_bytes']) {
         assert.ok(e[field] !== undefined && e[field] !== null && e[field] !== '',
