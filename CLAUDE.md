@@ -2,7 +2,7 @@
 
 > **🔔 FRESH SESSION? READ THIS NEXT:**
 > Before answering anything substantive, open
-> **[`docs/session-handoff-2026-05-26.md`](docs/session-handoff-2026-05-26.md)**
+> **[`docs/session-handoff-2026-06-10.md`](docs/session-handoff-2026-06-10.md)**
 > (or the newest `session-handoff-*.md` if one supersedes it).
 > It carries the open threads, recent verbal design decisions,
 > sequencer-editor open questions, and pickup-ready next moves
@@ -18,7 +18,7 @@ This file is the cold-start summary. Pair it with:
 - **[`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md)** — authoritative design spec for Phases 1–4. Phase 2 has an "As-shipped summary" noting where the actual implementation diverged from the original design.
 - **[`docs/record-from-jx.md`](docs/record-from-jx.md)** — shipped-feature reference for in-app JX-3P tape capture + two-pass auto-calibration. The place to land when reading `showRecordFromJxModal` in `app.js`.
 - **[`docs/smoke-test.md`](docs/smoke-test.md)** — pre-release manual QA checklist (11 sections, ~50 individual checks). Run before publishing any release; catches integration issues unit tests can't.
-- **[`docs/session-handoff-2026-05-26.md`](docs/session-handoff-2026-05-26.md)** — most-recent session-end snapshot: in-progress threads, recent design decisions, open questions for the sequencer editor, where everything is. **A fresh Claude session should read this right after CLAUDE.md.** Supersede with a newer dated doc as state moves on.
+- **[`docs/session-handoff-2026-06-10.md`](docs/session-handoff-2026-06-10.md)** — most-recent session-end snapshot: the User Lending Library day (borrow/lend/relay/hearts), the new Cloudflare infrastructure Daniel owns, the curation workflow, open threads. **A fresh Claude session should read this right after CLAUDE.md.** Supersede with a newer dated doc as state moves on.
 - **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, app-level Undo/Redo, etc.).
 - **[`README.md`](README.md)** — end-user docs (install, first run, Tape Memory reference, Library, Custom Banks, Roadmap).
 - **GitHub Releases — [github.com/danielspils/JP-Patches-App/releases](https://github.com/danielspils/JP-Patches-App/releases)** — every shipped version has detailed user-facing release notes. The best chronological record of recent UX and behavior changes. `gh release list` and `gh api repos/danielspils/JP-Patches-App/releases --paginate -q '.[].body'` to pull locally.
@@ -30,7 +30,8 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
 - **Phase 1** ✅ shipped — panel UI + patch editing
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
 - **Phase 3** ⏳ blocked — MIDI integration, deferred until the Series Circuits JX-3P MIDI Upgrade Kit is installed. CC map and architecture already drafted in the spec doc §Phase 3.
-- **Phase 4** 🚧 in progress — distribution. `.dmg` builds work via `electron-builder` (unsigned). Apple Developer ID + notarization is the open work item (logged in `docs/future-features.md`). Marketing/onboarding site lives at jx-3p.com.
+- **Phase 4** 🚧 in progress — distribution. **Signed + notarized DMGs ship via `scripts/release.sh`** (Developer ID since May 29 — Gatekeeper-clean, auto-update working). Marketing/onboarding site lives at jx-3p.com.
+- **User Lending Library** ✅ built (June 10, UNRELEASED — next cut is the natural v0.8.0): borrow + lend in-app and on the site, backed by the `relay/` Cloudflare Worker at **lend.jx-3p.com** (Daniel's first hosted infra). See `docs/session-handoff-2026-06-10.md` for architecture + the curation workflow.
 
 **System requirement**: macOS 12+ on **Apple Silicon (arm64) only**. Intel Macs are not supported by the published DMGs.
 
@@ -61,10 +62,17 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
 │   ├── design-system.md          BINDING design guide — colors, typography, SVG primitives, layout
 │   ├── library-and-midi-spec.md  authoritative design spec (Phases 1–4)
 │   ├── record-from-jx.md         shipped-feature reference: in-app tape capture + auto-cal
-│   ├── smoke-test.md             pre-release manual QA checklist (run before publishing)
+│   ├── smoke-test.md             pre-release manual QA checklist (run before publishing; §8a = lending library)
+│   ├── patches.md + sequences.md lending-library catalog pages (borrow + lend form + hearts)
+│   ├── _data/                    catalog entries YAML (drive the pages AND /library/index.json manifest)
+│   ├── library/                  payload .json files + the Liquid-generated index.json manifest
 │   ├── release-notes-*.md        drafted user-facing release notes per version
 │   ├── RELEASE.md                release workflow + recovery doc (companion to scripts/release.sh)
 │   └── future-features.md        parking lot beyond the formal roadmap
+├── relay/                        Cloudflare Worker — the lending relay at lend.jx-3p.com
+│   ├── worker.js                 POST /lend → GitHub issue; POST /heart + GET /hearts (KV)
+│   ├── wrangler.toml             custom-domain route + HEARTS KV binding
+│   └── README.md                 deploy steps, PAT renewal, smoke test
 ├── scripts/
 │   ├── setup-vendor.sh           populates vendor/ before `npm run dist`
 │   └── release.sh                one-command release — bumps version, builds DMG, tags, ships GH release
@@ -80,7 +88,8 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
     ├── style.css                 vintage cream hardware aesthetic (~2,500 lines)
     ├── app.js                    all UI logic — ~9,300 lines (heavily commented)
     ├── calibration-math.js       pure math: gain↔angle, decode-all-default heuristic
-    ├── library-math.js           pure math: reorder index, params fingerprint
+    ├── library-math.js           pure math: reorder index, params fingerprint, dirty-index remap, latest-N lending entries
+    ├── lending.js                pure lending helpers: lend payload + GitHub-issue-URL builders
     ├── library-schema.js         library.json versioning + migration scaffolding
     ├── record-trim.js            FSK trim algorithm + Float32→Int16 PCM converter
     ├── capture-warnings.js       4-state live warning ladder (clipping/no-signal/quiet)
@@ -99,7 +108,7 @@ Current version: **0.7.5** (June 4, 2026). 25+ public releases since v0.1.0 on M
     │   └── patches.json          first-run active C/D banks
     └── assets/jp-logo.png        chrome JP logo embedded in panel
 
-test/                             269 unit tests across 12 pure-logic modules
+test/                             438 unit tests across 16 pure-logic/consistency suites
 ├── calibration-math.test.js
 ├── library-math.test.js
 ├── library-schema.test.js
@@ -111,7 +120,9 @@ test/                             269 unit tests across 12 pure-logic modules
 ├── synth-preview.test.js
 ├── seq-insert-rules.test.js
 ├── transmission-sounds.test.js  selector allowlist + cable-exclusion + degenerate input
-└── audio-diagnostic.test.js     categorizer status branches + GitHub Issue URL builder
+├── audio-diagnostic.test.js     categorizer status branches + GitHub Issue URL builder
+├── lending.test.js              lend payload shapes + issue-URL encoding edge cases
+└── community-catalog.test.js    docs/_data ↔ docs/library consistency (curation guard)
 ```
 
 ## External runtime dependencies
@@ -131,7 +142,7 @@ npm start                     # opens the Electron window
 
 npm run setup-vendor          # populate vendor/ from ~/JP-Patches (or $JX3P_SRC)
 npm run dist:unsigned         # build DMG without code signing
-npm run dist                  # build DMG with Apple Developer ID (not set up yet)
+npm run dist                  # build signed+notarized DMG (Developer ID — what release.sh runs)
 ```
 
 Window opens at **1140×710** (sized for Daniel's logical screen of 1147×719) and is non-resizable in v1 — but the View menu zoom presets (75% / 100%) scale window + renderer together, so 75% (855×532) works on smaller laptops. Fullscreen toggle via the green ⛶ button or Cmd+Ctrl+F.
@@ -222,6 +233,12 @@ Public-facing site for JP Patches, hosted on GitHub Pages from the `docs/` sourc
 - **Mobile layout** (`@media (max-width: 540px)`) drops the JX swoops, stripes, and panel button; logo + short subtitle only.
 - **Logo** is a transparent-cream redesign (1306×872 PNG) that lives at `renderer/assets/jp-logo.png` AND `docs/assets/img/jp-logo.png` — two copies because the panel embed references the renderer path and the site references the docs path. Update both together. Favicons (32, 192, apple-touch 180) are regenerated from the same source via `sips` center-crop → resize.
 
+### User Lending Library (June 10, unreleased)
+- **Borrow**: Library sub-tab explore buttons (green Tones / blue Sequences) → modal with the 3 latest catalog entries → one-click borrow through the standard import path (names restore via embedded `_slotMeta`/`_sequenceMeta`). Manifest cached in `library.community` for offline.
+- **Lend**: per-open consent checkboxes gate blue lend buttons over the user's own items → confirm step (editable catalog name; YOUR NAME / HOMETOWN / NOTES — name+hometown persist in `library.lending`) → relay POST → persisted `item.lending` ("submitted" state, surfaced in the (i) info modals). Relay-down fallback: clipboard + pre-filled GitHub issue form.
+- **Relay**: `relay/` Cloudflare Worker at lend.jx-3p.com — files `community-*`-labeled GitHub issues with Daniel's PAT (users need no GitHub account); hearts endpoints on KV (one-per-IP salted-hash dedupe). CORS locked to jx-3p.com. A GitHub Action @mention-pings Daniel per submission (see pitfall #23).
+- **Site**: /patches/ + /sequences/ catalog pages (borrow buttons, lend form, hearts) driven by `docs/_data/*.yml`; `/library/index.json` manifest feeds the in-app modal. Curation = hand-edit YAML + drop payload file; `test/community-catalog.test.js` guards against typos.
+
 ### Release automation (May 29)
 - **`scripts/release.sh`** — one-command release. Usage: `./scripts/release.sh 0.6.1`. Pre-flight checks (git/gh/npm installed, gh authenticated, on `main`, clean tree, in-sync with origin, release-notes file exists, tag not taken). Bumps `package.json` version + the `Status` line in `CLAUDE.md` with today's date. Runs `npm test`; aborts and rolls back the version bump on failure. Builds DMG via `npm run dist:unsigned`. Prompts for explicit confirmation before any push. Commits, tags (lightweight, matching the existing convention), pushes, creates the GitHub release with notes file + DMG + blockmap attached.
 - **`docs/RELEASE.md`** — workflow + recovery doc. 3-step quick reference (write notes → smoke test → run script) plus recovery procedures (delete a bad tag, replace a DMG, edit notes after publish). Confirms that the site auto-updates because all 4 download CTAs use `/releases/latest`.
@@ -230,8 +247,8 @@ Public-facing site for JP Patches, hosted on GitHub Pages from the `docs/` sourc
 
 **Phase 3 (MIDI)** — blocked on Series Circuits kit install. Concrete CC map ready in spec §3.2. Library: `easymidi`. Architecture: main-process owns MIDI, IPC pattern matches existing handlers. Sub-phasing in spec §3.8.
 
-**Phase 4 (Distribution)** — `npm run dist:unsigned` works today. Open work items, in priority order:
-1. Apple Developer ID + notarization (drops the "damaged" Gatekeeper dialog). $99/yr.
+**Phase 4 (Distribution)** — signed + notarized releases live since May 29. Open work items, in priority order:
+1. ~~Apple Developer ID + notarization~~ ✅ DONE (May 29 — Developer ID, notarized, auto-update).
 2. README screenshots refresh (current shots predate vintage cream + Custom Banks redesign).
 3. Mac App Store publish (after signing).
 4. Adaptive window sizing + 125/150/200% zoom presets (need screen-bound clamp first).
@@ -279,7 +296,7 @@ When designing a new modal or panel, the first question to ask: *what would this
 5. **macOS-only for v1.** Code freely uses `~/`, `pkill`, etc.
 6. **Color palette + design language** — see the "Design language — north star" section above. Don't introduce off-palette colors or framework-default components without a deliberate reason.
 7. **Commit messages** prefixed with `feat:`, `fix:`, `chore:`, `docs:`, `Spec:`, etc. See `git log --oneline` for the style.
-8. **Co-author trailer** on commits: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
+8. **Co-author trailer** on commits: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 9. **Release notes are user-facing prose** — see Releases on GitHub for the established voice. Mirror that style for new releases.
 10. **Website pushes ship independently of app releases.** Any change under `docs/` that affects the public jx-3p.com site (`index.md`, `_layouts/`, `assets/`, `screenshots/`, `CNAME`, `_config.yml`) commits + pushes immediately on its own — DO NOT bundle with app code changes or hold for the next app release. GitHub Pages auto-deploys site changes in ~30–60 s; the app release cadence is much slower (every few days) and there's no reason a copy fix or a new feedback button should wait. Internal docs (`CLAUDE.md`, `future-features.md`, `smoke-test.md`, `release-notes-*.md`) MAY be bundled with the app commits they describe — they're development-team-facing, not site content.
 
@@ -287,7 +304,7 @@ When designing a new modal or panel, the first question to ask: *what would this
 
 ### IPC surface (`preload.js` → `window.api.*`)
 
-14 handlers, all defined in `main.js`. New handlers should follow the same pattern.
+23 `ipcMain.handle` channels (plus a few one-way `.on` pushes for menu state), all defined in `main.js`. New handlers should follow the same pattern.
 
 ```js
 // File I/O
@@ -315,6 +332,14 @@ recordToWav:         (payload)       → write captured PCM (Float32 → 16-bit 
 
 // Zoom persistence
 onZoomChanged:       (cb)            → main → renderer push when View menu zoom changes
+
+// User lending library (June 10) — ALL outbound network lives main-side,
+// hardlocked to https://jx-3p.com/ + https://lend.jx-3p.com/
+communityFetchManifest:  ()          → GET jx-3p.com/library/index.json (cached in library.community)
+communityDownloadToTemp: (url, name) → download payload → temp .json → reuse drag-drop import path
+communityLend:           (submission)→ POST lend.jx-3p.com/lend → GitHub issue (relay)
+communityFetchHearts:    (ids)       → GET lend.jx-3p.com/hearts (display-only counts)
+openExternal:            (url)       → shell.openExternal, allowlisted (GitHub repo + jx-3p.com)
 ```
 
 ### `library.json` shape (current)
@@ -331,6 +356,9 @@ onZoomChanged:       (cb)            → main → renderer push when View menu z
   "zoom":      1.0,           // last View-menu zoom factor
   "lastBankSelection": { /* C/D + slot, for cross-tab context (e.g. sequence pairing from Library) */ },
   "midi":      { /* Phase 3 — input, output, channel, sendPC, followPC */ },
+  "community": { /* June 10 — cached lending-library manifest {fetchedAt, manifest} for offline explore */ },
+  "lending":   { /* June 10 — lender prefs {name, hometown}; consent deliberately NOT persisted */ },
+  // packages[i].lending / sequences[i].lending — {token, submittedAt, issueUrl, lendName, author, hometown, notes}
   "record": {                 // v0.5.11 — Record-from-JX persistence
     "calibratedGain": {       // per-MediaDeviceInfo.deviceId
       "<deviceId>": { "label": "KT USB Audio (…)", "gain": 11.07, "calibratedAt": "ISO" }
@@ -503,6 +531,10 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
     - **Why color stays red but tooltip says "tie":** the data really IS just a chord re-attack — there's no distinct polyphonic-TIE signature to color off of. But the user probably pressed TIE on the JX (or our editor's TIE button) to produce it, AND it does sound musically like a re-articulation. So we acknowledge the user intent in the tooltip while keeping the cell color data-truthful.
     - **Acceptable false positive:** if user intentionally plays the same chord twice in a row (no TIE involved), the tooltip will also say "tie." In practice rare — most music has at least one pitch change between adjacent chords.
     - **Audible difference between single-voice and polyphonic TIE:** single-voice TIE uses 2 voices (tied + new-attack at same pitch) so the held continuation's release tail bleeds into the new attack — smoother re-articulation. Polyphonic TIE uses N voices (all fresh attacks) so every envelope restarts from zero — cleaner chord re-strike. Subtle but real, more apparent on long-release patches (pads, plucks).
+
+23. **Relay-filed lending issues are authored by Daniel's own PAT — GitHub never notifies you of your own activity.** EVERY lending submission (Daniel's or a stranger's from the site) lands as "danielspils opened this issue" and would be silent. `.github/workflows/lending-notify.yml` has the Actions bot @mention Daniel per `community-*` issue — mentions from another actor DO email. Don't remove that workflow without replacing the notification path. Related: the Worker's `GITHUB_TOKEN` secret (fine-grained PAT `jp-patches-lend-relay`, Issues-only) expires ~June 2027 — renew on github.com then `cd relay && npx wrangler secret put GITHUB_TOKEN`.
+
+24. **`sanitizeWavFilename` APPENDS `.wav`** — it's the WAV-export helper. Using it to clean a name for any non-WAV file gives `Name.wav.json`-style double extensions (borrowed packages briefly labeled "Spils Sounds.wav", 2026-06-10). Strip the suffix back off, or extract a base sanitizer if a third caller appears.
 
 ## When in doubt
 
