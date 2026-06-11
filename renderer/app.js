@@ -11330,9 +11330,14 @@ function showPatchInfo(bank, slot) {
   //   Date:   uploaded <package savedAt formatted as "May 15, 2026">
   const originSlot = origin || key;
   const originName = originalName || 'no name';
+  // When the patch hasn't moved, been renamed, or changed source library,
+  // the Origin line would repeat the subtitle verbatim — skip it.
+  const samePlace = originSlot === key
+    && (originalName || null) === (name || null)
+    && (originLib || null) === (source || null);
   const originParts = [originSlot, originName];
   if (originLib) originParts.push(originLib);
-  const originLine = `Origin: ${originParts.join(' / ')}`;
+  const originLine = samePlace ? null : `Origin: ${originParts.join(' / ')}`;
 
   // Look up the original library's upload date. Prefer createdAt (stamped
   // once when the package is first written); fall back to savedAt for
@@ -11355,14 +11360,17 @@ function showPatchInfo(bank, slot) {
     }
   }
 
-  const lines = [originLine];
+  const lines = [];
+  if (originLine) lines.push(originLine);
   if (dateLine) lines.push(dateLine);
+  if (!lines.length) lines.push('Still in its original slot, with its original name.');
 
   showConfirmModal({
     title: 'Patch history',
     subtitle,
     body: lines.join('\n'),
-    confirmLabel: 'OK',
+    confirmLabel: 'Close',
+    hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
   });
 }
