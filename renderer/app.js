@@ -5678,13 +5678,15 @@ function showSequenceInfo(idx) {
 
   const pp = (seq.app && seq.app.pairedPatch) || {};
   const note = (seq.app && seq.app.patchNote) || '';
-  // Slash-separated provenance: slot at pairing time / name / source
-  // library — each part skipped when unknown ("C1 / Square Pants /
-  // Spils Sounds", Daniel 2026-06-11).
-  const ppParts = [];
-  if (pp.bank) ppParts.push(`${pp.bank}${(pp.slot || 0) + 1}`);
-  if (pp.patchName) ppParts.push(pp.patchName);
+  // Standard patch naming: "C6: Swell Bells / Martin Crane DUMBO
+  // Sounds" — slot-colon-name (same form as the patch info header),
+  // then the source library after a slash. Parts skip when unknown.
+  const ppSlot = pp.bank ? `${pp.bank}${(pp.slot || 0) + 1}` : '';
+  const ppName = pp.patchName || '';
   const ppSource = (pp.sourceLibrary || '').replace(/\.(wav|json)$/i, '');
+  const ppParts = [];
+  const slotName = (ppSlot && ppName) ? `${ppSlot}: ${ppName}` : (ppSlot || ppName);
+  if (slotName) ppParts.push(slotName);
   if (ppSource) ppParts.push(ppSource);
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';

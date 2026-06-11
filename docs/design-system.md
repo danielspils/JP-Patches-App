@@ -351,7 +351,7 @@ Cancel appears ONLY when the primary button commits something cancelable (Save, 
 
 **Info-modal rows** — `**Label:** value`, one fact per row, single-spaced (`join('\n')`). Empty fields are SKIPPED, never placeholdered (no "Notes: (none)"). Shared vocabulary: `Library / Created / Created by / Hometown / Lent to library / Lent as / Lend notes / Borrowed on / Origin`. Person rows (Created by, Hometown) come before transaction rows (Lent to library / Borrowed on). Attribution is always **Created by** — never "Creator" or "Lender" (the lend-consent checkbox makes every submission an own-work claim).
 
-**Paired patch standard** — `slot at pairing time / name / source library`, slash-separated, each part skipped when unknown: `Paired patch: C1 / Square Pants / Spils Sounds`.
+**Patch naming standard** — `slot: name / source library`, each part skipped when unknown: `Paired patch: C6: Swell Bells / Martin Crane DUMBO Sounds`. Slot-colon-name is the same form the patch info modal uses as its header (`D2: Juicy Fruit`); the slot is the one recorded at pairing/import time, not the live slot.
 
 **Titles** — Title Case. For the info modals the ITEM is the title — package/sequence name, or `D2: Juicy Fruit` for a bank patch; no "Package Info"/"Sequence Info"/"Patch History" labels (Daniel, 2026-06-11). Supplementary state renders as an italic 11px subtitle (`.modal-subtitle em`, e.g. *currently loaded in the active C/D banks*).
 
