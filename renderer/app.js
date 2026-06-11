@@ -4311,6 +4311,21 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
     return;
   }
   entries.forEach((entry) => listEl.appendChild(buildLendRow(entry, isTones)));
+
+  // Heart counts (display-only in-app; hearting happens on the site).
+  // Decorative — failures stay silent, rows just show no count.
+  try {
+    const res = await window.api.communityFetchHearts(entries.map((e) => e.id));
+    if (res && res.ok && overlay.isConnected) {
+      listEl.querySelectorAll('.lend-row').forEach((row, i) => {
+        const id = entries[i] && entries[i].id;
+        const count = id && res.counts[id];
+        if (!count) return;
+        const byline = row.querySelector('.lend-row-byline');
+        if (byline) byline.textContent += ` · ♥ ${count}`;
+      });
+    }
+  } catch { /* decorative */ }
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -10,3 +10,11 @@ compatibility_date = "2026-06-01"
 routes = [
   { pattern = "lend.jx-3p.com", custom_domain = true }
 ]
+
+# Heart counts for lending-library entries (POST /heart, GET /hearts).
+# One count key (c:<id>) + one per-IP dedupe marker (h:<id>:<iphash>)
+# per heart. KV increments aren't atomic — rare concurrent hearts may
+# lose one, which is fine at this community's scale.
+[[kv_namespaces]]
+binding = "HEARTS"
+id = "b495f11fc1f244739cc4b01f4ee3f57e"

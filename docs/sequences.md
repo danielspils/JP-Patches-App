@@ -18,7 +18,10 @@ your library ready to play, edit, or send to the JX.
   <div class="community-entry">
     <div class="community-entry-head">
       <span class="community-entry-name">{{ e.name }}</span>
-      <a class="community-borrow" href="{{ e.file | relative_url }}" download>borrow</a>
+      <span class="community-entry-actions">
+        <button class="community-heart" data-heart-id="{{ e.id }}" aria-label="Heart {{ e.name }}">&#9829;<span class="community-heart-count"></span></button>
+        <a class="community-borrow" href="{{ e.file | relative_url }}" download>borrow</a>
+      </span>
     </div>
     <div class="community-entry-byline">{{ e.author }}{% if e.hometown %} · {{ e.hometown }}{% endif %} · added {{ e.added | date: '%B %-d, %Y' }}</div>
     {% if e.description %}<p class="community-entry-notes">{{ e.description }}</p>{% endif %}

@@ -485,6 +485,23 @@ ipcMain.handle('community-lend', async (_e, submission) => {
   }
 });
 
+// Heart counts for lending-library entries (display-only in the app;
+// giving hearts is web-only — IP dedupe behaves oddly behind shared
+// networks and the modal stays simpler). Same origin lock as the rest.
+ipcMain.handle('community-fetch-hearts', async (_e, ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: 'no ids' };
+  const safe = ids.filter((i) => typeof i === 'string' && /^[a-z0-9-]{1,64}$/.test(i)).slice(0, 60);
+  if (safe.length === 0) return { ok: false, error: 'no valid ids' };
+  try {
+    const data = JSON.parse(await lendingFetch(
+      `https://lend.jx-3p.com/hearts?ids=${safe.join(',')}`));
+    if (!data || !data.ok) return { ok: false, error: 'bad response' };
+    return { ok: true, counts: data.counts || {} };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'fetch failed' };
+  }
+});
+
 ipcMain.handle('load-patches', () => {
   return readJsonOrNull(PATCHES_PATH) || readJsonOrNull(SEED_PATCHES_PATH);
 });

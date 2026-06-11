@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('api', {
   // One-click lend via the relay (relay/README.md). Renderer falls back
   // to the clipboard + GitHub-form flow when this returns ok: false.
   communityLend:           (submission)        => ipcRenderer.invoke('community-lend', submission),
+  // Heart counts for explore-modal entries (display-only in-app).
+  communityFetchHearts:    (ids)               => ipcRenderer.invoke('community-fetch-hearts', ids),
   // App + OS metadata for diagnostic bug-report URLs.
   // Returns { appVersion, platform, macOsRelease }.
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

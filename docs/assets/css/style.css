@@ -1047,3 +1047,36 @@ body {
 .lend-form-status.lend-ok  { color: var(--roland-green); font-weight: 600; }
 .lend-form-status.lend-err { color: var(--roland-red); }
 .lend-form-fallback { font-size: 14px; color: var(--body-text-mid); }
+
+/* ── Hearts on lending-library entries ───────────────────────────────
+   Grey outline-feel heart → Roland red once hearted (one per visitor,
+   enforced server-side + mirrored in localStorage). Count rides
+   alongside; hidden at zero. */
+.community-entry-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.community-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  color: #c9c4ba;                 /* unhearted: quiet warm grey */
+  cursor: pointer;
+  transition: color 0.12s, transform 0.08s;
+}
+.community-heart:hover:not(.hearted) { color: var(--roland-red-hot); }
+.community-heart:active:not(.hearted) { transform: scale(1.15); }
+.community-heart.hearted { color: var(--roland-red); cursor: default; }
+.community-heart-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--body-text-mid);
+}

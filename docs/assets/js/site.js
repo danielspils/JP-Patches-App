@@ -304,3 +304,56 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 })();
+
+/* ── Hearts (/patches/ + /sequences/) ────────────────────────────────
+   Per-entry like counts from the relay's KV store. Server enforces
+   one heart per IP per entry (salted-hash dedupe, idempotent);
+   localStorage mirrors the hearted state so the button renders filled
+   and inert on revisit. Counts load in one batched GET. */
+(function () {
+  var RELAY = 'https://lend.jx-3p.com';
+  var hearts = document.querySelectorAll('.community-heart');
+  if (!hearts.length) return;
+
+  var heartedKey = function (id) { return 'jp-hearted:' + id; };
+  var render = function (btn, count) {
+    btn.querySelector('.community-heart-count').textContent = count > 0 ? String(count) : '';
+  };
+  var markHearted = function (btn) {
+    btn.classList.add('hearted');
+    btn.setAttribute('aria-pressed', 'true');
+  };
+
+  var ids = [];
+  hearts.forEach(function (btn) {
+    ids.push(btn.getAttribute('data-heart-id'));
+    if (localStorage.getItem(heartedKey(btn.getAttribute('data-heart-id')))) markHearted(btn);
+  });
+
+  fetch(RELAY + '/hearts?ids=' + ids.join(','))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (!data || !data.ok) return;
+      hearts.forEach(function (btn) {
+        var id = btn.getAttribute('data-heart-id');
+        if (id in data.counts) render(btn, data.counts[id]);
+      });
+    })
+    .catch(function () { /* counts are decorative — fail silent */ });
+
+  hearts.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-heart-id');
+      if (btn.classList.contains('hearted')) return;
+      markHearted(btn);                              // optimistic
+      localStorage.setItem(heartedKey(id), '1');
+      fetch(RELAY + '/heart', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: id }),
+      }).then(function (res) { return res.json(); })
+        .then(function (data) { if (data && data.ok) render(btn, data.count); })
+        .catch(function () { /* keep optimistic state; server dedupes anyway */ });
+    });
+  });
+})();
