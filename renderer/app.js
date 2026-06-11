@@ -5614,27 +5614,18 @@ function showPackageInfo(idx) {
     if (matches) loadedNote = '\n*current active C/D banks*';
   }
 
-  // Named patches + provenance rollup from the package's frozen slotMeta.
-  const named = [];
+  // Provenance rollup from the package's frozen slotMeta. (A "Named
+  // patches" list lived here too — cut 2026-06-11; per-slot names are
+  // visible in the bank lists once loaded.)
   const sources = new Map();   // originLibrary/sourceLabel → count
   ['C', 'D'].forEach((bank) => {
     const arr = (pkg.slotMeta && pkg.slotMeta[bank]) || [];
-    arr.forEach((m, s) => {
+    arr.forEach((m) => {
       if (!m) return;
-      const nm = m.customName || m.name;
-      if (nm) named.push(`${bank}${s + 1} ${nm}`);
       const src = m.originLibrary || m.sourceLabel;
       if (src) sources.set(src, (sources.get(src) || 0) + 1);
     });
   });
-  const NAMED_SHOWN = 6;
-  // Empty fields are skipped, not placeholdered (matches the sequence
-  // info modal — Daniel, 2026-06-11).
-  if (named.length > 0) {
-    const shown = named.slice(0, NAMED_SHOWN).join(', ');
-    const more  = named.length > NAMED_SHOWN ? ` +${named.length - NAMED_SHOWN} more` : '';
-    lines.push(`**Named patches (${named.length} of 32):** ${shown}${more}`);
-  }
   // Provenance is only interesting when patches came from somewhere other
   // than this package itself (e.g. a custom bank built from multiple
   // libraries) — a single source matching the package's own name is just
