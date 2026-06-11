@@ -5559,7 +5559,7 @@ function lendingInfoLines(item) {
   // Only when it went out under a different name than the row shows.
   const display = (item.customName || item.defaultName || '').trim();
   if (l.lendName && l.lendName !== display) lines.push(`**Lent as:** *${l.lendName}*`);
-  if (l.author) lines.push(`**Creator:** ${l.author}`);
+  if (l.author) lines.push(`**Created by:** ${l.author}`);
   if (l.hometown) lines.push(`**Hometown:** ${l.hometown}`);
   if (l.notes) lines.push(`**Lend notes:** ${l.notes}`);
   return lines;
@@ -11335,14 +11335,15 @@ function showPatchInfo(bank, slot) {
     if (created) lines.push(`**Created:** ${created}`);
     const l = pkg.lending;
     const b = pkg.borrowed;
-    const lent = l && l.submittedAt && infoDate(l.submittedAt);
-    if (lent) lines.push(`**Lent to library:** ${lent}`);
     // Creator/hometown: the lend author (own work) or the borrow lender
     // (someone else's) — whichever provenance the package carries.
     const creator  = (l && l.author)   || (b && b.lender)   || null;
     const hometown = (l && l.hometown) || (b && b.hometown) || null;
-    if (creator)  lines.push(`**Creator:** ${creator}`);
+    if (creator)  lines.push(`**Created by:** ${creator}`);
     if (hometown) lines.push(`**Hometown:** ${hometown}`);
+    // Last by design (Daniel, 2026-06-11).
+    const lent = l && l.submittedAt && infoDate(l.submittedAt);
+    if (lent) lines.push(`**Lent to library:** ${lent}`);
   }
 
   // Movement detail (Daniel, 2026-06-11: "I like this detail") — only
