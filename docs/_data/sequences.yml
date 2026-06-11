@@ -3,14 +3,3 @@
 # Same schema + rules as _data/patches.yml (see the field reference
 # there). Drives the /sequences/ page and the /library/index.json
 # manifest.
-
-- id: spils-sequence
-  name: Spils Sequence
-  author: Daniel Spils
-  hometown: Anchorage, AK
-  description: This is the sequence that ships with JP Patches—it includes a 'paired patch' which I recommend using with the sequence.
-  added: 2026-06-10
-  file: /library/sequences/spils-sequence.json
-  size_bytes: 14100
-  tags: []
-  audio_preview: null
