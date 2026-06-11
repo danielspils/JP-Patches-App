@@ -353,7 +353,7 @@ Cancel appears ONLY when the primary button commits something cancelable (Save, 
 
 **Paired patch standard** — `slot at pairing time / name / source library`, slash-separated, each part skipped when unknown: `Paired patch: C1 / Square Pants / Spils Sounds`.
 
-**Titles** — Title Case. For the package/sequence info modals the ITEM NAME is the title (no "Package Info"/"Sequence Info" label — Daniel, 2026-06-11); supplementary state renders as an italic 11px subtitle (`.modal-subtitle em`, e.g. *currently loaded in the active C/D banks*). Patch History keeps its named title with `C1: Square Pants` as the subtitle, since a slot/patch pair isn't a self-explanatory header.
+**Titles** — Title Case. For the info modals the ITEM is the title — package/sequence name, or `D2: Juicy Fruit` for a bank patch; no "Package Info"/"Sequence Info"/"Patch History" labels (Daniel, 2026-06-11). Supplementary state renders as an italic 11px subtitle (`.modal-subtitle em`, e.g. *currently loaded in the active C/D banks*).
 
 ### 4.2 Section card (inside a modal)
 

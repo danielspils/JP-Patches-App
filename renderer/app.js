@@ -11322,9 +11322,9 @@ function showPatchInfo(bank, slot) {
   const origin = patchOrigin(bank, slot);              // slot at first import
   const originalName = patchOriginalName(bank, slot);  // name at first stamp
 
-  // Slot + name live in the subheader (Daniel preferred the original
-  // treatment); the body rows start at Library.
-  const subtitle = `${key}: ${name || '(unnamed)'}`;
+  // "D2: Juicy Fruit" is the header itself (no "Patch History" label —
+  // Daniel, 2026-06-11); the body rows start at Library.
+  const header = `${key}: ${name || '(unnamed)'}`;
   const lines = [];
   const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
   if (libLabel) lines.push(`**Library:** ${libLabel}`);
@@ -11364,8 +11364,7 @@ function showPatchInfo(bank, slot) {
   }
 
   showConfirmModal({
-    title: 'Patch History',
-    subtitle,
+    title: header,   // the item IS the header, like the other info modals
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
