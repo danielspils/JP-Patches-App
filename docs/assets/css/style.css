@@ -1048,15 +1048,17 @@ body {
 .lend-form-status.lend-err { color: var(--roland-red); }
 .lend-form-fallback { font-size: 14px; color: var(--body-text-mid); }
 
-/* ── Hearts on lending-library entries ───────────────────────────────
-   Grey outline-feel heart → Roland red once hearted (one per visitor,
-   enforced server-side + mirrored in localStorage). Count rides
-   alongside; hidden at zero. */
+/* ── Hearts + borrow counts on lending-library entries ───────────────
+   SVG heart (classic rounded shape): outline (white fill, warm-grey
+   stroke) → solid Roland red when hearted. TOGGLES — the filled heart
+   keeps its pointer cursor and clicks back off. Borrow count sits in
+   small type under the green borrow parallelogram; unique borrowers,
+   combined across site + app. */
 .community-entry-actions {
   flex: none;
   display: inline-flex;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 16px;
 }
 .community-heart {
   display: inline-flex;
@@ -1064,32 +1066,44 @@ body {
   gap: 7px;
   background: none;
   border: none;
-  /* Kill the native button chrome — without this Safari draws its own
-     pill/border around the glyph. */
   appearance: none;
   -webkit-appearance: none;
   border-radius: 0;
   padding: 0 2px;
-  font: inherit;
-  font-size: 40px;
-  line-height: 1;
-  /* Unhearted = outline heart: white fill + warm-grey stroke. Clicking
-     fills it Roland red. */
-  color: #ffffff;
-  -webkit-text-stroke: 1.5px #b0a99a;
+  margin-top: 1px;
   cursor: pointer;
-  transition: color 0.12s, -webkit-text-stroke-color 0.12s, transform 0.08s;
 }
-.community-heart:hover:not(.hearted) { -webkit-text-stroke-color: var(--roland-red-hot); }
-.community-heart:active:not(.hearted) { transform: scale(1.1); }
-.community-heart.hearted {
-  color: var(--roland-red);
-  -webkit-text-stroke: 1.5px var(--roland-red);
-  cursor: default;
+.community-heart svg {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+.community-heart svg path {
+  fill: #ffffff;
+  stroke: #b0a99a;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  transition: fill 0.12s, stroke 0.12s;
+}
+.community-heart:hover svg path { stroke: var(--roland-red-hot); }
+.community-heart:active svg { transform: scale(1.08); }
+.community-heart.hearted svg path {
+  fill: var(--roland-red);
+  stroke: var(--roland-red);
 }
 .community-heart-count {
   font-size: 15px;
   font-weight: 600;
   color: var(--body-text-mid);
-  -webkit-text-stroke: 0;        /* count digits stay solid, not outlined */
+}
+.community-borrow-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.community-borrow-count {
+  font-size: 12px;
+  color: var(--body-text-mid);
+  min-height: 1em;
 }

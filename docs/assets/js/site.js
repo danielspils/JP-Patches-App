@@ -305,29 +305,47 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 })();
 
-/* ── Hearts (/patches/ + /sequences/) ────────────────────────────────
-   Per-entry like counts from the relay's KV store. Server enforces
-   one heart per IP per entry (salted-hash dedupe, idempotent);
-   localStorage mirrors the hearted state so the button renders filled
-   and inert on revisit. Counts load in one batched GET. */
+/* ── Hearts + borrow counts (/patches/ + /sequences/) ────────────────
+   Backed by the relay's KV store. Hearts TOGGLE (click to heart, click
+   again to un-heart) — the server flips a one-per-IP marker and
+   returns the resulting state; localStorage mirrors it for instant
+   render on revisit. Borrow counts tally unique borrowers across BOTH
+   the site and the in-app explore modal (same /borrow endpoint); the
+   borrow click fires a beacon alongside the download. */
 (function () {
   var RELAY = 'https://lend.jx-3p.com';
   var hearts = document.querySelectorAll('.community-heart');
-  if (!hearts.length) return;
+  var borrows = document.querySelectorAll('.community-borrow[data-borrow-id]');
+  if (!hearts.length && !borrows.length) return;
 
-  var heartedKey = function (id) { return 'jp-hearted:' + id; };
-  var render = function (btn, count) {
+  var heartedKey  = function (id) { return 'jp-hearted:' + id; };
+  var borrowedKey = function (id) { return 'jp-borrowed:' + id; };
+
+  var renderHeart = function (btn, count) {
     btn.querySelector('.community-heart-count').textContent = count > 0 ? String(count) : '';
   };
-  var markHearted = function (btn) {
-    btn.classList.add('hearted');
-    btn.setAttribute('aria-pressed', 'true');
+  var setHearted = function (btn, on) {
+    btn.classList.toggle('hearted', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    var id = btn.getAttribute('data-heart-id');
+    if (on) localStorage.setItem(heartedKey(id), '1');
+    else localStorage.removeItem(heartedKey(id));
+  };
+  var renderBorrows = function (link, count) {
+    var el = link.parentElement.querySelector('.community-borrow-count');
+    if (el) el.textContent = count > 0 ? (count + (count === 1 ? ' borrow' : ' borrows')) : '';
   };
 
+  // Initial state: localStorage for the fill, one batched GET for counts.
   var ids = [];
   hearts.forEach(function (btn) {
-    ids.push(btn.getAttribute('data-heart-id'));
-    if (localStorage.getItem(heartedKey(btn.getAttribute('data-heart-id')))) markHearted(btn);
+    var id = btn.getAttribute('data-heart-id');
+    ids.push(id);
+    if (localStorage.getItem(heartedKey(id))) setHearted(btn, true);
+  });
+  borrows.forEach(function (link) {
+    var id = link.getAttribute('data-borrow-id');
+    if (ids.indexOf(id) === -1) ids.push(id);
   });
 
   fetch(RELAY + '/hearts?ids=' + ids.join(','))
@@ -336,24 +354,47 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!data || !data.ok) return;
       hearts.forEach(function (btn) {
         var id = btn.getAttribute('data-heart-id');
-        if (id in data.counts) render(btn, data.counts[id]);
+        if (id in data.counts) renderHeart(btn, data.counts[id]);
+      });
+      borrows.forEach(function (link) {
+        var id = link.getAttribute('data-borrow-id');
+        if (data.borrows && id in data.borrows) renderBorrows(link, data.borrows[id]);
       });
     })
     .catch(function () { /* counts are decorative — fail silent */ });
 
+  // Heart toggle.
   hearts.forEach(function (btn) {
     btn.addEventListener('click', function () {
       var id = btn.getAttribute('data-heart-id');
-      if (btn.classList.contains('hearted')) return;
-      markHearted(btn);                              // optimistic
-      localStorage.setItem(heartedKey(id), '1');
+      setHearted(btn, !btn.classList.contains('hearted'));   // optimistic flip
       fetch(RELAY + '/heart', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: id }),
       }).then(function (res) { return res.json(); })
-        .then(function (data) { if (data && data.ok) render(btn, data.count); })
-        .catch(function () { /* keep optimistic state; server dedupes anyway */ });
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          setHearted(btn, !!data.hearted);   // server is the truth
+          renderHeart(btn, data.count);
+        })
+        .catch(function () { /* keep optimistic state */ });
+    });
+  });
+
+  // Borrow beacon — doesn't block the download (the href does the work).
+  borrows.forEach(function (link) {
+    link.addEventListener('click', function () {
+      var id = link.getAttribute('data-borrow-id');
+      if (localStorage.getItem(borrowedKey(id))) return;   // server dedupes anyway
+      localStorage.setItem(borrowedKey(id), '1');
+      fetch(RELAY + '/borrow', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: id }),
+      }).then(function (res) { return res.json(); })
+        .then(function (data) { if (data && data.ok) renderBorrows(link, data.count); })
+        .catch(function () { /* decorative */ });
     });
   });
 })();

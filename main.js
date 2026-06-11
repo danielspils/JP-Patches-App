@@ -433,12 +433,22 @@ ipcMain.handle('community-fetch-manifest', async () => {
 // _slotMeta/_sequenceMeta, and misroute detection all come for free.
 // The temp file is named after the entry (sanitized) because the import
 // path derives the new library entry's display label from the filename.
-ipcMain.handle('community-download-to-temp', async (_e, url, displayName) => {
+ipcMain.handle('community-download-to-temp', async (_e, url, displayName, entryId) => {
   if (typeof url !== 'string' || !url.startsWith(LENDING_ORIGIN)) {
     return { ok: false, error: 'url not allowlisted' };
   }
   try {
     const text = await lendingFetch(url);
+    // Count the borrow (fire-and-forget — decorative data). Same
+    // endpoint the site uses, so the tally combines both surfaces;
+    // the relay dedupes one-per-IP-per-entry.
+    if (typeof entryId === 'string' && /^[a-z0-9-]{1,64}$/.test(entryId)) {
+      fetch('https://lend.jx-3p.com/borrow', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: entryId }),
+      }).catch(() => {});
+    }
     JSON.parse(text);  // validate before writing — garbage never reaches the import path
     // sanitizeWavFilename APPENDS .wav (it's the WAV-export helper) —
     // strip it back off or the borrowed entry's label reads

@@ -20,8 +20,11 @@ package in your library, names included.
     <div class="community-entry-head">
       <span class="community-entry-name">{{ e.name }}</span>
       <span class="community-entry-actions">
-        <button class="community-heart" data-heart-id="{{ e.id }}" aria-label="Heart {{ e.name }}">&#9829;<span class="community-heart-count"></span></button>
-        <a class="community-borrow" href="{{ e.file | relative_url }}" download>borrow</a>
+        <button class="community-heart" data-heart-id="{{ e.id }}" aria-label="Heart {{ e.name }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><span class="community-heart-count"></span></button>
+        <span class="community-borrow-wrap">
+          <a class="community-borrow" href="{{ e.file | relative_url }}" data-borrow-id="{{ e.id }}" download>borrow</a>
+          <span class="community-borrow-count"></span>
+        </span>
       </span>
     </div>
     <div class="community-entry-byline">{{ e.author }}{% if e.hometown %} · {{ e.hometown }}{% endif %} · added {{ e.added | date: '%B %-d, %Y' }}</div>

@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld('api', {
   // a temp .json named after the entry and returns its path; renderer
   // routes it through the same import handlers as drag-and-drop.
   communityFetchManifest:  ()                  => ipcRenderer.invoke('community-fetch-manifest'),
-  communityDownloadToTemp: (url, displayName)  => ipcRenderer.invoke('community-download-to-temp', url, displayName),
+  communityDownloadToTemp: (url, displayName, entryId) => ipcRenderer.invoke('community-download-to-temp', url, displayName, entryId),
   // One-click lend via the relay (relay/README.md). Renderer falls back
   // to the clipboard + GitHub-form flow when this returns ok: false.
   communityLend:           (submission)        => ipcRenderer.invoke('community-lend', submission),

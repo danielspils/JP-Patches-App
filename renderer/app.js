@@ -3915,7 +3915,7 @@ function buildLendRow(entry, isTones) {
     btn.disabled = true;
     btn.textContent = 'borrowing…';
     try {
-      const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name);
+      const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name, entry.id);
       if (!dl || !dl.ok) throw new Error((dl && dl.error) || 'download failed');
       if (isTones) await handleTonesDropImport(dl.path);
       else         await handleSequenceDropImport(dl.path);
@@ -4320,10 +4320,15 @@ async function showExploreLendingLibraryModal(kind) {   // 'tones' | 'sequences'
     if (res && res.ok && overlay.isConnected) {
       listEl.querySelectorAll('.lend-row').forEach((row, i) => {
         const id = entries[i] && entries[i].id;
-        const count = id && res.counts[id];
-        if (!count) return;
+        if (!id) return;
+        const bits = [];
+        const heartN = res.counts[id];
+        const borrowN = res.borrows && res.borrows[id];
+        if (heartN) bits.push(`♥ ${heartN}`);
+        if (borrowN) bits.push(`${borrowN} borrow${borrowN === 1 ? '' : 's'}`);
+        if (!bits.length) return;
         const byline = row.querySelector('.lend-row-byline');
-        if (byline) byline.textContent += ` · ♥ ${count}`;
+        if (byline) byline.textContent += ` · ${bits.join(' · ')}`;
       });
     }
   } catch { /* decorative */ }
