@@ -13,6 +13,10 @@ plus its paired patch — so it plays back with the sound the creator intended.
 the JP Patches window with the Library → Sequences tab open. It lands in
 your library ready to play, edit, or send to the JX.
 
+You can borrow the 3 most recent user sequences directly from the JP
+Patches app. Click Library → Sequences → **explore the user lending
+library**.
+
 <div class="community-list">
 {% for e in site.data.sequences %}
   <div class="community-entry">

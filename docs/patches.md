@@ -14,6 +14,9 @@ tape-dump cable.
 JP Patches window with the Library → Tones tab open. It lands as a new
 package in your library, names included.
 
+You can borrow the 3 most recent user tones directly from the JP Patches
+app. Click Library → Tones → **explore the user lending library**.
+
 <div class="community-list">
 {% for e in site.data.patches %}
   <div class="community-entry">
