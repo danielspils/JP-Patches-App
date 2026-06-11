@@ -5611,7 +5611,7 @@ function showPackageInfo(idx) {
         if (pkgFp !== actFp) { matches = false; return; }
       }
     });
-    if (matches) loadedNote = '\n*current active C/D banks*';
+    if (matches) loadedNote = '\n*currently loaded in the active C/D banks*';
   }
 
   // Provenance rollup from the package's frozen slotMeta. (A "Named

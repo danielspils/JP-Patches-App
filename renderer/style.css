@@ -1592,12 +1592,13 @@ body.seq-dragging-pitch * {
   text-align: center;
   margin-bottom: 18px;
 }
-/* Italic subtitle lines (e.g. Package Info's "current active C/D banks")
-   drop to body weight + the subdued body color — supporting detail under
-   the bright bold name. Mirrors the .modal-title em treatment. */
+/* Italic subtitle lines (e.g. Package Info's "currently loaded in the
+   active C/D banks") drop to body weight, the subdued body color, and a
+   notch smaller — supporting detail under the bright bold name. */
 .modal-subtitle em {
   font-style: italic;
   font-weight: 400;
+  font-size: 11px;
   color: var(--text-mid);
 }
 .modal-body {
