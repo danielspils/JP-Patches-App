@@ -45,3 +45,15 @@
   tags: []
   audio_preview: null
   token_hash: 9c2e6b757bbc9f0f367bad94e292bcb9471d068184587477818db021497c9bdb
+
+- id: robot-e2e-check
+  name: 'Robot E2E Check'
+  author: 'QA Robot'
+  hometown: 'Test Bench, CI'
+  description: 'Automated pre-release round-trip - will be withdrawn shortly.'
+  added: 2026-06-11
+  file: /library/patches/robot-e2e-check.json
+  size_bytes: 24521
+  tags: []
+  audio_preview: null
+  token_hash: c30196b8588fbe6d6d7579d78d465bbbc7f9fbb921abc8625feb9a4734036cb6
