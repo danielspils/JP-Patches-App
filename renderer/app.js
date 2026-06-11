@@ -11308,66 +11308,53 @@ function showImportError(message) {
   });
 }
 
-// Patch info popover (triggered by the (i) icon in C/D bank rows). Shows the
-// patch's provenance — current display name, origin slot it was imported from,
-// and the source library — so the user can trace lineage after renaming.
+// Patch info popover (triggered by the (i) icon in C/D bank rows).
+// Labeled provenance rows (hierarchy per Daniel, 2026-06-11); empty
+// fields are skipped, never placeholdered:
+//   Name:            C1 / Square Pants
+//   Library:         Spils Sounds            (source package, ext stripped)
+//   Created:         May 10, 2026            (that package's creation date)
+//   Lent to library: June 1, 2026            (if the package was lent)
+//   Creator:         Daniel Spils            (lend author OR borrow lender)
+//   Hometown:        Anchorage, AK           (ditto)
 function showPatchInfo(bank, slot) {
   const key = slotKey(bank, slot);
   const name = patchName(bank, slot);
-  const origin = patchOrigin(bank, slot);
-  const source = patchSourceLabel(bank, slot);          // most-recent library load
-  const originLib = patchOriginLibrary(bank, slot);     // FIRST library — never overwritten
-  const originalName = patchOriginalName(bank, slot);   // name at first stamp
+  const source = patchSourceLabel(bank, slot) || patchOriginLibrary(bank, slot);
 
-  // Subtitle (centered, sits attached to the "Patch history" title):
-  //   <current slot>: <current name> / <current library>
-  const subParts = [`${key}: ${name || '(unnamed)'}`];
-  if (source) subParts.push(source);
-  const subtitle = subParts.join(' / ');
+  const fmtDate = (stamp) => {
+    const d = new Date(stamp);
+    return Number.isNaN(d.getTime()) ? null
+      : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  };
 
-  // History block:
-  //   Origin: <original slot> / <original name or "no name"> / <original library>
-  //   Date:   uploaded <package savedAt formatted as "May 15, 2026">
-  const originSlot = origin || key;
-  const originName = originalName || 'no name';
-  // When the patch hasn't moved, been renamed, or changed source library,
-  // the Origin line would repeat the subtitle verbatim — skip it.
-  const samePlace = originSlot === key
-    && (originalName || null) === (name || null)
-    && (originLib || null) === (source || null);
-  const originParts = [originSlot, originName];
-  if (originLib) originParts.push(originLib);
-  const originLine = samePlace ? null : `Origin: ${originParts.join(' / ')}`;
+  const lines = [`**Name:** ${key} / ${name || '(unnamed)'}`];
+  const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
+  if (libLabel) lines.push(`**Library:** ${libLabel}`);
 
-  // Look up the original library's upload date. Prefer createdAt (stamped
-  // once when the package is first written); fall back to savedAt for
-  // packages that predate the createdAt field. If the originLibrary string
-  // matches a known package (by customName or defaultName), use its date;
-  // otherwise skip the date line.
-  let dateLine = null;
-  if (originLib && library && Array.isArray(library.packages)) {
-    const pkg = library.packages.find((p) =>
-      (p.customName === originLib) || (p.defaultName === originLib));
-    const stamp = pkg && (pkg.createdAt || pkg.savedAt);
-    if (stamp) {
-      const d = new Date(stamp);
-      if (!Number.isNaN(d.getTime())) {
-        const formatted = d.toLocaleDateString('en-US', {
-          month: 'long', day: 'numeric', year: 'numeric',
-        });
-        dateLine = `Date: uploaded ${formatted}`;
-      }
-    }
+  // The rest comes from the source package, when the label matches one.
+  const pkg = (source && library && Array.isArray(library.packages))
+    ? library.packages.find((p) =>
+        p.customName === source || p.defaultName === source
+        || p.customName === libLabel || p.defaultName === libLabel)
+    : null;
+  if (pkg) {
+    const created = fmtDate(pkg.createdAt || pkg.savedAt);
+    if (created) lines.push(`**Created:** ${created}`);
+    const l = pkg.lending;
+    const b = pkg.borrowed;
+    const lent = l && l.submittedAt && fmtDate(l.submittedAt);
+    if (lent) lines.push(`**Lent to library:** ${lent}`);
+    // Creator/hometown: the lend author (own work) or the borrow lender
+    // (someone else's) — whichever provenance the package carries.
+    const creator  = (l && l.author)   || (b && b.lender)   || null;
+    const hometown = (l && l.hometown) || (b && b.hometown) || null;
+    if (creator)  lines.push(`**Creator:** ${creator}`);
+    if (hometown) lines.push(`**Hometown:** ${hometown}`);
   }
-
-  const lines = [];
-  if (originLine) lines.push(originLine);
-  if (dateLine) lines.push(dateLine);
-  if (!lines.length) lines.push('Still in its original slot, with its original name.');
 
   showConfirmModal({
     title: 'Patch history',
-    subtitle,
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
