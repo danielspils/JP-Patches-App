@@ -4205,58 +4205,46 @@ function buildLendSection(kind) {
     const btn = document.createElement('button');
     btn.className = 'modal-btn modal-btn-alt lend-borrow-btn';   // Roland blue = lend
     btn.type = 'button';
-    const alreadySubmitted = !!(item.lending && item.lending.submittedAt);
-    if (alreadySubmitted) {
-      // Persisted state from a successful relay submission. Clicking
-      // opens the removal confirm (Daniel's copy, 2026-06-10) — the
-      // stored secret token drives the relay → workflow withdraw.
-      btn.textContent = 'submitted';
-      btn.addEventListener('click', () => {
-        const lentAs = (item.lending && item.lending.lendName)
-          || item.customName || item.defaultName || 'This file';
-        showConfirmModal({
-          title: 'Remove from Lending Library',
-          body:
-            `*${lentAs}* will be removed from the user lending library.\n\n` +
-            'Future users will no longer be able to download this file.',
-          confirmLabel: 'Remove',
-          confirmStyle: 'danger',
-          onConfirm: async () => {
-            btn.disabled = true;
-            btn.textContent = 'removing…';
-            const res = await window.api.communityWithdraw(item.lending.token);
-            if (res && res.ok) {
-              // Removal is queued (workflow lands it in ~2 min). Clear
-              // the lending state — the item can be lent again later.
-              delete item.lending;
-              saveLibraryDebounced();
-              btn.textContent = 'lend';
-              btn.disabled = false;
-              btn.addEventListener('click', () => {
-                showLendConfirmModal(kind, item, displayName, (label) => {
-                  btn.textContent = label || 'submitted';
-                  btn.disabled = true;
-                });
-              }, { once: true });
-            } else {
-              btn.disabled = false;
-              btn.textContent = 'submitted';
-              showImportError(`Could not remove: ${(res && res.error) || 'relay unreachable'}`);
-            }
-          },
-        });
-      });
-    } else {
-      // Active blue from the moment it's visible — visibility itself is
-      // the consent gate now (the whole list hides until both boxes).
-      btn.textContent = 'lend';
-      btn.addEventListener('click', () => {
-        showLendConfirmModal(kind, item, displayName, (label) => {
-          btn.textContent = label || 'submitted';
+    // One persistent handler branches on live lending state, so the
+    // button works in BOTH directions within a single modal session:
+    // lend → submitted (withdrawable immediately — was disabled-grey
+    // until the next open, which read as "sequences can't withdraw"),
+    // and withdraw → lend again.
+    const renderLendState = () => {
+      const submitted = !!(item.lending && item.lending.submittedAt);
+      btn.textContent = submitted ? 'submitted' : 'lend';
+      btn.disabled = false;
+    };
+    renderLendState();
+    btn.addEventListener('click', () => {
+      const submitted = !!(item.lending && item.lending.submittedAt);
+      if (!submitted) {
+        showLendConfirmModal(kind, item, displayName, () => renderLendState());
+        return;
+      }
+      const lentAs = (item.lending && item.lending.lendName)
+        || item.customName || item.defaultName || 'This file';
+      showConfirmModal({
+        title: 'Remove from Lending Library',
+        body:
+          `*${lentAs}* will be removed from the user lending library.\n\n` +
+          'Future users will no longer be able to download this file.',
+        confirmLabel: 'Remove',
+        confirmStyle: 'danger',
+        onConfirm: async () => {
           btn.disabled = true;
-        });
+          btn.textContent = 'removing…';
+          const res = await window.api.communityWithdraw(item.lending.token);
+          if (res && res.ok) {
+            delete item.lending;
+            saveLibraryDebounced();
+          } else {
+            showImportError(`Could not remove: ${(res && res.error) || 'relay unreachable'}`);
+          }
+          renderLendState();
+        },
       });
-    }
+    });
     row.appendChild(btn);
     list.appendChild(row);
   });
