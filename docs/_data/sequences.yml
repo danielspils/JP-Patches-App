@@ -3,3 +3,15 @@
 # Same schema + rules as _data/patches.yml (see the field reference
 # there). Drives the /sequences/ page and the /library/index.json
 # manifest.
+
+- id: david-nixon-s-first-sequence
+  name: 'David Nixon''s First Sequence!'
+  author: 'David Nixon'
+  hometown: 'Seattle, WA'
+  description: 'David came by to check out JP Patches and we made this seqeunce to celebrate.'
+  added: 2026-06-11
+  file: /library/sequences/david-nixon-s-first-sequence.json
+  size_bytes: 4958
+  tags: []
+  audio_preview: null
+  token_hash: fb6d3a64b76574cd719c41df69daac5e8da987dcedcf9c863838b986e27755ca
