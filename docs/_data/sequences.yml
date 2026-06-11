@@ -28,3 +28,15 @@
   tags: []
   audio_preview: null
   token_hash: 2c36f8e9f206e180c010a3ff8a281b1da84d449c48510d12b63e0f29db14cc45
+
+- id: spils-sequence
+  name: 'Spils Sequence'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'Watch me create this sequence on the JX-3P.com homepage.'
+  added: 2026-06-11
+  file: /library/sequences/spils-sequence.json
+  size_bytes: 13954
+  tags: []
+  audio_preview: null
+  token_hash: a95d77e214830d07e58659067035027574e18acf2e200d5cfce90c63b22c8d74
