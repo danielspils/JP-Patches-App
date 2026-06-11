@@ -19,14 +19,3 @@
 #   tags:          optional list (search/filter later; empty is fine)
 #   audio_preview: optional path to a short MP3 audition clip (null = none)
 
-- id: spils-sounds
-  name: Spils Sounds
-  author: Daniel Spils
-  hometown: Anchorage, AK
-  description: My personal C/D banks — the same patches that seed a fresh JP Patches install.
-  added: 2026-06-10
-  file: /library/patches/spils-sounds.json
-  size_bytes: 34433
-  tags: []
-  audio_preview: null
-
