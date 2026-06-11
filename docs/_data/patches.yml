@@ -33,14 +33,3 @@
   audio_preview: null
   token_hash: f1f092a36fb56dbc48201e47a0aadc9abc89474426b46ebcbafff3690666dd98
 
-- id: martin-crane-dumbo-sounds
-  name: 'Martin Crane DUMBO Sounds'
-  author: 'Martin Crane'
-  hometown: 'Brooklyn, NY'
-  description: 'Martin sold me his JX-3P in DUMBO and it included his killer sounds!'
-  added: 2026-06-11
-  file: /library/patches/martin-crane-dumbo-sounds.json
-  size_bytes: 37845
-  tags: []
-  audio_preview: null
-  token_hash: 8027b2328b9144cb1cf3e58740067018704b49adfb09be82d3a0cf9b3fd614dd
