@@ -1074,8 +1074,8 @@ body {
   cursor: pointer;
 }
 .community-heart svg {
-  width: 40px;
-  height: 40px;
+  width: 28px;                    /* 40 → 28 (−30%, Daniel 2026-06-10) */
+  height: 28px;
   display: block;
 }
 .community-heart svg path {
