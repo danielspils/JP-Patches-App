@@ -3918,7 +3918,7 @@ function buildLendRow(entry, isTones) {
       const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name, entry.id);
       if (!dl || !dl.ok) throw new Error((dl && dl.error) || 'download failed');
       if (isTones) await handleTonesDropImport(dl.path);
-      else         await handleSequenceDropImport(dl.path);
+      else         await handleSequenceDropImport(dl.path, { direct: true });
       btn.textContent = 'borrowed';
       btn.classList.remove('modal-btn-danger');
       btn.classList.add('modal-btn-confirm');   // green; stays disabled — it's in the library now
@@ -11043,7 +11043,7 @@ async function handleDownloadSequence(idx) {
 // for unit-testability — see test/library-math.test.js). The UMD wrapper
 // attaches it to window, so the call site below picks it up as a global.
 
-async function handleSequenceDropImport(filePath) {
+async function handleSequenceDropImport(filePath, { direct = false } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
@@ -11060,6 +11060,23 @@ async function handleSequenceDropImport(filePath) {
     selLibTab = 'tones';
     renderPatchList();
     handleTonesDropImport(filePath);
+    return;
+  }
+  // Community borrow (direct): the lender's name/notes/paired patch came
+  // embedded, and the user just clicked borrow on exactly this item — the
+  // Save modal would only re-ask what they already saw. Save straight to
+  // the library (tones parity); rename later via the pencil if wanted.
+  // The "Captured sequence…" modal stays for WAV/tape imports, where the
+  // name is genuinely unresolved.
+  const meta = result.sequenceMeta || null;
+  if (direct && meta && meta.pairedPatch) {
+    saveSequenceEntry({
+      tapeData: result.data,
+      patchNote: meta.patchNote || '',
+      defaultName: meta.customName || labelFromPath(filePath) || null,
+      customName: '',
+      sequenceMeta: meta,
+    });
     return;
   }
   if (!activeBankPatch()) {

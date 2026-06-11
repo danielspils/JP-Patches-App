@@ -346,7 +346,8 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Library → Sequences: same button | Roland **blue**, active | |
 | Click explore (Tones) | modal opens, "Fetching…" → up to 3 newest catalog tones with name + author · hometown · date + notes | |
 | Click **borrow** on an entry | button → "borrowing…" → green "borrowed"; package lands in Library Tones with patch names intact and **no `.wav` in the label** | |
-| Borrow from the Sequences modal | sequence lands in Library Sequences, paired patch intact (check the (i)) | |
+| Borrow from the Sequences modal | sequence lands DIRECTLY in Library Sequences — **no "Save Sequence to Library" modal** (lender's name + notes + paired patch arrive embedded; check the (i)) | |
+| Drag-drop a sequence WAV (NOT a borrow) | the "Save Sequence to Library" modal still appears (name genuinely unresolved for tape imports) | |
 | "explore the entire lending library" link (centered, underlined) | opens jx-3p.com/patches/ or /sequences/ in the default browser — app window does NOT navigate | |
 | × in the modal's upper right + Escape + overlay click | all three close the modal | |
 | Offline (Wi-Fi off) → open explore modal | "Offline — showing the last fetched list." with cached entries, or the could-not-reach message if never fetched | |
