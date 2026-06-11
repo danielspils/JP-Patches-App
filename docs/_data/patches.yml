@@ -19,3 +19,15 @@
 #   tags:          optional list (search/filter later; empty is fine)
 #   audio_preview: optional path to a short MP3 audition clip (null = none)
 
+
+- id: martin-crane-dumbo-sounds
+  name: 'Martin Crane DUMBO Sounds'
+  author: 'Martin Crane'
+  hometown: 'Brooklyn, NY'
+  description: 'Martin sold me his JX-3P and his killer sounds came with the board.'
+  added: 2026-06-11
+  file: /library/patches/martin-crane-dumbo-sounds.json
+  size_bytes: 37845
+  tags: []
+  audio_preview: null
+  token_hash: b676bee679e35ad9608e1bbe395300723e9a8c552480fbe4bce84774f74fd169
