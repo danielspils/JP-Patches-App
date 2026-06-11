@@ -21,27 +21,3 @@
 
 
 
-- id: spils-sounds
-  name: 'Spils Sounds'
-  author: 'Daniel Spils'
-  hometown: 'Anchorage, AK'
-  description: 'My very own patches. Knock yourself out!'
-  added: 2026-06-11
-  file: /library/patches/spils-sounds.json
-  size_bytes: 37007
-  tags: []
-  audio_preview: null
-  token_hash: f1f092a36fb56dbc48201e47a0aadc9abc89474426b46ebcbafff3690666dd98
-
-
-- id: martin-crane-dumbo-sounds
-  name: 'Martin Crane DUMBO Sounds'
-  author: 'Martin Crane'
-  hometown: 'Brooklyn, NY'
-  description: 'Martin sold me his JX-3P and PG-200 in DUMBO along with his killer sounds!'
-  added: 2026-06-11
-  file: /library/patches/martin-crane-dumbo-sounds.json
-  size_bytes: 37845
-  tags: []
-  audio_preview: null
-  token_hash: 9d3ad29019f858de31da7f6b72e4be59792f6ecaa7c783293f163475bc03b3d0
