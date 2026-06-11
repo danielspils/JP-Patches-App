@@ -11406,6 +11406,29 @@ function backfillOriginFields() {
       if (!m.originalName && m.name) { m.originalName = m.name; dirty = true; }
     }
   });
+  // Sequences saved before pairedPatch.sourceLibrary existed
+  // (2026-06-11): recover it by params fingerprint — patch identity IS
+  // its params, so a package holding identical params is the source.
+  // null (vs absent) marks "looked, found nothing" so we don't rescan
+  // every boot.
+  (library.sequences || []).forEach((seq) => {
+    const pp = seq.app && seq.app.pairedPatch;
+    if (!pp || !pp.params || 'sourceLibrary' in pp) return;
+    const fp = paramsFingerprint(pp.params);
+    let found = null;
+    for (const pkg of library.packages || []) {
+      if (!Array.isArray(pkg.banks)) continue;
+      for (const bankArr of pkg.banks) {
+        if (Array.isArray(bankArr) && bankArr.some((p) => paramsFingerprint(p) === fp)) {
+          found = pkg.customName || pkg.defaultName || null;
+          break;
+        }
+      }
+      if (found) break;
+    }
+    pp.sourceLibrary = found;
+    dirty = true;
+  });
   if (dirty) saveLibraryDebounced();
 }
 
