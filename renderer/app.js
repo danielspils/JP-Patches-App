@@ -5616,9 +5616,9 @@ function showPackageInfo(idx) {
     });
   });
   const NAMED_SHOWN = 6;
-  if (named.length === 0) {
-    lines.push('**Named patches:** none');
-  } else {
+  // Empty fields are skipped, not placeholdered (matches the sequence
+  // info modal — Daniel, 2026-06-11).
+  if (named.length > 0) {
     const shown = named.slice(0, NAMED_SHOWN).join(', ');
     const more  = named.length > NAMED_SHOWN ? ` +${named.length - NAMED_SHOWN} more` : '';
     lines.push(`**Named patches (${named.length} of 32):** ${shown}${more}`);
@@ -5677,12 +5677,12 @@ function showSequenceInfo(idx) {
 
   const seqName = seq.customName || seq.defaultName || '(unnamed sequence)';
 
-  // Body lines — paired patch + notes (always shown, even when empty,
-  // so the user sees where their JX-time notes would appear) +
-  // optional saved date if savedAt is a valid timestamp.
-  const lines = [`**Paired patch:** ${where} / ${pName}`];
-  lines.push('');
-  lines.push(`**Notes:** ${note || '(none)'}`);
+  // Body lines — empty fields are SKIPPED, not placeholdered (Daniel,
+  // 2026-06-11: "if no notes > don't show field. Same with other empty
+  // fields."). Collect non-empty lines, then join with blank-line gaps.
+  const lines = [];
+  if (pp.bank) lines.push(`**Paired patch:** ${where} / ${pName}`);
+  if (note) lines.push(`**Notes:** ${note}`);
   // createdAt preserves the ORIGINAL creation date across lend/borrow
   // round trips (it travels in _sequenceMeta); savedAt is when this
   // copy landed in this library. Prefer the original.
@@ -5690,28 +5690,18 @@ function showSequenceInfo(idx) {
   if (seqCreated) {
     const d = new Date(seqCreated);
     if (!Number.isNaN(d.getTime())) {
-      const formatted = d.toLocaleDateString('en-US', {
+      lines.push(`**Created:** ${d.toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
-      });
-      lines.push('');
-      lines.push(`**Created:** ${formatted}`);
+      })}`);
     }
   }
-
-  const borrowLines = borrowedInfoLines(seq);
-  if (borrowLines.length) {
-    lines.push('');
-    lines.push(...borrowLines.flatMap((l, i) => i ? ['', l] : [l]));
-  }
-
-  lines.push('');
-  const lendLines = lendingInfoLines(seq);
-  if (lendLines.length) lines.push(...lendLines.flatMap((l, i) => i ? ['', l] : [l]));
+  lines.push(...borrowedInfoLines(seq));
+  lines.push(...lendingInfoLines(seq));
 
   showConfirmModal({
     title: 'Sequence info',
     subtitle: seqName,
-    body: lines.join('\n'),
+    body: lines.join('\n\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
