@@ -311,3 +311,53 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 })();
+
+/* Lending-library pagination — the catalog shows 5 entries per page so
+   the LEND YOUR PATCHES/SEQUENCES section never gets pushed out of
+   reach. Entries are server-rendered newest-first (Liquid sort in
+   patches.md / sequences.md); this just windows them client-side.
+   With 5 or fewer entries the pager never appears. */
+(function () {
+  var PAGE_SIZE = 5;
+  var list = document.querySelector('.community-list');
+  if (!list) return;
+  var entries = list.querySelectorAll('.community-entry');
+  if (entries.length <= PAGE_SIZE) return;
+
+  var pageCount = Math.ceil(entries.length / PAGE_SIZE);
+  var page = 0;
+
+  var pager = document.createElement('div');
+  pager.className = 'community-pager';
+  var newerBtn = document.createElement('button');
+  newerBtn.type = 'button';
+  newerBtn.className = 'community-pager-btn';
+  newerBtn.textContent = '‹ newer';
+  var label = document.createElement('span');
+  label.className = 'community-pager-label';
+  var olderBtn = document.createElement('button');
+  olderBtn.type = 'button';
+  olderBtn.className = 'community-pager-btn';
+  olderBtn.textContent = 'older ›';
+  pager.appendChild(newerBtn);
+  pager.appendChild(label);
+  pager.appendChild(olderBtn);
+  list.appendChild(pager);
+
+  var render = function () {
+    var start = page * PAGE_SIZE;
+    var end = start + PAGE_SIZE;
+    entries.forEach(function (entry, i) {
+      entry.style.display = (i >= start && i < end) ? '' : 'none';
+      // :first-child carries the list's top border; on later pages the
+      // first VISIBLE entry needs it instead.
+      entry.classList.toggle('page-first', i === start);
+    });
+    label.textContent = (page + 1) + ' of ' + pageCount;
+    newerBtn.disabled = page === 0;
+    olderBtn.disabled = page === pageCount - 1;
+  };
+  newerBtn.addEventListener('click', function () { if (page > 0) { page--; render(); } });
+  olderBtn.addEventListener('click', function () { if (page < pageCount - 1) { page++; render(); } });
+  render();
+})();

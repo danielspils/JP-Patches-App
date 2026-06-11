@@ -19,7 +19,8 @@ JP Patches app. Click Library → Tones → **explore the user lending
 library**.
 
 <div class="community-list">
-{% for e in site.data.patches %}
+{% assign entries = site.data.patches | sort: 'added' | reverse %}
+{% for e in entries %}
   <div class="community-entry">
     <div class="community-entry-head">
       <span class="community-entry-name">{{ e.name }}</span>

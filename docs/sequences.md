@@ -18,7 +18,8 @@ Patches app. Click Library → Sequences → **explore the user lending
 library**.
 
 <div class="community-list">
-{% for e in site.data.sequences %}
+{% assign entries = site.data.sequences | sort: 'added' | reverse %}
+{% for e in entries %}
   <div class="community-entry">
     <div class="community-entry-head">
       <span class="community-entry-name">{{ e.name }}</span>

@@ -972,6 +972,39 @@ body {
   font-size: 15px;
   font-style: italic;
 }
+/* Pagination (site.js caps the list at 5 entries per page). */
+.community-entry.page-first {
+  border-top: 1px solid var(--border-dim);
+}
+.community-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 14px 0 2px;
+}
+.community-pager-btn {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  color: var(--roland-green);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+}
+.community-pager-btn:hover:not(:disabled) {
+  color: var(--roland-green-hot);
+}
+.community-pager-btn:disabled {
+  color: var(--text-mid);
+  opacity: 0.45;
+  cursor: default;
+}
+.community-pager-label {
+  color: var(--text-mid);
+  font-size: 13px;
+}
 
 /* ── Hearts + borrow counts on lending-library entries ───────────────
    SVG heart (classic rounded shape): outline (white fill, warm-grey
