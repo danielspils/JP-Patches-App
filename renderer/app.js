@@ -3924,6 +3924,10 @@ function buildLendRow(entry, isTones) {
         hometown:   entry.hometown || '',
         entryId:    entry.id || '',
         borrowedAt: new Date().toISOString(),
+        // The lend-form NOTES (catalog description). The auto-publish
+        // fallback "Lent by X." carries no information — skip it.
+        notes: (entry.description && !/^Lent by /.test(entry.description))
+          ? entry.description : '',
       };
       if (isTones) await handleTonesDropImport(dl.path, { borrowed });
       else         await handleSequenceDropImport(dl.path, { direct: true, borrowed });
@@ -5577,6 +5581,7 @@ function borrowedInfoLines(item) {
   if (when) lines.push(`**Borrowed on:** ${when}`);
   if (b.lender) lines.push(`**Lender:** ${b.lender}`);
   if (b.hometown) lines.push(`**Hometown:** ${b.hometown}`);
+  if (b.notes) lines.push(`**Lend notes:** ${b.notes}`);
   return lines;
 }
 
