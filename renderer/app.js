@@ -5538,19 +5538,29 @@ function buildSequenceInfoIcon(idx) {
 // has been lent to the library (item.lending persisted on a successful
 // relay submission). Older lending records may lack the metadata
 // fields — render what exists.
+// Shared date formatter for the info-modal row builders below.
+function infoDate(stamp) {
+  const d = new Date(stamp);
+  return Number.isNaN(d.getTime()) ? null
+    : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+// The info modals (Patch history, Package info, Sequence info) share a
+// formal row vocabulary (Daniel, 2026-06-11) — `**Label:** value`, one
+// fact per row, empty fields skipped:
+//   Lent to library / Lent as / Creator / Hometown / Lend notes
+//   Borrowed on / Lender / Hometown
 function lendingInfoLines(item) {
   const l = item && item.lending;
   if (!l || !l.submittedAt) return [];
   const lines = [];
-  const d = new Date(l.submittedAt);
-  const when = Number.isNaN(d.getTime()) ? null
-    : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  let head = '**Lent to the library**';
-  if (when) head += ` ${when}`;
-  if (l.lendName) head += ` as *${l.lendName}*`;
-  const who = [l.author, l.hometown].filter(Boolean).join(', ');
-  if (who) head += ` — ${who}`;
-  lines.push(head);
+  const when = infoDate(l.submittedAt);
+  if (when) lines.push(`**Lent to library:** ${when}`);
+  // Only when it went out under a different name than the row shows.
+  const display = (item.customName || item.defaultName || '').trim();
+  if (l.lendName && l.lendName !== display) lines.push(`**Lent as:** *${l.lendName}*`);
+  if (l.author) lines.push(`**Creator:** ${l.author}`);
+  if (l.hometown) lines.push(`**Hometown:** ${l.hometown}`);
   if (l.notes) lines.push(`**Lend notes:** ${l.notes}`);
   return lines;
 }
@@ -5562,12 +5572,10 @@ function borrowedInfoLines(item) {
   const b = item && item.borrowed;
   if (!b || !b.borrowedAt) return [];
   const lines = [];
-  const d = new Date(b.borrowedAt);
-  if (!Number.isNaN(d.getTime())) {
-    lines.push(`**Borrowed on:** ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`);
-  }
-  const who = [b.lender, b.hometown].filter(Boolean).join(', ');
-  if (who) lines.push(`**Lender:** ${who}`);
+  const when = infoDate(b.borrowedAt);
+  if (when) lines.push(`**Borrowed on:** ${when}`);
+  if (b.lender) lines.push(`**Lender:** ${b.lender}`);
+  if (b.hometown) lines.push(`**Hometown:** ${b.hometown}`);
   return lines;
 }
 
@@ -5639,16 +5647,8 @@ function showPackageInfo(idx) {
 
   // Same createdAt-over-savedAt preference as the sequence info modal —
   // savedAt resets every time a copy lands (e.g. on borrow).
-  const pkgCreated = pkg.createdAt || pkg.savedAt;
-  if (pkgCreated) {
-    const d = new Date(pkgCreated);
-    if (!Number.isNaN(d.getTime())) {
-      const formatted = d.toLocaleDateString('en-US', {
-        month: 'long', day: 'numeric', year: 'numeric',
-      });
-      lines.push(`**Created:** ${formatted}`);
-    }
-  }
+  const pkgCreated = infoDate(pkg.createdAt || pkg.savedAt);
+  if (pkgCreated) lines.push(`**Created:** ${pkgCreated}`);
 
   lines.push(...borrowedInfoLines(pkg));
   lines.push(...lendingInfoLines(pkg));
@@ -5694,15 +5694,8 @@ function showSequenceInfo(idx) {
   // createdAt preserves the ORIGINAL creation date across lend/borrow
   // round trips (it travels in _sequenceMeta); savedAt is when this
   // copy landed in this library. Prefer the original.
-  const seqCreated = seq.createdAt || seq.savedAt;
-  if (seqCreated) {
-    const d = new Date(seqCreated);
-    if (!Number.isNaN(d.getTime())) {
-      lines.push(`**Created:** ${d.toLocaleDateString('en-US', {
-        month: 'long', day: 'numeric', year: 'numeric',
-      })}`);
-    }
-  }
+  const seqCreated = infoDate(seq.createdAt || seq.savedAt);
+  if (seqCreated) lines.push(`**Created:** ${seqCreated}`);
   lines.push(...borrowedInfoLines(seq));
   lines.push(...lendingInfoLines(seq));
 
@@ -11321,12 +11314,8 @@ function showPatchInfo(bank, slot) {
   const key = slotKey(bank, slot);
   const name = patchName(bank, slot);
   const source = patchSourceLabel(bank, slot) || patchOriginLibrary(bank, slot);
-
-  const fmtDate = (stamp) => {
-    const d = new Date(stamp);
-    return Number.isNaN(d.getTime()) ? null
-      : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  };
+  const origin = patchOrigin(bank, slot);              // slot at first import
+  const originalName = patchOriginalName(bank, slot);  // name at first stamp
 
   const lines = [`**Name:** ${key} / ${name || '(unnamed)'}`];
   const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
@@ -11339,11 +11328,11 @@ function showPatchInfo(bank, slot) {
         || p.customName === libLabel || p.defaultName === libLabel)
     : null;
   if (pkg) {
-    const created = fmtDate(pkg.createdAt || pkg.savedAt);
+    const created = infoDate(pkg.createdAt || pkg.savedAt);
     if (created) lines.push(`**Created:** ${created}`);
     const l = pkg.lending;
     const b = pkg.borrowed;
-    const lent = l && l.submittedAt && fmtDate(l.submittedAt);
+    const lent = l && l.submittedAt && infoDate(l.submittedAt);
     if (lent) lines.push(`**Lent to library:** ${lent}`);
     // Creator/hometown: the lend author (own work) or the borrow lender
     // (someone else's) — whichever provenance the package carries.
@@ -11351,6 +11340,18 @@ function showPatchInfo(bank, slot) {
     const hometown = (l && l.hometown) || (b && b.hometown) || null;
     if (creator)  lines.push(`**Creator:** ${creator}`);
     if (hometown) lines.push(`**Hometown:** ${hometown}`);
+  }
+
+  // Movement detail (Daniel, 2026-06-11: "I like this detail") — only
+  // when slotMeta actually recorded the first import, so we KNOW.
+  if (origin || originalName) {
+    const samePlace = (origin || key) === key
+      && (originalName || null) === (name || null);
+    if (samePlace) {
+      lines.push('Still in its original slot, with its original name.');
+    } else {
+      lines.push(`**Origin:** ${origin || key} / ${originalName || 'no name'}`);
+    }
   }
 
   showConfirmModal({
