@@ -4059,7 +4059,14 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
       kind, lendName, author: name, hometown, notes, token, payload: payloadObj,
     });
     if (res && res.ok) {
-      item.lending = { token, submittedAt: new Date().toISOString(), issueUrl: res.issueUrl || null };
+      // Full metadata persists so the (i) info modals can show what was
+      // lent, by whom, with which notes (Daniel, 2026-06-10).
+      item.lending = {
+        token,
+        submittedAt: new Date().toISOString(),
+        issueUrl: res.issueUrl || null,
+        lendName, author: name, hometown, notes,
+      };
       saveLibraryDebounced();
       close();
       if (typeof onOpened === 'function') onOpened('submitted');
@@ -5455,6 +5462,27 @@ function buildSequenceInfoIcon(idx) {
   return buildInfoIcon(() => showSequenceInfo(idx), 'Sequence info');
 }
 
+// Lend-status lines for the (i) info modals. Shown only when the item
+// has been lent to the library (item.lending persisted on a successful
+// relay submission). Older lending records may lack the metadata
+// fields — render what exists.
+function lendingInfoLines(item) {
+  const l = item && item.lending;
+  if (!l || !l.submittedAt) return [];
+  const lines = [];
+  const d = new Date(l.submittedAt);
+  const when = Number.isNaN(d.getTime()) ? null
+    : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  let head = '**Lent to the library**';
+  if (when) head += ` ${when}`;
+  if (l.lendName) head += ` as *${l.lendName}*`;
+  const who = [l.author, l.hometown].filter(Boolean).join(', ');
+  if (who) head += ` — ${who}`;
+  lines.push(head);
+  if (l.notes) lines.push(`**Lend notes:** ${l.notes}`);
+  return lines;
+}
+
 // Tones package (i) modal. Surfaces what the package already stores:
 // created date, loaded-vs-active status, named-patch summary, and the
 // provenance rollup (which libraries the patches were drawn from — the
@@ -5531,6 +5559,8 @@ function showPackageInfo(idx) {
     }
   }
 
+  lines.push(...lendingInfoLines(pkg));
+
   showConfirmModal({
     title: 'Package info',
     subtitle: pkgName,
@@ -5571,6 +5601,10 @@ function showSequenceInfo(idx) {
       lines.push(`**Created:** ${formatted}`);
     }
   }
+
+  lines.push('');
+  const lendLines = lendingInfoLines(seq);
+  if (lendLines.length) lines.push(...lendLines.flatMap((l, i) => i ? ['', l] : [l]));
 
   showConfirmModal({
     title: 'Sequence info',
