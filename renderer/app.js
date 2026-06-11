@@ -5658,8 +5658,10 @@ function showPackageInfo(idx) {
   lines.push(...lendingInfoLines(pkg));
 
   showConfirmModal({
-    title: 'Package Info',
-    subtitle: pkgName + loadedNote,
+    // The item name IS the header (Daniel, 2026-06-11 — no "Package
+    // Info" label); the loaded state stays as the italic subtitle.
+    title: pkgName,
+    subtitle: loadedNote.trim() || undefined,
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
@@ -5702,8 +5704,7 @@ function showSequenceInfo(idx) {
   lines.push(...lendingInfoLines(seq));
 
   showConfirmModal({
-    title: 'Sequence Info',
-    subtitle: seqName,
+    title: seqName,   // the item name IS the header — no "Sequence Info" label
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
