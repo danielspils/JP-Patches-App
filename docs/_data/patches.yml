@@ -29,3 +29,14 @@
   size_bytes: 34433
   tags: []
   audio_preview: null
+
+- id: spils-sounds-2
+  name: Spils Sounds 2
+  author: Daniel Spils
+  hometown: Anchorage, AK
+  description: I love all these sounds and I want you to have 'em. Enjoy!
+  added: 2026-06-10
+  file: /library/patches/spils-sounds-2.json
+  size_bytes: 37007
+  tags: []
+  audio_preview: null
