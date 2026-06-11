@@ -1,0 +1,998 @@
+{
+  "format_version": "1.0",
+  "kind": "sequence",
+  "pages": [
+    [
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 58,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 58,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      }
+    ],
+    [
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 58,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 56,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      }
+    ],
+    [
+      {
+        "voices": [
+          {
+            "note": 54,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 52,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 62,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 70,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 73,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      }
+    ],
+    [
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 51,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          {
+            "note": 63,
+            "tied": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 1
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      },
+      {
+        "voices": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "byte7": 127
+      }
+    ],
+    null,
+    null,
+    null,
+    null
+  ],
+  "_sequenceMeta": {
+    "customName": "Friday Morning",
+    "patchNote": "Martin DUMBO patch D4",
+    "pairedPatch": {
+      "bank": "C",
+      "slot": 0,
+      "params": {
+        "dco1_range": "8'",
+        "dco1_waveform": "square",
+        "dco1_fmod_lfo": false,
+        "dco1_fmod_env": false,
+        "dco2_range": "8'",
+        "dco2_waveform": "square",
+        "dco2_crossmod": "sync",
+        "dco2_tune": 131,
+        "dco2_fine_tune": 76,
+        "dco2_fmod_lfo": false,
+        "dco2_fmod_env": false,
+        "dco_lfo_amount": 60,
+        "dco_env_amount": 0,
+        "dco_env_polarity": "pos",
+        "vcf_mix": 127,
+        "vcf_hpf": 0,
+        "vcf_cutoff": 102,
+        "vcf_lfo_mod": 0,
+        "vcf_pitch_follow": 0,
+        "vcf_resonance": 128,
+        "vcf_env_mod": 102,
+        "vcf_env_polarity": "pos",
+        "vca_mode": "env",
+        "vca_level": 116,
+        "chorus": false,
+        "lfo_waveform": "sine",
+        "lfo_delay": 82,
+        "lfo_rate": 184,
+        "env_attack": 0,
+        "env_decay": 144,
+        "env_sustain": 186,
+        "env_release": 0,
+        "mystery": 0
+      },
+      "patchName": "Square Pants"
+    }
+  }
+}

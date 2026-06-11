@@ -27,3 +27,15 @@
   tags: []
   audio_preview: null
   token_hash: d95df746d77d03fba3ebc4ff60a23925f1cfd4a3ff79238c64e5b4a1389f5005
+
+- id: friday-morning
+  name: 'Friday Morning'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'A little doodad to test the flooflab.'
+  added: 2026-06-11
+  file: /library/sequences/friday-morning.json
+  size_bytes: 16042
+  tags: []
+  audio_preview: null
+  token_hash: bb900e0a5ce8672f06914be7b37dc1503c0562dc31b70878b68f9a412a7bbe17
