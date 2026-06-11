@@ -158,7 +158,11 @@ export default {
     const rlKey = `rl:${await heartIpHash(request)}:${day}`;
     const submittedToday = Number(await env.HEARTS.get(rlKey)) || 0;
     if (submittedToday >= 5) {
-      return json({ ok: false, error: 'daily lending limit reached — try again tomorrow' }, 429);
+      return json({
+        ok: false,
+        code: 'rate_limited',
+        error: 'daily lending limit reached — try again tomorrow',
+      }, 429);
     }
     await env.HEARTS.put(rlKey, String(submittedToday + 1), { expirationTtl: 172800 });
 

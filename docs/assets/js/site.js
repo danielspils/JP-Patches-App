@@ -298,7 +298,12 @@ document.addEventListener('DOMContentLoaded', () => {
           .catch(function (err) {
             submit.disabled = false;
             submit.textContent = 'lend';
-            setStatus('Could not submit (' + err.message + ') — try again, or use the GitHub link below.', 'lend-err');
+            if (/daily lending limit/.test(err.message)) {
+              setStatus("Easy there, lender! Five submissions per day is the max — " +
+                'the library will be ready for more tomorrow.', 'lend-err');
+            } else {
+              setStatus('Could not submit (' + err.message + ') — please try again in a bit.', 'lend-err');
+            }
           });
       });
     });

@@ -4073,6 +4073,24 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
       return;
     }
 
+    // Rate limited (5/day) — a real answer from the relay, not an
+    // outage. NO GitHub-form fallback here: that path skips the limit.
+    if (res && res.code === 'rate_limited') {
+      lendBtn.disabled = false;
+      lendBtn.textContent = 'Lend';
+      showConfirmModal({
+        title: 'Easy there, lender!',
+        body:
+          "You've hit the daily lending limit — five submissions per " +
+          'day. Your generosity is noted; the library will be ready ' +
+          'for more tomorrow.',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        onConfirm: () => {},
+      });
+      return;
+    }
+
     // Fallback — relay not deployed / offline / rejected: the original
     // clipboard + pre-filled GitHub form flow. Lending is never blocked
     // by the relay being down.

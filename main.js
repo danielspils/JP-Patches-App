@@ -485,7 +485,11 @@ ipcMain.handle('community-lend', async (_e, submission) => {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data || !data.ok) {
-      return { ok: false, error: (data && data.error) || `relay HTTP ${res.status}` };
+      return {
+        ok: false,
+        code: (data && data.code) || null,
+        error: (data && data.error) || `relay HTTP ${res.status}`,
+      };
     }
     return { ok: true, issueUrl: data.issueUrl || null };
   } catch (err) {
