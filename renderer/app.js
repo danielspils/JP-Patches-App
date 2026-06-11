@@ -11347,14 +11347,14 @@ function showPatchInfo(bank, slot) {
     if (lent) lines.push(`**Lent to library:** ${lent}`);
   }
 
-  // Movement detail (Daniel, 2026-06-11: "I like this detail") — only
-  // when slotMeta actually recorded the first import, so we KNOW.
+  // Movement detail: an Origin row appears only when the patch has
+  // moved or been renamed since first import (untouched patches show
+  // nothing — the "still in its original slot" sentence was tried and
+  // cut, Daniel 2026-06-11).
   if (origin || originalName) {
     const samePlace = (origin || key) === key
       && (originalName || null) === (name || null);
-    if (samePlace) {
-      lines.push('Still in its original slot, with its original name.');
-    } else {
+    if (!samePlace) {
       lines.push(`**Origin:** ${origin || key} / ${originalName || 'no name'}`);
     }
   }
