@@ -20,3 +20,15 @@
 #   audio_preview: optional path to a short MP3 audition clip (null = none)
 
 
+
+- id: spils-sounds
+  name: 'Spils Sounds'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'My very own patches. Knock yourself out!'
+  added: 2026-06-11
+  file: /library/patches/spils-sounds.json
+  size_bytes: 37007
+  tags: []
+  audio_preview: null
+  token_hash: f1f092a36fb56dbc48201e47a0aadc9abc89474426b46ebcbafff3690666dd98
