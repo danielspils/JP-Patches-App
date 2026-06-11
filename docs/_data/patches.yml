@@ -40,3 +40,14 @@
   size_bytes: 37007
   tags: []
   audio_preview: null
+
+- id: auto-publish-pipeline-test
+  name: 'Auto-publish pipeline test'
+  author: 'Daniel (pipeline test)'
+  hometown: 'Anchorage, AK'
+  description: 'End-to-end test of the auto-publish robot. Will be taken down.'
+  added: 2026-06-11
+  file: /library/patches/auto-publish-pipeline-test.json
+  size_bytes: 34425
+  tags: []
+  audio_preview: null
