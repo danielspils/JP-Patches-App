@@ -5775,6 +5775,7 @@ function sendSequenceToJxAfterExit(seq) {
         'and only contains the paired-patch metadata. There is nothing to send ' +
         'to the JX-3P. Re-capture the sequence to populate the tape data.',
       confirmLabel: 'OK',
+      hideCancel: true,   // acknowledgement — nothing to cancel
       onConfirm: () => {},
     });
     return;
@@ -6670,7 +6671,7 @@ function showSendToJxFlow(opts) {
         body:
           "Sending a tape dump to your Mac's built-in speakers will play the FSK at full volume — loud and unpleasant — and the JX-3P won't receive anything (it's not connected to your speakers). " +
           "Open Audio Settings (gear icon, top-right of the panel) and pick your audio interface under \"Tape dump routing.\"",
-        confirmLabel: 'OK, got it',
+        confirmLabel: 'OK',
         hideCancel: true,
         onConfirm: () => {},
       });
@@ -6682,7 +6683,7 @@ function showSendToJxFlow(opts) {
           "Plug it back in, or open Audio Setting (gear icon, top-right of the panel) and pick a different device. " +
           "JP Patches won't fail back to your speakers (that would be painfully loud!). " +
           "Your last device is remembered—plug it back in to restore it.",
-        confirmLabel: 'OK, got it',
+        confirmLabel: 'OK',
         hideCancel: true,
         onConfirm: () => {},
       });
@@ -11299,6 +11300,7 @@ function showImportError(message) {
     title: 'Import error',
     body: message,
     confirmLabel: 'OK',
+    hideCancel: true,   // acknowledgement — nothing to cancel
     onConfirm: () => {},
   });
 }

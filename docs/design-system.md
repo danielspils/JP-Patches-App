@@ -337,6 +337,24 @@ Hover shades (~12% lighter): green `#2a8870`, blue `#4264a8`, red `#d05a3a`.
 
 When designing a new modal: pick exactly one `.modal-btn-confirm` (the primary CTA), 0–1 `.modal-btn-alt` (the alternative path if relevant), 0–1 `.modal-btn-danger` (only if there's a destructive action), and one `.modal-btn-cancel`. Don't stack multiple confirms — the user shouldn't have to choose between two equally-recommended actions.
 
+### 4.1b Modal conventions (standardized 2026-06-11)
+
+**Dismiss-button vocabulary** — one label per situation, no synonyms:
+
+| Label | When | Cancel button? |
+|---|---|---|
+| **Close** | Read-only info modal (the user changed nothing): Patch History, Package Info, Sequence Info | NO — `hideCancel: true` |
+| **OK** | Acknowledging a notice or error (import error, rate limit, MIDI placeholder, routing heads-up) | NO — `hideCancel: true` |
+| **Done** | Finishing a task the user performed in the modal (Send flow's Send → ▶ Play → Done; Audio Settings) | NO |
+
+Cancel appears ONLY when the primary button commits something cancelable (Save, Delete, Load, Remove, Continue). Never pair Cancel with OK/Close/Done — they'd do the same thing. ("OK, got it" and similar variants were collapsed to "OK".)
+
+**Info-modal rows** — `**Label:** value`, one fact per row, single-spaced (`join('\n')`). Empty fields are SKIPPED, never placeholdered (no "Notes: (none)"). Shared vocabulary: `Library / Created / Created by / Hometown / Lent to library / Lent as / Lend notes / Borrowed on / Origin`. Person rows (Created by, Hometown) come before transaction rows (Lent to library / Borrowed on). Attribution is always **Created by** — never "Creator" or "Lender" (the lend-consent checkbox makes every submission an own-work claim).
+
+**Paired patch standard** — `slot at pairing time / name / source library`, slash-separated, each part skipped when unknown: `Paired patch: C1 / Square Pants / Spils Sounds`.
+
+**Titles** — Title Case (`Patch History`, `Package Info`, `Sequence Info`). Item name goes in the bold subtitle, not a body row; supplementary state renders as an italic 11px second subtitle line (`.modal-subtitle em`, e.g. *currently loaded in the active C/D banks*).
+
 ### 4.2 Section card (inside a modal)
 
 Background-elevated cards for grouping related controls inside a modal. Used for INPUT DEVICE / LEVEL / INPUT GAIN sections in the Record-from-JX modal.
