@@ -11317,7 +11317,10 @@ function showPatchInfo(bank, slot) {
   const origin = patchOrigin(bank, slot);              // slot at first import
   const originalName = patchOriginalName(bank, slot);  // name at first stamp
 
-  const lines = [`**Name:** ${key} / ${name || '(unnamed)'}`];
+  // Slot + name live in the subheader (Daniel preferred the original
+  // treatment); the body rows start at Library.
+  const subtitle = `${key}: ${name || '(unnamed)'}`;
+  const lines = [];
   const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
   if (libLabel) lines.push(`**Library:** ${libLabel}`);
 
@@ -11355,7 +11358,8 @@ function showPatchInfo(bank, slot) {
   }
 
   showConfirmModal({
-    title: 'Patch history',
+    title: 'Patch History',
+    subtitle,
     body: lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
