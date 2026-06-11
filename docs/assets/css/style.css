@@ -1042,3 +1042,11 @@ body {
   margin: 20px 0;
   border: 1px solid var(--body-border);
 }
+.lend-howto-shot { cursor: zoom-in; }   /* the site lightbox wires all content images */
+.lend-howto-caption {
+  display: block;
+  margin: -14px 0 22px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--body-text-mid);
+}

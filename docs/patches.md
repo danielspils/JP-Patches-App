@@ -43,6 +43,8 @@ Lending happens right inside JP Patches — no account, no upload, no form:
 
 <img class="lend-howto-shot" src="/screenshots/jx-lend-from-app.png" alt="Lending from inside JP Patches — the Library tab's explore button opens the lending modal; checking the two consent boxes reveals lend buttons next to your packages">
 
+<em class="lend-howto-caption">(click to enlarge)</em>
+
 Your patches appear on this page (and in everyone's app) within a couple
 of minutes. Change your mind? Click **submitted** in the app to remove
 them. Your own work only — anybody can download and use what you lend.

@@ -42,6 +42,8 @@ Lending happens right inside JP Patches — no account, no upload, no form:
 
 <img class="lend-howto-shot" src="/screenshots/jx-lend-sequences-from-app.png" alt="Lending a sequence from inside JP Patches — the Sequences tab's explore button opens the lending modal; checking the two consent boxes reveals lend buttons next to your sequences">
 
+<em class="lend-howto-caption">(click to enlarge)</em>
+
 Your sequence travels with its paired patch automatically, so borrowers
 hear it with the sound you intended.
 
