@@ -33,3 +33,15 @@
   tags: []
   audio_preview: null
   token_hash: c121a9eff6dce32331ec440b387f6bc9f0f7d172c6a9bbd791ba37a7bf7e3cb5
+
+- id: spils-sounds
+  name: 'Spils Sounds'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'My very own patches (and the inspiration for JP Patches). Have fun!'
+  added: 2026-06-11
+  file: /library/patches/spils-sounds.json
+  size_bytes: 37007
+  tags: []
+  audio_preview: null
+  token_hash: 9c2e6b757bbc9f0f367bad94e292bcb9471d068184587477818db021497c9bdb
