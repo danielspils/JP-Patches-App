@@ -1,0 +1,45 @@
+# Auto-publish lending-library submissions.
+#
+# Every community-labeled issue (filed by the relay or the manual
+# GitHub forms) runs through scripts/publish-lend.mjs: strict payload
+# validation → content-hash dedup → catalog write → consistency-test
+# gate → push (Pages deploys) → close with a receipt. Submissions the
+# validator isn't sure about get `needs-review` and stay open.
+#
+# Uses the built-in workflow token (contents+issues write) — the
+# relay's PAT stays Issues-only. The companion lending-notify workflow
+# still @mention-pings Daniel on every submission, so auto-publish
+# never happens silently.
+name: Auto-publish lending submission
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+# Serialize publishes — two simultaneous submissions would race on push.
+concurrency:
+  group: lending-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: contains(join(github.event.issue.labels.*.name, ','), 'community-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Only js-yaml (for the catalog consistency test) — a full npm ci
+      # would download Electron and add minutes for nothing.
+      - run: npm install --no-save js-yaml
+      - run: node scripts/publish-lend.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}

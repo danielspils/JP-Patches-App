@@ -150,6 +150,18 @@ export default {
       return json({ ok: false, error: 'request too large' }, 413);
     }
 
+    // Rate limit: max 5 submissions per IP per UTC day. Submissions
+    // auto-publish now, so this is the flood guard — without it a
+    // script could fill the public catalog overnight. Non-atomic KV
+    // counter is fine: the limit is approximate by design.
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const rlKey = `rl:${await heartIpHash(request)}:${day}`;
+    const submittedToday = Number(await env.HEARTS.get(rlKey)) || 0;
+    if (submittedToday >= 5) {
+      return json({ ok: false, error: 'daily lending limit reached — try again tomorrow' }, 429);
+    }
+    await env.HEARTS.put(rlKey, String(submittedToday + 1), { expirationTtl: 172800 });
+
     let body;
     try {
       body = await request.json();
