@@ -1,0 +1,39 @@
+# Process lending-library withdraw requests (relay-filed issues with the
+# community-withdraw label). The author gate is the trust boundary: the
+# token hash in the issue body is public knowledge (it's in the catalog
+# YAML), so only issues authored by the repo owner — i.e. filed by the
+# relay with Daniel's PAT, which requires the SECRET token — are
+# processed. Strangers filing their own [Withdraw] issues are ignored.
+name: Process lending withdraw request
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+# Shares the publish queue — withdraws and publishes serialize together.
+concurrency:
+  group: lending-publish
+  cancel-in-progress: false
+
+jobs:
+  withdraw:
+    if: >-
+      contains(join(github.event.issue.labels.*.name, ','), 'community-withdraw')
+      && github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save js-yaml
+      - run: node scripts/withdraw-lend.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}

@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('api', {
   communityLend:           (submission)        => ipcRenderer.invoke('community-lend', submission),
   // Heart counts for explore-modal entries (display-only in-app).
   communityFetchHearts:    (ids)               => ipcRenderer.invoke('community-fetch-hearts', ids),
+  // Withdraw a lent item (secret token → relay → workflow removes it).
+  communityWithdraw:       (token)             => ipcRenderer.invoke('community-withdraw', token),
   // App + OS metadata for diagnostic bug-report URLs.
   // Returns { appVersion, platform, macOsRelease }.
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),

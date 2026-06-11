@@ -499,6 +499,36 @@ ipcMain.handle('community-lend', async (_e, submission) => {
   }
 });
 
+// Withdraw a lent item from the lending library. Sends the SECRET
+// lend-token (persisted on the item at submit time) to the relay,
+// which files a withdraw request carrying only the token's hash; the
+// lending-withdraw workflow matches it against the catalog and removes
+// the entry. Removal is async (~2 min end to end).
+ipcMain.handle('community-withdraw', async (_e, token) => {
+  if (typeof token !== 'string' || !token.trim()) {
+    return { ok: false, error: 'invalid token' };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LENDING_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch('https://lend.jx-3p.com/withdraw', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: token.trim() }),
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.ok) {
+      return { ok: false, error: (data && data.error) || `relay HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'relay unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 // Heart counts for lending-library entries (display-only in the app;
 // giving hearts is web-only — IP dedupe behaves oddly behind shared
 // networks and the modal stays simpler). Same origin lock as the rest.

@@ -4207,11 +4207,45 @@ function buildLendSection(kind) {
     btn.type = 'button';
     const alreadySubmitted = !!(item.lending && item.lending.submittedAt);
     if (alreadySubmitted) {
-      // Persisted state from a successful relay submission — stays
-      // disabled across opens. (Withdraw via the stored token is the
-      // future enhancement.)
+      // Persisted state from a successful relay submission. Clicking
+      // opens the removal confirm (Daniel's copy, 2026-06-10) — the
+      // stored secret token drives the relay → workflow withdraw.
       btn.textContent = 'submitted';
-      btn.disabled = true;
+      btn.addEventListener('click', () => {
+        const lentAs = (item.lending && item.lending.lendName)
+          || item.customName || item.defaultName || 'This file';
+        showConfirmModal({
+          title: 'Remove from Lending Library',
+          body:
+            `*${lentAs}* will be removed from the user lending library.\n\n` +
+            'Future users will no longer be able to download this file.',
+          confirmLabel: 'Remove',
+          confirmStyle: 'danger',
+          onConfirm: async () => {
+            btn.disabled = true;
+            btn.textContent = 'removing…';
+            const res = await window.api.communityWithdraw(item.lending.token);
+            if (res && res.ok) {
+              // Removal is queued (workflow lands it in ~2 min). Clear
+              // the lending state — the item can be lent again later.
+              delete item.lending;
+              saveLibraryDebounced();
+              btn.textContent = 'lend';
+              btn.disabled = false;
+              btn.addEventListener('click', () => {
+                showLendConfirmModal(kind, item, displayName, (label) => {
+                  btn.textContent = label || 'submitted';
+                  btn.disabled = true;
+                });
+              }, { once: true });
+            } else {
+              btn.disabled = false;
+              btn.textContent = 'submitted';
+              showImportError(`Could not remove: ${(res && res.error) || 'relay unreachable'}`);
+            }
+          },
+        });
+      });
     } else {
       // Active blue from the moment it's visible — visibility itself is
       // the consent gate now (the whole list hides until both boxes).

@@ -142,6 +142,43 @@ export default {
     if (request.method === 'POST' && url.pathname === '/borrow') {
       return handlePostBorrow(request, env);
     }
+    if (request.method === 'POST' && url.pathname === '/withdraw') {
+      // Withdraw a published lending entry. The app sends the SECRET
+      // lend-token (persisted at submit time); only its sha256 hash —
+      // which publish-lend.mjs stored in the catalog YAML — appears in
+      // the withdraw issue, so the public record can't be replayed.
+      // The withdraw workflow additionally only trusts issues authored
+      // by the repo owner (i.e. relay-filed), closing the copy-the-
+      // public-hash-into-a-manual-issue hole.
+      let wbody;
+      try { wbody = await request.json(); } catch { return json({ ok: false, error: 'invalid JSON' }, 400); }
+      const wtoken = wbody && wbody.token;
+      if (typeof wtoken !== 'string' || !wtoken.trim() || wtoken.length > 100) {
+        return json({ ok: false, error: 'invalid token' }, 400);
+      }
+      const hash = [...new Uint8Array(await crypto.subtle.digest(
+        'SHA-256', new TextEncoder().encode(wtoken.trim())))]
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
+      const ghRes = await fetch(`https://api.github.com/repos/${REPO}/issues`, {
+        method: 'POST',
+        headers: {
+          'authorization': `Bearer ${env.GITHUB_TOKEN}`,
+          'accept': 'application/vnd.github+json',
+          'content-type': 'application/json',
+          'user-agent': 'jp-patches-lending-relay',
+          'x-github-api-version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          title: '[Withdraw] lending-library removal request',
+          labels: ['community-withdraw'],
+          body: `**Token hash:** ${hash}\n\n_Requested from inside JP Patches via the lending relay._`,
+        }),
+      });
+      if (!ghRes.ok) {
+        return json({ ok: false, error: `github rejected the request (${ghRes.status})` }, 502);
+      }
+      return json({ ok: true });
+    }
     if (request.method !== 'POST' || url.pathname !== '/lend') {
       return json({ ok: false, error: 'POST /lend only' }, 404);
     }
