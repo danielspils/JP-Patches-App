@@ -51,6 +51,10 @@ export default [
         remapIndexAfterReorder:   'readonly',
         latestLendingEntries:     'readonly',
 
+        // Globals exposed by renderer/lending.js
+        buildLendPayload:         'readonly',
+        buildLendIssueUrl:        'readonly',
+
         // Globals exposed by renderer/record-calibration.js
         normalizeDeviceLabel:         'readonly',
         resolveCalibratedGain:        'readonly',

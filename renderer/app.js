@@ -3947,34 +3947,10 @@ function lendingPrefs() {
   return library.lending;
 }
 
-// Build the lend payload for one library item — EXACTLY the shapes the
-// download/export paths emit, so a lent file is indistinguishable from
-// a downloaded one (and round-trips through borrow identically).
-function buildLendPayload(kind, item) {
-  if (kind === 'tones') {
-    const payload = { format_version: '1.0', banks: item.banks };
-    if (item.slotMeta) payload._slotMeta = item.slotMeta;
-    return payload;
-  }
-  return {
-    format_version: '1.0',
-    kind: 'sequence',
-    pages: item.tape && item.tape.pages,
-    _sequenceMeta: buildSequenceMetaForExport(item),
-  };
-}
-
-function buildLendIssueUrl(kind, displayName, name, hometown, notes) {
-  const isTones = kind === 'tones';
-  const params = new URLSearchParams();
-  params.set('template', isTones ? 'share-tones.yml' : 'share-sequence.yml');
-  params.set('title', `[Lend ${isTones ? 'Tones' : 'Sequence'}] ${displayName}`);
-  params.set(isTones ? 'package-name' : 'sequence-name', displayName);
-  params.set('author', name);
-  if (hometown) params.set('hometown', hometown);
-  if (notes) params.set('notes', notes);
-  return `https://github.com/danielspils/JP-Patches-App/issues/new?${params.toString()}`;
-}
+// buildLendPayload + buildLendIssueUrl live in renderer/lending.js
+// (pure, unit-tested in test/lending.test.js). buildLendPayload takes
+// the pre-built sequenceMeta so it stays pure — build it at the call
+// site via buildSequenceMetaForExport.
 
 // Confirm step (decided 2026-06-10): name / hometown / notes, then the
 // actual lend commit. Name + hometown prefill from prefs so repeat
@@ -4074,7 +4050,8 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
 
     // Relay first: one click, no GitHub account needed. The token is
     // the future self-serve-withdraw hook; it persists on the item.
-    const payloadObj = buildLendPayload(kind, item);
+    const payloadObj = buildLendPayload(
+      kind, item, kind === 'tones' ? null : buildSequenceMetaForExport(item));
     const token = (window.crypto && crypto.randomUUID)
       ? crypto.randomUUID()
       : `tok-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

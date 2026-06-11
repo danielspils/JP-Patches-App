@@ -332,6 +332,47 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Drag a `.wav` from Finder onto Bank C | quick-check modal → import → C populates | |
 | Drag a `.wav` onto Library Tones | new package added with file's name | |
 | Drag a sequencer-dump `.wav` onto Library Sequences | save-sequence modal | |
+| Drag a tones `.json` (per-row download export) onto Library Tones | imports as a new package **with patch names restored** (from `_slotMeta`) | |
+| Drag a sequence `.json` onto Library Sequences | imports with name/notes/paired patch restored (from `_sequenceMeta`) | |
+| Drag a `.txt` (or other extension) anywhere | "Only .wav and .json files can be dropped here." error — no import | |
+
+## 8a. User Lending Library (new in v0.8.0)
+
+**Explore + borrow** (needs network to jx-3p.com):
+
+| Check | Expected | Result |
+|---|---|---|
+| Library → Tones: "explore the user lending library" button | Roland **green**, active | |
+| Library → Sequences: same button | Roland **blue**, active | |
+| Click explore (Tones) | modal opens, "Fetching…" → up to 3 newest catalog tones with name + author · hometown · date + notes | |
+| Click **borrow** on an entry | button → "borrowing…" → green "borrowed"; package lands in Library Tones with patch names intact and **no `.wav` in the label** | |
+| Borrow from the Sequences modal | sequence lands in Library Sequences, paired patch intact (check the (i)) | |
+| "explore the entire lending library" link (centered, underlined) | opens jx-3p.com/patches/ or /sequences/ in the default browser — app window does NOT navigate | |
+| × in the modal's upper right + Escape + overlay click | all three close the modal | |
+| Offline (Wi-Fi off) → open explore modal | "Offline — showing the last fetched list." with cached entries, or the could-not-reach message if never fetched | |
+
+**Lend** (relay at lend.jx-3p.com):
+
+| Check | Expected | Result |
+|---|---|---|
+| Open explore modal → lend section lists YOUR packages/sequences | lend buttons **light grey** (disabled) until consent | |
+| Check both consent boxes | all lend buttons flip to Roland blue | |
+| Close + reopen the modal | consent boxes are UNCHECKED again (deliberately per-open) | |
+| Click **lend** | "Lending Library submission" confirm: editable TONES/SEQUENCE YOU ARE LENDING (pre-filled), YOUR NAME / HOMETOWN / NOTES with *italic* placeholders | |
+| Submit with empty name | blocked — focus jumps to the empty field, nothing sent | |
+| Submit with all fields | button → "Submitting…" → modal closes → row button reads **submitted**; a `[Lend …]` issue appears in the GitHub queue with metadata + JSON payload | |
+| Quit + relaunch → reopen explore modal | the lent item still reads **submitted** (persisted) | |
+| Second lend: name + hometown | pre-filled from the previous lend; notes empty | |
+| Relay down (Wi-Fi off) → lend | "Direct submit unavailable" → Open GitHub form: browser opens pre-filled issue form, JSON on clipboard | |
+
+**Library row info (i):**
+
+| Check | Expected | Result |
+|---|---|---|
+| Hover a Tones row | four icons: (i) \| LOAD \| download \| trash — no overlap, even with a long name (ellipsized) | |
+| Click (i) on the currently-loaded package | modal shows "Status: currently loaded in the active C/D banks" + named-patch summary + Created; **Close button only** | |
+| Click (i) on any other package | NO Status line (deliberate); provenance rollup appears only for multi-source custom banks | |
+| Click the pencil (rename) on a row | hover icons disappear while editing; return on commit/cancel | |
 
 ## 9. Custom Bank Builder
 
