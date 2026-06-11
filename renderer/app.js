@@ -4081,7 +4081,7 @@ function showLendConfirmModal(kind, item, displayName, onOpened) {
       showConfirmModal({
         title: 'Easy there, lender!',
         body:
-          "You've hit the daily lending limit — five submissions per " +
+          "You've hit the daily lending limit — ten submissions per " +
           'day. Your generosity is noted; the library will be ready ' +
           'for more tomorrow.',
         confirmLabel: 'OK',

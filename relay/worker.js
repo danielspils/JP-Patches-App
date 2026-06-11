@@ -23,6 +23,7 @@
 
 const REPO = 'danielspils/JP-Patches-App';
 const MAX_REQUEST_BYTES = 1 * 1024 * 1024;   // payloads are ~15-35KB; 1MB = generous
+const LEND_DAILY_LIMIT = 10;
 const MAX_ISSUE_BODY = 60000;                // GitHub caps issue bodies at 65536
 
 // CORS: the lend form on jx-3p.com posts here cross-origin (the app's
@@ -187,14 +188,14 @@ export default {
       return json({ ok: false, error: 'request too large' }, 413);
     }
 
-    // Rate limit: max 5 submissions per IP per UTC day. Submissions
-    // auto-publish now, so this is the flood guard — without it a
-    // script could fill the public catalog overnight. Non-atomic KV
+    // Rate limit: LEND_DAILY_LIMIT submissions per IP per UTC day.
+    // Submissions auto-publish, so this is the flood guard — without a
+    // cap a script could fill the public catalog overnight. Non-atomic KV
     // counter is fine: the limit is approximate by design.
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rlKey = `rl:${await heartIpHash(request)}:${day}`;
     const submittedToday = Number(await env.HEARTS.get(rlKey)) || 0;
-    if (submittedToday >= 5) {
+    if (submittedToday >= LEND_DAILY_LIMIT) {
       return json({
         ok: false,
         code: 'rate_limited',

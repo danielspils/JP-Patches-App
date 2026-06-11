@@ -365,7 +365,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Quit + relaunch → reopen explore modal | the lent item still reads **submitted** (persisted) | |
 | Second lend: name + hometown | pre-filled from the previous lend; notes empty | |
 | Relay down (Wi-Fi off) → lend | "Direct submit unavailable" → Open GitHub form: browser opens pre-filled issue form, JSON on clipboard | |
-| 6th lend in one UTC day | "Easy there, lender!" rate-limit modal — **no** GitHub-form fallback offered (that would bypass the limit) | |
+| 11th lend in one UTC day | "Easy there, lender!" rate-limit modal — **no** GitHub-form fallback offered (that would bypass the limit) | |
 
 **Auto-publish + withdraw round trip** (the full robot pipeline — allow ~3 min per direction):
 
