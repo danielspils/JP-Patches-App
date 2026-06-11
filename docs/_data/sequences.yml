@@ -40,3 +40,15 @@
   tags: []
   audio_preview: null
   token_hash: a95d77e214830d07e58659067035027574e18acf2e200d5cfce90c63b22c8d74
+
+- id: chordal-sequence
+  name: 'Chordal Sequence'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'Try this out in the JP Patches sequence editor—big ''90s Nintendo vibes.'
+  added: 2026-06-11
+  file: /library/sequences/chordal-sequence.json
+  size_bytes: 7317
+  tags: []
+  audio_preview: null
+  token_hash: 5b6dbd96515fddd75977858f43124174f3ffbf0aa524a6d192605f404f024320
