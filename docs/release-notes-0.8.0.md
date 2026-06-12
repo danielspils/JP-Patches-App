@@ -29,18 +29,6 @@ I'm currently the only person using it. Join me.
   app (or pick one in the Save dialogs) and it imports just like a WAV —
   patch and sequence names included.
 
-## Fixes
-
-- **Deleting a just-created sequence no longer haunts its neighbor.**
-  Creating a new sequence, trashing it, and navigating away could pop a
-  bogus "unsaved edits" warning naming a sequence you never touched. The
-  bookkeeping underneath has been rebuilt (with tests), and the sequence
-  view below the panel now clears immediately when you delete the
-  sequence you're looking at.
-- Sequence info, package info, and patch history popups got a matching
-  cleanup — the item is the header, empty fields stay hidden, and one
-  Close button does the work.
-
 ## Install
 
 Auto-update from v0.7.5 should bring this up automatically. Otherwise: DMG
