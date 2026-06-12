@@ -28,10 +28,6 @@ I'm currently the only person using it. Join me.
 - **JSON files work everywhere WAVs do.** Drag a `.json` export onto the
   app (or pick one in the Save dialogs) and it imports just like a WAV —
   patch and sequence names included.
-- **Creating things is clearer.** The big key below the panel now does
-  the right thing wherever you are: **Create New Sequence** (blue) on
-  Library → Sequences, **Create Custom Banks** (green) everywhere it
-  applies.
 
 ## Fixes
 
