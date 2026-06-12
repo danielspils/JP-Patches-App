@@ -285,6 +285,16 @@ body {
   min-width: 0;
 }
 
+/* Abbreviated Roland disclaimer — italic, right-aligned under the
+   subtitle; the * resolves to the full footer disclaimer. */
+.site-subtitle-disclaimer {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--cream-sec);
+  text-align: right;
+  white-space: nowrap;
+}
+
 .site-subtitle {
   font-size: 16px;
   font-weight: 400;
@@ -757,7 +767,8 @@ body {
 /* Hide subtitle on tablets + phones — the line gets cramped competing
    with the download button. Title + logo still convey the brand. */
 @media (max-width: 720px) {
-  .site-subtitle {
+  .site-subtitle,
+  .site-subtitle-disclaimer {
     display: none;
   }
 }
