@@ -22,18 +22,6 @@
 
 
 
-- id: martin-crane-dumbo-sounds
-  name: 'Martin Crane DUMBO Sounds'
-  author: 'Martin Crane'
-  hometown: 'Brooklyn, NY'
-  description: 'Martin sold me his JX-3P and PG-200 in DUMBO along with his creative tones.'
-  added: 2026-06-11
-  file: /library/patches/martin-crane-dumbo-sounds.json
-  size_bytes: 37845
-  tags: []
-  audio_preview: null
-  token_hash: c121a9eff6dce32331ec440b387f6bc9f0f7d172c6a9bbd791ba37a7bf7e3cb5
-
 - id: spils-sounds
   name: 'Spils Sounds'
   author: 'Daniel Spils'
