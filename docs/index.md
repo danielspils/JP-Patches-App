@@ -34,6 +34,8 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 
 ## HOW DOES IT WORK?
 
+<div class="howto-row">
+<div class="howto-steps" markdown="1">
 ![USB-to-1/4-splitter cable connecting a MacBook to the JX-3P's Tape Memory Save and Load jacks](screenshots/jx-cable.png)
 
 * use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT) (or your audio interface)
@@ -41,6 +43,16 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
 * alternatively, you can upload WAV files
+</div>
+<div class="video-embed">
+  <iframe src="https://www.youtube-nocookie.com/embed/ET4UJuyUfFo"
+          title="JP Patches — creating a sequence"
+          frameborder="0"
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
+</div>
+</div>
 
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green}
 

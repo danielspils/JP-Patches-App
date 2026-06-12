@@ -597,6 +597,26 @@ body {
    vertical regardless of browser CSS quirks. Responsive variant
    below the breakpoint scales the height to maintain the 9:16
    ratio at viewport width. Uses youtube-nocookie.com for privacy. */
+/* HOW DOES IT WORK — cable image + steps on the left, the sequence
+   Short on the right; wraps to stacked on narrow screens. */
+.howto-row {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin: 1em 0 2em;
+}
+.howto-steps {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+.howto-steps img {
+  max-width: 100%;
+}
+.howto-row .video-embed {
+  flex: none;
+  margin: 0;
+}
 .video-embed {
   display: block;
   width: 320px;
