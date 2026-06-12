@@ -1,8 +1,8 @@
-# v0.8.0 — The Lending Library has arrived!
+# v0.8.0 — The User Lending Library has arrived!
 
-Borrow and lend your C/D bank patches and your custom sequences with other
-users. No accounts required. This is Open Source meets Little Free Library.
-Borrow and lend with fellow JX-3P-eople.
+Borrow and lend your C/D banks of patches and your custom sequences with
+other JX-3P-eople. No accounts required. This is Open Source meets Little
+Free Library.
 
 I'm currently the only person using it. Join me.
 
