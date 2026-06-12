@@ -1,4 +1,4 @@
-# v0.8.0 — The User Lending Library has arrived!
+# v0.8.0 — The Lending Library has arrived!
 
 Borrow and lend your C/D bank patches and your custom sequences with other
 users. No accounts required. This is Open Source meets Little Free Library.
