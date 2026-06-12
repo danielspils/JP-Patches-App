@@ -22,20 +22,32 @@ I'm currently the only person using it. Join me.
   you let go).
 - **Hearts + borrow counts.** Tap the heart on the site if you like what
   you hear; every entry shows how many times it's been borrowed.
-- **Every file remembers where it came from.** The ⓘ icons now show who
-  created what, when, and where — including the lender's notes on
-  anything you borrow.
+- **Every file remembers where it came from.** The ⓘ icons — now on
+  Tones packages too — show who created what, when, and where, including
+  the lender's notes on anything you borrow.
+- **JSON files work everywhere WAVs do.** Drag a `.json` export onto the
+  app (or pick one in the Save dialogs) and it imports just like a WAV —
+  patch and sequence names included.
+- **Creating things is clearer.** The big key below the panel now does
+  the right thing wherever you are: **Create New Sequence** (blue) on
+  Library → Sequences, **Create Custom Banks** (green) everywhere it
+  applies.
 
 ## Fixes
 
-- Sequence info, package info, and patch history modals got a matching
-  cleanup — the item is the header, empty fields stay hidden.
-- Deleting a sequence right after creating it no longer trips a phantom
-  "unsaved changes" warning.
+- **Deleting a just-created sequence no longer haunts its neighbor.**
+  Creating a new sequence, trashing it, and navigating away could pop a
+  bogus "unsaved edits" warning naming a sequence you never touched. The
+  bookkeeping underneath has been rebuilt (with tests), and the sequence
+  view below the panel now clears immediately when you delete the
+  sequence you're looking at.
+- Sequence info, package info, and patch history popups got a matching
+  cleanup — the item is the header, empty fields stay hidden, and one
+  Close button does the work.
 
 ## Install
 
-Auto-update from v0.7.6 should bring this up automatically. Otherwise: DMG
+Auto-update from v0.7.5 should bring this up automatically. Otherwise: DMG
 below, drag to Applications. Signed + notarized.
 
 **System requirement**: macOS 12+ on Apple Silicon (arm64).
