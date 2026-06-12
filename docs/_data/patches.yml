@@ -34,3 +34,15 @@
   audio_preview: null
   token_hash: 9c2e6b757bbc9f0f367bad94e292bcb9471d068184587477818db021497c9bdb
 
+
+- id: martin-crane-dumbo-sounds
+  name: 'Martin Crane DUMBO Sounds'
+  author: 'Martin Crane'
+  hometown: 'Brooklyn, NY'
+  description: 'Martin sold me his JX-3P and PG-200 along with his super creative patches.'
+  added: 2026-06-12
+  file: /library/patches/martin-crane-dumbo-sounds.json
+  size_bytes: 37845
+  tags: []
+  audio_preview: null
+  token_hash: ae7624e70cfd8341f8204111fc7e5af38ac65afc8367bc4dca7cc6519bb07121
