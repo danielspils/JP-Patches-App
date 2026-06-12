@@ -737,6 +737,17 @@ body {
   color: var(--cream);
   border-bottom-color: var(--cream);
 }
+/* Roland trademark / non-affiliation disclaimer — quieter than the
+   footer line above it. */
+.site-footer-disclaimer {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 24px 18px;
+  text-align: center;
+  color: var(--text-mid);
+  font-size: 11px;
+  line-height: 1.6;
+}
 .site-footer-dot {
   opacity: 0.5;
 }
