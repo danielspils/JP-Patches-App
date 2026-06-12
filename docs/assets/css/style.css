@@ -288,7 +288,7 @@ body {
 /* Abbreviated Roland disclaimer — italic, right-aligned under the
    subtitle; the * resolves to the full footer disclaimer. */
 .site-subtitle-disclaimer {
-  font-size: 12px;
+  font-size: 10px;
   font-style: italic;
   color: var(--cream-sec);
   text-align: right;
