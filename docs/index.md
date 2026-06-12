@@ -43,6 +43,8 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
 * alternatively, you can upload WAV files
+
+[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green}
 </div>
 <div class="video-embed">
   <iframe src="https://www.youtube-nocookie.com/embed/ET4UJuyUfFo"
@@ -53,8 +55,6 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
           allowfullscreen></iframe>
 </div>
 </div>
-
-[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green}
 
 ## FISHING FOR FEEDBACK
 
