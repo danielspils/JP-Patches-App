@@ -607,15 +607,19 @@ body {
   margin: 1em 0 2em;
 }
 .howto-steps {
-  flex: 1 1 360px;
+  flex: 1 1 300px;
   min-width: 0;
 }
 .howto-steps img {
   max-width: 100%;
 }
+/* Slightly slimmer than the page-bottom embed (320px) so steps + video
+   fit side-by-side inside the 720px content column. Same 9:16 ratio. */
 .howto-row .video-embed {
   flex: none;
   margin: 0;
+  width: 280px;
+  height: 498px;
 }
 .video-embed {
   display: block;
