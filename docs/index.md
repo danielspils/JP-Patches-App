@@ -38,7 +38,7 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 <div class="howto-steps" markdown="1">
 ![USB-to-1/4-splitter cable connecting a MacBook to the JX-3P's Tape Memory Save and Load jacks](screenshots/jx-cable.png)
 
-* use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT) (or your audio interface)
+* use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)<br>(or your audio interface)
 * plug the TS end into Tape Memory/Save
 * plug the TRS end into Tape Memory/Load
 * plug the USB C end into a Mac 
