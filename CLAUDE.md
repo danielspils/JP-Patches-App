@@ -142,6 +142,10 @@ test/                             455 unit tests across 17 pure-logic/consistenc
 - **`~/Library/Application Support/jp-patches/library.json`** — user state (patch names, library packages, sequences, custom bank buckets, zoom factor, tape-memory mode, future MIDI prefs). If absent on first launch, app seeds from `renderer/seed/`.
 - **`~/Desktop/patches.json`** — legacy boot-time patch source. No longer fatal if absent (first-run empty state handles it).
 
+## Test hardware (Daniel's setup)
+
+Daniel has **two JX-3P units** at home — an **upstairs** unit (most testing happens here, off the MacBook laptop) and a **downstairs** unit (typically driven by the Mac Mini). They have **different tape-dump output levels**, which matters for Record-from-JX calibration: a gain calibrated on one unit (peak normalized to ~0.78) may be too quiet to decode reliably on the other — the FSK zero-crossing detector needs the waveform to swing well past its ±0.15 quiescence band, and a low-output unit can leave weak passages dipping into it (sequences fail first; see pitfall #15). Workaround observed 2026-06-11: cranking INPUT GAIN into the red (clipping warning) decoded perfectly, because clipping preserves zero-crossing timing while lifting amplitude. When a capture bug only reproduces "sometimes," suspect a unit/level difference before a code regression.
+
 ## How to run / build
 
 ```
