@@ -2077,6 +2077,28 @@ function clearCalibratedGain(deviceId) {
   saveLibraryDebounced();
 }
 
+// ── Auto-calibration (2026-06-12, feature/auto-calibration branch) ──────
+// The decode pipeline now runs a normalization sweep (jx3p fork: codec.py
+// _decode_sweep) that auto-finds the right level on the captured audio, so
+// the mandatory two-pass volume calibration is no longer required for a
+// first-time device. When AUTO_DECODE_DEFAULT is on, a never-seen device
+// goes straight to a single capture at DEFAULT_CAPTURE_GAIN and lets the
+// sweep decode it. The two-pass calibration flow is RETAINED unchanged as
+// the fallback (reachable via the recalibrate-on-failure prompt), so the
+// user is never worse off than before.
+//
+// OPEN (needs Daniel + real-hardware test before merge — see
+// docs/auto-calibration-handoff.md):
+//   - DEFAULT_CAPTURE_GAIN is a conservative blind guess. It must (a) not
+//     clip the hottest line input and (b) ideally read on the live meter.
+//     Biased LOW for clip-safety since the sweep boosts quiet captures up.
+//     Real value should be tuned against the two JX units once a fixture
+//     exists; consider seeding from the user's mean existing calibration.
+//   - Whether the gain knob stays visible in this mode (clip escape hatch /
+//     "simplified self-calibration") vs. hidden as in normal capture mode.
+const AUTO_DECODE_DEFAULT = true;
+const DEFAULT_CAPTURE_GAIN = 2.0;
+
 // ── Capture telemetry ──────────────────────────────────────────────
 // Append a record of every Record-from-JX capture (success OR failure)
 // to library.captureLog, capped at the most recent 30 entries. Also
@@ -2143,11 +2165,44 @@ function logCaptureTelemetry(entry) {
 //
 // On cancel: do nothing — the active C/D banks / sequences stay at their
 // pre-record state since we never applied the empty decode.
-function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
+function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captureGain = null, stepDownCount = 0 }) {
   const labelText = deviceLabel ? ` *${deviceLabel}*` : '';
   const isSeq = kind === 'sequence';
-  const NO_SIGNAL_THRESHOLD = 0.02;     // matches meter's bottom-segment threshold
-  const isLowSignal = typeof capturePeak === 'number' && capturePeak < NO_SIGNAL_THRESHOLD;
+  // Decide the response from the capture peak + gain (pure + tested in
+  // renderer/record-flow.js): 'no-signal' | 'clipping-stepdown' | 'retry'.
+  const plan = planDecodeFailureResponse({ capturePeak, captureGain, stepDownCount });
+  const isLowSignal = plan.kind === 'no-signal';
+
+  // Clipping auto-step-down (mirror of the decode-time boost): the capture
+  // came in too hot AND failed to decode — clipping is the one failure no
+  // decode-time math can undo, so the only fix is a hotter→cooler re-record.
+  // Instead of asking the user to turn a knob, JP halves the capture gain
+  // itself and re-arms; the user just presses Save again. The planner caps
+  // the step-downs, then falls through to 'retry' (manual Calibrate).
+  if (plan.kind === 'clipping-stepdown') {
+    showConfirmModal({
+      title: 'Captured too hot',
+      body:
+        `The capture from${labelText} was clipping, so it couldn't decode — ` +
+        'clipping is the one thing JP can\'t fix after the fact.\n\n' +
+        'I\'ve lowered the input gain. Press **Tape Memory → Save** on the ' +
+        'JX-3P again and JP will re-record at the safer level.',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      onConfirm: () => {
+        showRecordFromJxModal({
+          kind,
+          initialGain: plan.nextGain,            // stepped-down; modal re-arms in auto mode
+          stepDownCount: plan.nextStepDownCount,
+          onCaptured: async (tempWavPath, deviceInfo) => {
+            if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
+            else                     await applyToneCapture(tempWavPath, deviceInfo);
+          },
+        });
+      },
+    });
+    return;
+  }
 
   // Both branches share this — re-opens Record with the saved gain
   // intact (single-pass capture, faster). Used by both "Try again"
@@ -2224,6 +2279,9 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
       showRecordFromJxModal({
         kind,
         initialGain: priorGain,
+        // Force the two-pass flow even with AUTO_DECODE_DEFAULT on — the
+        // user explicitly chose Recalibrate, so don't bounce back to auto.
+        forceCalibrate: true,
         onCaptured: async (tempWavPath, deviceInfo) => {
           if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
           else                     await applyToneCapture(tempWavPath, deviceInfo);
@@ -6383,6 +6441,8 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
       deviceId:    di.deviceId,
       deviceLabel: di.deviceLabel,
       capturePeak: di.capturePeak,
+      captureGain: di.captureGain ?? null,
+      stepDownCount: di.stepDownCount ?? 0,
     });
     return;
   }
@@ -7218,6 +7278,8 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
       deviceId:    di.deviceId,
       deviceLabel: di.deviceLabel,
       capturePeak: di.capturePeak,
+      captureGain: di.captureGain ?? null,
+      stepDownCount: di.stepDownCount ?? 0,
     });
     return;
   }
@@ -7466,7 +7528,7 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
 // the starting point, instead of resetting to 1.0× and forcing them
 // to manually re-find the ballpark. Ignored when a saved calibration
 // exists for the selected device (capture mode uses cal.gain directly).
-async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
+async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, forceCalibrate = false, stepDownCount = 0 }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
@@ -8249,7 +8311,19 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // want to block the modal's UI setup on the probe.
     probeDeviceSampleRate(calibrationDeviceId);
     const cal = getCalibratedGain(calibrationDeviceId);
-    if (cal) {
+    // Auto-calibration: with no saved gain, default into single-pass capture
+    // at DEFAULT_CAPTURE_GAIN (the decode boost finds the level) instead of
+    // forcing the two-pass calibration. Falls through to calibration only
+    // when AUTO_DECODE_DEFAULT is off (or forced). Decision logic is pure +
+    // unit-tested in renderer/record-flow.js.
+    const effectiveGain = chooseCaptureGain({
+      savedGain: cal ? cal.gain : null,
+      autoDecodeDefault: AUTO_DECODE_DEFAULT,
+      forceCalibrate,
+      initialGain,
+      defaultGain: DEFAULT_CAPTURE_GAIN,
+    });
+    if (effectiveGain != null) {
       isCalibrating = false;
       h.textContent = kind === 'sequence'
         ? 'Import sequence from JX-3P'
@@ -8284,11 +8358,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       // matches the calibration modal (same card styling for the
       // intro/instructions block).
       instr.classList.add('record-jx-instr-box');
-      const newPos = gainToSlider(cal.gain);
+      const newPos = gainToSlider(effectiveGain);
       gainSlider.value = String(newPos);
-      gainValueLabel.textContent = formatGain(cal.gain);
-      if (gainNode) gainNode.gain.value = cal.gain;
-      gainKnob.setGain(cal.gain);
+      gainValueLabel.textContent = formatGain(effectiveGain);
+      if (gainNode) gainNode.gain.value = effectiveGain;
+      gainKnob.setGain(effectiveGain);
       // Both kinds dump in roughly ~25–30 s of real time:
       //   - Sequence: 1 pilot (4.64 s) + 1 sequence-data block (~22 s)
       //   - Tone:     1 pilot + bank C (~8 s) + divider pilot + bank D (~8 s)
@@ -8478,6 +8552,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // 4-state warning ladder. null = no warning; otherwise one of
     // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
     let warnLevel = null;
+    // Once a capture clips, LATCH it: peak oscillating around the clipping
+    // threshold used to flip the warning on/off every few frames, resizing
+    // the centered modal and making it jitter (2026-06-14). Latching holds
+    // the notice steady for the rest of the capture. Resets each capture;
+    // the other (sustained-state) warnings still clear when their cause does.
+    let clippingLatched = false;
     const recordStartMs = Date.now();
     runningPeak = 0;
     fskPeak     = 0;
@@ -8578,8 +8658,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
           elapsedMs:     events.elapsedTotal,
           totalSignalMs: cs.totalSignalMs,
         });
-        if (newWarn !== warnLevel) {
-          warnLevel = newWarn;
+        if (newWarn === 'clipping') clippingLatched = true;
+        const effectiveWarn = clippingLatched ? 'clipping' : newWarn;
+        if (effectiveWarn !== warnLevel) {
+          warnLevel = effectiveWarn;
           statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
           statusText.style.color = warnLevel ? CAPTURE_WARN_COLOR[warnLevel] : '';
         }
@@ -8836,88 +8918,29 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // Light up every segment to mirror the send-modal's "complete" treatment.
     segs.forEach((s) => s.el.classList.add('active'));
     timeline.classList.add('complete');
-    // Gain-quality feedback. Clean captures dismiss automatically; quiet
-    // or clipping captures require an explicit user dismiss so the warning
-    // can't be missed (3.5 s auto-dismiss was too easy to miss in testing).
-    // Quiet captures also expose a "Try again" button — common case is the
-    // user wants to re-record after adjusting input gain rather than
-    // committing a likely-undecodable capture.
+    // Auto-calibration flow (2026-06-12): the decode RESULT is the only
+    // source of truth — peak no longer gates the handoff. The boost rescues
+    // quiet dumps; clipped dumps usually decode fine (clipping preserves
+    // zero-crossing timing). Genuine failures — including unrecoverable
+    // clipping — are handled downstream by applyXCapture →
+    // showRecalibratePrompt, which gives peak-informed advice and
+    // auto-steps-down a clipping retry. No pre-decode peak warning.
     const peakPct = Math.round(peakAmp * 100);
-    const isQuiet    = peakAmp < 0.30;
-    const isClipping = peakAmp > 0.95;
-    let postMsg;
-    if (isQuiet) {
-      postMsg = `⚠ Captured — peak ${peakPct}%. Signal looks quiet. JP will boost on decode, but if your peak is below ~10% the decode often fails. Raise Mac input gain (System Settings → Sound → Input) and re-record for best results.`;
-    } else if (isClipping) {
-      postMsg = `⚠ Captured — peak ${peakPct}%. Close to clipping; consider lowering input gain next time.`;
-    } else {
-      postMsg = `✓ Captured cleanly — peak ${peakPct}%`;
-    }
-    statusText.textContent = postMsg;
-    statusText.style.color = (isQuiet || isClipping) ? '#c39a3a' : '';
-
-    if (!isQuiet && !isClipping) {
-      // Clean capture — auto-proceed.
-      // Route the modal dismissal through close() so the devicechange
-      // listener is unwired (raw overlay.remove() bypasses that and
-      // leaks one listener per successful capture). Cross-capture
-      // listener accumulation was a confirmed cause of subtle audio-
-      // pipeline pollution that intermittently corrupted FSK data and
-      // forced full app reboots to recover.
-      //
-      // onCaptured is async (applyToneCapture / applySequencerCapture).
-      // We can't surface contextual errors inline because close() has
-      // already removed the modal — but we still want failures to land
-      // in the global error banner instead of vanishing. The .catch()
-      // re-throws via setTimeout(0) so window.unhandledrejection picks
-      // it up; same pattern as the saveLibrary fix.
-      setTimeout(() => {
-        close();
-        const captured = onCaptured(result.path, {
-          deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak,
-        });
-        if (captured && typeof captured.catch === 'function') {
-          captured.catch((err) => {
-            console.error('Post-capture handoff failed:', err);
-            setTimeout(() => { throw err; }, 0);
-          });
-        }
-      }, 800);
-      return;
-    }
-
-    // Quiet or clipping — sticky warning with three explicit choices:
-    //   Try again   (green)  — re-record with the SAME gain; default action,
-    //                          covers transient clipping that won't recur
-    //   Calibrate   (blue)   — clear the saved gain + re-enter calibration
-    //                          mode so the user can dial gain down. Used
-    //                          when the warning's "consider lowering gain
-    //                          next time" actually applies (gain is too
-    //                          hot for THIS device + signal level).
-    //   Use anyway  (red)    — accept the marginal capture; red signals
-    //                          "this isn't recommended" (vs. the prior
-    //                          blue treatment which read as a safe alt).
-    // (Bail-out path: close-X in the modal's upper-right corner.)
-    stopBtn.style.display = 'none';
-    const tryAgainBtn = document.createElement('button');
-    tryAgainBtn.className = 'modal-btn modal-btn-confirm';  // green
-    tryAgainBtn.textContent = 'Try again';
-    const calibrateBtn = document.createElement('button');
-    calibrateBtn.className = 'modal-btn modal-btn-alt';     // blue
-    calibrateBtn.textContent = 'Calibrate';
-    const useBtn = document.createElement('button');
-    useBtn.className = 'modal-btn modal-btn-danger';        // red — "are you sure?"
-    useBtn.textContent = 'Use anyway';
-    actions.appendChild(tryAgainBtn);
-    actions.appendChild(calibrateBtn);
-    actions.appendChild(useBtn);
-    useBtn.addEventListener('click', () => {
-      // Route through close() (not raw overlay.remove()) so the
-      // devicechange listener is unwired. See auto-proceed branch
-      // above for the listener-leak rationale + the .catch rationale.
+    statusText.textContent = `✓ Captured — peak ${peakPct}%`;
+    statusText.style.color = '';
+    // Route the dismissal through close() so the devicechange listener is
+    // unwired (raw overlay.remove() leaks one listener per capture — a
+    // confirmed cause of FSK-corrupting audio-pipeline pollution). The
+    // .catch re-throws via setTimeout(0) so window.unhandledrejection
+    // surfaces post-close failures instead of swallowing them.
+    setTimeout(() => {
       close();
       const captured = onCaptured(result.path, {
-        deviceId: calibrationDeviceId, deviceLabel: calibrationDeviceLabel, capturePeak: runningPeak,
+        deviceId: calibrationDeviceId,
+        deviceLabel: calibrationDeviceLabel,
+        capturePeak: runningPeak,
+        captureGain: gainNode ? gainNode.gain.value : null,  // for clipping auto-step-down
+        stepDownCount,
       });
       if (captured && typeof captured.catch === 'function') {
         captured.catch((err) => {
@@ -8925,41 +8948,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
           setTimeout(() => { throw err; }, 0);
         });
       }
-    });
-    // Shared cleanup for Try Again + Calibrate — both reset the post-
-    // capture UI back to a fresh-recording state. Calibrate does extra
-    // work after this (clear gain + re-enter calibration mode).
-    const resetPostCaptureUi = () => {
-      try { actions.removeChild(tryAgainBtn); } catch {}
-      try { actions.removeChild(calibrateBtn); } catch {}
-      try { actions.removeChild(useBtn); } catch {}
-      stopBtn.style.display = '';
-      stopBtn.disabled = true;
-      stopBtn.textContent = '■ Stop';
-      statusText.textContent = '';
-      statusText.style.color = '';
-      segs.forEach((s) => s.el.classList.remove('active'));
-      timeline.classList.remove('complete');
-    };
-    tryAgainBtn.addEventListener('click', () => {
-      resetPostCaptureUi();
-      state = 'recording';
-      guardAsync(startRecording(), 'Restart recording (Try Again)');
-    });
-    calibrateBtn.addEventListener('click', () => {
-      resetPostCaptureUi();
-      // Clear the saved gain for this device so configureForCurrentDevice
-      // takes the calibration branch (gain knob + level meter visible)
-      // rather than re-using the high gain that caused the clipping
-      // warning. The user dials the knob down while watching the meter,
-      // then presses Save on the JX again to run a fresh calibration.
-      // After calibration auto-completes, the modal transitions back to
-      // capture mode and the next Save press runs the actual capture.
-      if (calibrationDeviceId) clearCalibratedGain(calibrationDeviceId);
-      configureForCurrentDevice();
-      state = 'recording';
-      guardAsync(startRecording(), 'Restart recording (Calibrate)');
-    });
+    }, 800);
   };
 
   // Small helper: surface async failures via the global error banner
