@@ -64,13 +64,30 @@ into a real-recording regression test and tune `_SWEEP_TARGETS` for real.
 (Ironically v0.8.1 may make this hard to reproduce now — if so, that's the
 answer: it's fixed.)
 
-## App-side — SCOPED, NOT BUILT (needs your UX calls + the fixture)
+## App-side — DRAFT BUILT (minimal + reversible; needs your hardware test)
 
-"Full auto-calibration" on the app side means rewriting the Record-from-JX flow
-so manual gain calibration is no longer mandatory. I did NOT do this blind — it
-touches ~1,200 lines of stateful modal (`isCalibrating` threads through
-`tickMeter`, `stopRecording`, the timeline, and the recalibrate prompt) and
-hinges on decisions that are yours. The plan:
+Built on the branch as a **minimal, proven-path-reusing** change (NOT the full
+modal rewrite — that stays for after your UX calls). `renderer/app.js`:
+- New flag `AUTO_DECODE_DEFAULT = true` + `DEFAULT_CAPTURE_GAIN = 2.0` (near
+  `clearCalibratedGain`, ~line 2080).
+- `configureForCurrentDevice`: a never-calibrated device now defaults into the
+  **existing single-pass capture branch** at `DEFAULT_CAPTURE_GAIN` (via a new
+  `effectiveGain = cal ? cal.gain : DEFAULT_CAPTURE_GAIN`) instead of forcing
+  the two-pass calibration. So first-use = press Save → capture → the fork
+  sweep decodes it. No mandatory calibration.
+- **Fallback intact:** the two-pass calibration flow is unchanged and reachable
+  via the recalibrate-on-failure prompt. Threaded a new `forceCalibrate` param
+  so "Recalibrate" forces the two-pass flow even with the flag on (otherwise it
+  would bounce back to auto). So the user is never worse off than today — worst
+  case they spend one auto-attempt dump, then calibrate exactly as before.
+- Verified: eslint clean, 455 app tests pass, dev app launches with no renderer
+  errors. **NOT verified on hardware** (no JX here) — that's your gate.
+
+**Why minimal, not the full rewrite:** I can't validate the capture path without
+a real JX, and the deep UX calls below are yours. This draft delivers the core
+"no mandatory calibration" behavior by reusing the proven capture-mode code,
+and it's a ~20-line reversible diff (flip `AUTO_DECODE_DEFAULT = false` to fully
+restore old behavior). The larger rewrite plan, for when you've decided:
 
 1. **Capture at one conservative fixed gain** that won't clip line inputs
    (cable or interface). The sweep auto-converges at decode, so the capture
@@ -84,10 +101,15 @@ hinges on decisions that are yours. The plan:
    this): a one-tap "having trouble? calibrate" that runs the old two-pass, for
    the rare pathological input.
 
-**Open decisions for you:**
-- Does the INPUT GAIN knob stay (as advanced) or disappear?
-- What's the default fixed capture gain? (Pick from your two-unit range once we
-  have the fixture — needs to not clip the hottest interface.)
+**Open decisions for you (the draft picked conservative defaults — redirect freely):**
+- **`DEFAULT_CAPTURE_GAIN = 2.0`** is a blind guess biased low for clip-safety
+  (the sweep boosts quiet captures up). Your KT needed ~11× to read on the
+  meter, so at 2× the live meter will look quiet during a first-use capture even
+  though the sweep still decodes. Tune against your two units once a fixture
+  exists; consider seeding from the user's mean existing calibration.
+- The gain knob is **hidden** in this mode (matches normal capture mode). If
+  first-use clips, the user only gets the knob via the recalibrate fallback —
+  acceptable, but you may want the knob visible as a clip escape hatch.
 - Does "calibrate" become a small link/menu item, or vanish entirely?
 
 ## Recommended next step

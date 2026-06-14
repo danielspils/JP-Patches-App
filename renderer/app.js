@@ -2077,6 +2077,28 @@ function clearCalibratedGain(deviceId) {
   saveLibraryDebounced();
 }
 
+// ── Auto-calibration (2026-06-12, feature/auto-calibration branch) ──────
+// The decode pipeline now runs a normalization sweep (jx3p fork: codec.py
+// _decode_sweep) that auto-finds the right level on the captured audio, so
+// the mandatory two-pass volume calibration is no longer required for a
+// first-time device. When AUTO_DECODE_DEFAULT is on, a never-seen device
+// goes straight to a single capture at DEFAULT_CAPTURE_GAIN and lets the
+// sweep decode it. The two-pass calibration flow is RETAINED unchanged as
+// the fallback (reachable via the recalibrate-on-failure prompt), so the
+// user is never worse off than before.
+//
+// OPEN (needs Daniel + real-hardware test before merge — see
+// docs/auto-calibration-handoff.md):
+//   - DEFAULT_CAPTURE_GAIN is a conservative blind guess. It must (a) not
+//     clip the hottest line input and (b) ideally read on the live meter.
+//     Biased LOW for clip-safety since the sweep boosts quiet captures up.
+//     Real value should be tuned against the two JX units once a fixture
+//     exists; consider seeding from the user's mean existing calibration.
+//   - Whether the gain knob stays visible in this mode (clip escape hatch /
+//     "simplified self-calibration") vs. hidden as in normal capture mode.
+const AUTO_DECODE_DEFAULT = true;
+const DEFAULT_CAPTURE_GAIN = 2.0;
+
 // ── Capture telemetry ──────────────────────────────────────────────
 // Append a record of every Record-from-JX capture (success OR failure)
 // to library.captureLog, capped at the most recent 30 entries. Also
@@ -2224,6 +2246,9 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak }) {
       showRecordFromJxModal({
         kind,
         initialGain: priorGain,
+        // Force the two-pass flow even with AUTO_DECODE_DEFAULT on — the
+        // user explicitly chose Recalibrate, so don't bounce back to auto.
+        forceCalibrate: true,
         onCaptured: async (tempWavPath, deviceInfo) => {
           if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
           else                     await applyToneCapture(tempWavPath, deviceInfo);
@@ -7466,7 +7491,7 @@ function showFromJxChooserModal({ kind, onFile, onRecord }) {
 // the starting point, instead of resetting to 1.0× and forcing them
 // to manually re-find the ballpark. Ignored when a saved calibration
 // exists for the selected device (capture mode uses cal.gain directly).
-async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
+async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, forceCalibrate = false }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
@@ -8249,7 +8274,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
     // want to block the modal's UI setup on the probe.
     probeDeviceSampleRate(calibrationDeviceId);
     const cal = getCalibratedGain(calibrationDeviceId);
-    if (cal) {
+    // Auto-calibration: with no saved gain, default into single-pass capture
+    // at DEFAULT_CAPTURE_GAIN (the decode sweep finds the level) instead of
+    // forcing the two-pass calibration. Falls through to calibration only
+    // when the flag is off AND there's no saved gain. `effectiveGain` drives
+    // the capture-mode branch either way.
+    const effectiveGain = cal ? cal.gain
+      : (AUTO_DECODE_DEFAULT && !forceCalibrate ? DEFAULT_CAPTURE_GAIN : null);
+    if (effectiveGain != null) {
       isCalibrating = false;
       h.textContent = kind === 'sequence'
         ? 'Import sequence from JX-3P'
@@ -8284,11 +8316,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null }) {
       // matches the calibration modal (same card styling for the
       // intro/instructions block).
       instr.classList.add('record-jx-instr-box');
-      const newPos = gainToSlider(cal.gain);
+      const newPos = gainToSlider(effectiveGain);
       gainSlider.value = String(newPos);
-      gainValueLabel.textContent = formatGain(cal.gain);
-      if (gainNode) gainNode.gain.value = cal.gain;
-      gainKnob.setGain(cal.gain);
+      gainValueLabel.textContent = formatGain(effectiveGain);
+      if (gainNode) gainNode.gain.value = effectiveGain;
+      gainKnob.setGain(effectiveGain);
       // Both kinds dump in roughly ~25–30 s of real time:
       //   - Sequence: 1 pilot (4.64 s) + 1 sequence-data block (~22 s)
       //   - Tone:     1 pilot + bank C (~8 s) + divider pilot + bank D (~8 s)
