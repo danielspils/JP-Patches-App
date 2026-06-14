@@ -190,16 +190,33 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 |---|---|---|
 | Open Record-from-JX (Sequence) | title reads **"Import sequence from JX-3P"** (NO "Step 2 of 2" prefix) | |
 | Open Record-from-JX (Tone) | title reads **"Import C/D banks from JX-3P"** | |
-| First-time-on-a-new-device path (rare): open Record-from-JX with no calibrated gain | title reads **"Calibrate volume"** (no Step prefix) | |
 | Capture mode initial state (before pressing Save on JX) | JX-key diagram **centered** in the row, NO JP logo, NO arrow visible | |
 | Press Save on JX → signal arrives | JP logo + arrow fade in over ~0.5 s, diagram shifts right to make room | |
-| Engineer a clipping capture (crank input gain or use a hot signal) | warning shows three buttons: **Try again** (green) / **Calibrate** (blue) / **Use anyway** (red) | |
-| Click Calibrate from the warning | modal returns to calibration screen with gain knob + level meter; saved gain cleared | |
-| Click Use anyway from the warning | red color signals "are you sure"; capture proceeds | |
 | Sequence default name after capture (no prior `JP_sequence_*` entries) | save modal defaults to `JP_sequence_1` | |
 | Capture another sequence | save modal defaults to `JP_sequence_2` (counter increments) | |
 | Rename `JP_sequence_2` to something custom, then capture another | next defaults to `JP_sequence_3` (counter reads defaultName, not customName) | |
 | **No `PROMISE Cannot access 'tapeDumpMuted' before initialization` error banner** on any Record-from-JX open | (regression catch — TDZ bug hit in pre-release testing) | |
+
+### 6b. Auto-calibration (v0.8.x — auto-decode default)
+
+> Capture-gain calibration is no longer mandatory. A never-calibrated device
+> captures at `DEFAULT_CAPTURE_GAIN` (2.0×) and the decode-time boost finds the
+> level. The pre-decode quiet/clipping warning is gone — the decode RESULT is
+> the source of truth. Decision logic is unit-tested in
+> `test/record-flow.test.js`; these rows verify the wiring on real hardware.
+> To test the first-use path, clear the device's saved gain (Recalibrate from a
+> failure prompt, or wipe `library.record.calibratedGain`).
+
+| Check | Expected | Result |
+|---|---|---|
+| First-use (no saved gain): open Record-from-JX | NO "Calibrate volume" two-pass step — lands straight on capture ("Now press Tape Memory → Save") | |
+| Press Save on a normal/quiet capture | decodes + imports **silently** — NO post-capture warning, NO "Use anyway" buttons, even at a low peak (~12%) | |
+| Capture that previously tripped the quiet warning (peak < 30%) | no warning now; it just decodes (boost handles it) | |
+| Decode genuinely fails (e.g. cable unplugged mid-dump) | recovery prompt: **Try again** / **Calibrate** | |
+| Silent capture (no audio) | "No audio detected" prompt (cable / device / JX-on checks) | |
+| Click **Calibrate** from a failure prompt | two-pass manual calibration still works (gain knob + meter) — the fallback is intact | |
+| Clipping that fails to decode (force a hot input) | "Captured too hot — I've lowered the input gain, press Save again"; halves gain per retry, caps at 2 then offers Calibrate | |
+| After the auto path succeeds once | next capture on the same device still auto-decodes (calibration never required) | |
 
 ### 6a. Tape dump sounds (Record-side — hear incoming dump)
 

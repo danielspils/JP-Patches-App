@@ -4,16 +4,43 @@ Built autonomously on branch **`feature/auto-calibration`** (both repos:
 `~/JP-Patches-App` and the `~/JP-Patches` fork). **Nothing pushed to main,
 nothing released.** This doc is the review + next-steps.
 
-## TL;DR
+## STATUS (updated 2026-06-14): build complete, pending hardware QA + merge
 
-The **codec backend is built, tested, and safe** — a decode-time normalization
-sweep that auto-finds the right level on already-captured audio, so the manual
-calibration step can become optional. But an honest finding changed the shape
-of the work: **v0.8.1's peak-boost bump (0.7 → 0.92) already rescues every
-failure I could synthesize.** The elaborate limiter sweep is *incremental*
-robustness, not the hero. So before rewriting the Record-from-JX UX, we should
-validate against a **real failing recording from your downstairs JX** — which I
-don't have, and which my synthetic models can't faithfully stand in for.
+Decision settled on **option C**. The exploratory decode-time *sweep/limiter*
+was **reverted** — testing proved the plain peak-boost (shipped in v0.8.1)
+decodes every real case, and the limiter rungs over-clip a clean FSK tone
+(decode nothing). What's on the branch now:
+
+- **Fork (`~/JP-Patches`):** codec back to v0.8.1 (boost only) + a real-hardware
+  regression fixture (`quiet-unit-seq.wav`, an actual ~12% capture) and tests.
+- **App (`~/JP-Patches-App`):** auto-decode-default flow — first-use captures at
+  `DEFAULT_CAPTURE_GAIN` (2.0×), the boost decodes, no mandatory calibration. The
+  pre-decode peak warning is gone (decode result is the source of truth). Failure
+  handling: recovery prompt with peak-informed advice + a clipping auto-step-down.
+  New decision logic extracted to `renderer/record-flow.js` (14 unit tests).
+- **QA:** `docs/smoke-test.md` §6b rewritten for the new flow. App suite 469 green,
+  fork 19 green, lint clean, dev app renders clean.
+
+**Validated on real hardware (3×):** laptop+KT#1+downstairs (12% → decoded),
+Mac Mini+KT#2 (recalibrate worked — the boost now fires on calibrated captures),
+laptop+KT#1+upstairs ("Drunk Pony" → decoded). The original bug is already fixed
+in shipped v0.8.1; this branch is the *UX* win (no manual calibration step).
+
+**Still gates the merge:** a full `docs/smoke-test.md` §6 + §6b pass on hardware,
+and the merge itself (squash the fork's sweep+revert commits). Nothing pushed to
+main, nothing released.
+
+---
+
+### Original mid-build notes (2026-06-12), for the record
+
+The codec backend was first built as a decode-time normalization *sweep* that
+auto-finds the right level on already-captured audio. An honest finding changed
+the shape of the work: **v0.8.1's peak-boost bump (0.7 → 0.92) already rescues
+every failure I could synthesize.** The elaborate limiter sweep was *incremental*
+robustness, not the hero — and a real 12% capture later confirmed the boost
+alone decodes it (the limiter rungs decode nothing on a clean tone). Hence the
+revert to option C above.
 
 ## What's built (fork: `~/JP-Patches`, branch `feature/auto-calibration`)
 
