@@ -79,6 +79,11 @@ export default [
         classifyWindows:        'readonly',
         floatToInt16WithPeak:   'readonly',
 
+        // Globals exposed by renderer/record-flow.js
+        chooseCaptureGain:        'readonly',
+        planDecodeFailureResponse:'readonly',
+        FAILURE_DEFAULTS:         'readonly',
+
         // Globals exposed by renderer/capture-warnings.js
         classifyCaptureWarning: 'readonly',
         CAPTURE_WARN_COPY:      'readonly',

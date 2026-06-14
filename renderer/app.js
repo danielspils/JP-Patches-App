@@ -2168,19 +2168,18 @@ function logCaptureTelemetry(entry) {
 function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captureGain = null, stepDownCount = 0 }) {
   const labelText = deviceLabel ? ` *${deviceLabel}*` : '';
   const isSeq = kind === 'sequence';
-  const NO_SIGNAL_THRESHOLD = 0.02;     // matches meter's bottom-segment threshold
-  const isLowSignal = typeof capturePeak === 'number' && capturePeak < NO_SIGNAL_THRESHOLD;
-  const CLIPPING_THRESHOLD = 0.95;
-  const isClipping = typeof capturePeak === 'number' && capturePeak > CLIPPING_THRESHOLD;
-  const MAX_STEP_DOWNS = 2;
+  // Decide the response from the capture peak + gain (pure + tested in
+  // renderer/record-flow.js): 'no-signal' | 'clipping-stepdown' | 'retry'.
+  const plan = planDecodeFailureResponse({ capturePeak, captureGain, stepDownCount });
+  const isLowSignal = plan.kind === 'no-signal';
 
   // Clipping auto-step-down (mirror of the decode-time boost): the capture
   // came in too hot AND failed to decode — clipping is the one failure no
   // decode-time math can undo, so the only fix is a hotter→cooler re-record.
   // Instead of asking the user to turn a knob, JP halves the capture gain
-  // itself and re-arms; the user just presses Save again. Caps at
-  // MAX_STEP_DOWNS, then falls through to manual Calibrate so it can't loop.
-  if (isClipping && captureGain && stepDownCount < MAX_STEP_DOWNS) {
+  // itself and re-arms; the user just presses Save again. The planner caps
+  // the step-downs, then falls through to 'retry' (manual Calibrate).
+  if (plan.kind === 'clipping-stepdown') {
     showConfirmModal({
       title: 'Captured too hot',
       body:
@@ -2193,8 +2192,8 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
       onConfirm: () => {
         showRecordFromJxModal({
           kind,
-          initialGain: captureGain * 0.5,        // step down; modal re-arms in auto mode
-          stepDownCount: stepDownCount + 1,
+          initialGain: plan.nextGain,            // stepped-down; modal re-arms in auto mode
+          stepDownCount: plan.nextStepDownCount,
           onCaptured: async (tempWavPath, deviceInfo) => {
             if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
             else                     await applyToneCapture(tempWavPath, deviceInfo);
@@ -8313,12 +8312,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     probeDeviceSampleRate(calibrationDeviceId);
     const cal = getCalibratedGain(calibrationDeviceId);
     // Auto-calibration: with no saved gain, default into single-pass capture
-    // at DEFAULT_CAPTURE_GAIN (the decode sweep finds the level) instead of
+    // at DEFAULT_CAPTURE_GAIN (the decode boost finds the level) instead of
     // forcing the two-pass calibration. Falls through to calibration only
-    // when the flag is off AND there's no saved gain. `effectiveGain` drives
-    // the capture-mode branch either way.
-    const effectiveGain = cal ? cal.gain
-      : (AUTO_DECODE_DEFAULT && !forceCalibrate ? (initialGain || DEFAULT_CAPTURE_GAIN) : null);
+    // when AUTO_DECODE_DEFAULT is off (or forced). Decision logic is pure +
+    // unit-tested in renderer/record-flow.js.
+    const effectiveGain = chooseCaptureGain({
+      savedGain: cal ? cal.gain : null,
+      autoDecodeDefault: AUTO_DECODE_DEFAULT,
+      forceCalibrate,
+      initialGain,
+      defaultGain: DEFAULT_CAPTURE_GAIN,
+    });
     if (effectiveGain != null) {
       isCalibrating = false;
       h.textContent = kind === 'sequence'
