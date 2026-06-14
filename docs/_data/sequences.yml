@@ -88,3 +88,15 @@
   tags: []
   audio_preview: null
   token_hash: 139d3dbe2ff2a8e0dd3a55134450e988256a39df13c54138ed931d470e3b6623
+
+- id: 6-6-chunky-monkey
+  name: '6/6 Chunky Monkey'
+  author: 'Daniel Spils'
+  hometown: 'Anchorage, AK'
+  description: 'In 6/6, this sequence is simplistically playful (is that a good description?).'
+  added: 2026-06-14
+  file: /library/sequences/6-6-chunky-monkey.json
+  size_bytes: 12015
+  tags: []
+  audio_preview: null
+  token_hash: b87c93db9809d6ce91c44ddbaf2076930acb50e54ff8ad58b908d1282c0a7ce8
