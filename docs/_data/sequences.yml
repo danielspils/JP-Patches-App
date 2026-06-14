@@ -76,3 +76,15 @@
   tags: []
   audio_preview: null
   token_hash: cd6325c6ea15990a00a18246d06466d73bb0f449bc3a2734bc3ff43a763577a9
+
+- id: goldie-lox
+  name: 'Goldie Lox'
+  author: 'Daniel Spils'
+  hometown: 'Seattle, WA'
+  description: 'I have enjoyed playing acoustic piano over this arpeggio. Have at it!'
+  added: 2026-06-14
+  file: /library/sequences/goldie-lox.json
+  size_bytes: 5170
+  tags: []
+  audio_preview: null
+  token_hash: 139d3dbe2ff2a8e0dd3a55134450e988256a39df13c54138ed931d470e3b6623
