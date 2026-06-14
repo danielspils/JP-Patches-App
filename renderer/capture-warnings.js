@@ -44,11 +44,16 @@
   // User-facing message for each state. Keep wording aligned with the
   // design-system doc's tone (concrete actionable instructions, not
   // jargon).
+  // Copy reworked for the auto-decode world (2026-06-14): JP picks the
+  // capture gain and boosts at decode, so the clipping/quiet warnings no
+  // longer tell the user to turn a (now-hidden) gain knob. They're calm,
+  // informational — JP will try regardless and recover on failure. The
+  // no-signal warnings stay actionable (something is genuinely wrong).
   const CAPTURE_WARN_COPY = Object.freeze({
-    'clipping':            '⚠ CLIPPING — lower INPUT GAIN immediately or capture will decode as noise.',
+    'clipping':            '⚠ CLIPPING — input gain is high and may fail to decode. JP will try; if it can\'t, you\'ll be asked to recalibrate.',
     'no-signal-escalated': '⚠ No audio detected after 20 s. Check that the right INPUT DEVICE is selected, your cable is connected, and the JX is on. Click Cancel to try again.',
     'no-signal':           '⚠ No audio detected yet. Press Save on the JX-3P, or check your cable / input device selection above.',
-    'quiet':               '⚠ Signal is very low. Raise INPUT GAIN until the level reaches the target notch (the yellow segment).',
+    'quiet':               'Signal is quiet — JP will boost it on decode. Usually fine.',
   });
 
   // Color for each state. Roland red = severe (action required now),

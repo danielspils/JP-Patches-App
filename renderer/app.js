@@ -8552,6 +8552,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // 4-state warning ladder. null = no warning; otherwise one of
     // 'clipping' | 'no-signal-escalated' | 'no-signal' | 'quiet'.
     let warnLevel = null;
+    // Once a capture clips, LATCH it: peak oscillating around the clipping
+    // threshold used to flip the warning on/off every few frames, resizing
+    // the centered modal and making it jitter (2026-06-14). Latching holds
+    // the notice steady for the rest of the capture. Resets each capture;
+    // the other (sustained-state) warnings still clear when their cause does.
+    let clippingLatched = false;
     const recordStartMs = Date.now();
     runningPeak = 0;
     fskPeak     = 0;
@@ -8652,8 +8658,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           elapsedMs:     events.elapsedTotal,
           totalSignalMs: cs.totalSignalMs,
         });
-        if (newWarn !== warnLevel) {
-          warnLevel = newWarn;
+        if (newWarn === 'clipping') clippingLatched = true;
+        const effectiveWarn = clippingLatched ? 'clipping' : newWarn;
+        if (effectiveWarn !== warnLevel) {
+          warnLevel = effectiveWarn;
           statusText.textContent = warnLevel ? CAPTURE_WARN_COPY[warnLevel]  : '';
           statusText.style.color = warnLevel ? CAPTURE_WARN_COLOR[warnLevel] : '';
         }
