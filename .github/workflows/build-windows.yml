@@ -1,0 +1,82 @@
+# Build the Windows (NSIS x64) installer in the cloud.
+#
+# Purpose: prove `npm run dist:win` actually builds on real Windows — the one
+# thing that can't be verified on Daniel's Mac — and hand back a downloadable
+# .exe so the installer can be smoke-tested before a dedicated Windows laptop
+# exists. This is the Section-7 de-risk; it does NOT replace on-hardware QA
+# (SmartScreen behavior, real audio-device labels, actual tape-dump decode).
+#
+# Mirrors `npm run dist:win` (setup-vendor → electron-builder --win --x64) with
+# an explicit `--publish never` guard so a CI build can never push a release.
+# Unit tests are NOT re-run here — the dedicated Test workflow covers them on
+# ubuntu, they're platform-agnostic, and `node --test test/*.test.js` relies on
+# shell glob expansion that cmd.exe doesn't do.
+#
+# jx3p source: setup-vendor needs the danielspils/JP-Patches FORK (carries
+# AUTO_BOOST_TARGET=0.92). It's a separate public repo, so we check it out and
+# point JX3P_SRC at it. Branch is `master` (the fork's default).
+#
+# Triggers on windows-port now and on main after the port merges, so it keeps
+# working once the branch collapses — no edit needed at merge time.
+
+name: Build Windows installer
+
+on:
+  push:
+    branches: [windows-port, main]
+  pull_request:
+    branches: [windows-port, main]
+  # Runnable on demand from the Actions tab.
+  workflow_dispatch:
+
+# Read-only — this job builds an artifact, it never publishes a release.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: NSIS x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v4
+
+      - name: Checkout jx3p fork (danielspils/JP-Patches)
+        uses: actions/checkout@v4
+        with:
+          repository: danielspils/JP-Patches
+          ref: master
+          path: jx3p-src
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'        # current LTS, matches the Test workflow
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Populate vendor/ (uv.exe + jx3p fork)
+        env:
+          # Point setup-vendor at the fork we just checked out instead of the
+          # default ~/JP-Patches (which doesn't exist on the runner).
+          JX3P_SRC: ${{ github.workspace }}/jx3p-src
+        run: npm run setup-vendor
+
+      - name: Build NSIS installer (unsigned)
+        # Mirrors `electron-builder --win --x64` from the dist:win script, with
+        # an explicit no-publish guard. No GH_TOKEN is exposed, so it couldn't
+        # publish anyway — belt and suspenders.
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jp-patches-windows-installer
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
