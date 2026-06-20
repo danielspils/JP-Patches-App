@@ -74,7 +74,8 @@ Current version: **0.8.2** (June 14, 2026). 25+ public releases since v0.1.0 on 
 │   ├── wrangler.toml             custom-domain route + HEARTS KV binding
 │   └── README.md                 deploy steps, PAT renewal, smoke test
 ├── scripts/
-│   ├── setup-vendor.sh           populates vendor/ before `npm run dist`
+│   ├── setup-vendor.mjs          cross-platform vendor populate (uv + jx3p) before `npm run dist`/`dist:win`
+│   ├── make-icon-ico.mjs         regenerate build/icon.ico from icon.png (Windows app icon; macOS-only helper)
 │   ├── release.sh                one-command release — bumps version, builds DMG, tags, ships GH release
 │   ├── lend-publish-lib.mjs      PURE lending-automation logic (validation, dedup hash, YAML quoting, withdraw matching) — the auto-publish trust boundary, unit-tested
 │   ├── publish-lend.mjs          auto-publish pipeline (runs in CI): issue → validate → dedup → catalog commit → close
@@ -87,7 +88,7 @@ Current version: **0.8.2** (June 14, 2026). 25+ public releases since v0.1.0 on 
 ├── build/
 │   ├── icon.png                  1024×1024 source for the app icon
 │   └── entitlements.mac.plist    macOS hardened-runtime entitlements
-├── vendor/                       gitignored; populated by setup-vendor.sh
+├── vendor/                       gitignored; populated by setup-vendor.mjs
 │   ├── uv/uv                     uv binary, macOS arm64
 │   └── jx3p/                     rsynced copy of ~/JP-Patches (Bruce's toolkit)
 ├── dist/                         gitignored; electron-builder output (.dmg, .app)
@@ -159,6 +160,35 @@ npm run setup-vendor          # populate vendor/ from ~/JP-Patches (or $JX3P_SRC
 npm run dist:unsigned         # build DMG without code signing
 npm run dist                  # build signed+notarized DMG (Developer ID — what release.sh runs)
 ```
+
+### Windows (port in progress — `windows-port` branch, not on main)
+
+The Windows target shares the entire codebase; the port lives in the main
+process + build config only (the renderer is platform-clean). Run from source
+the same way (`npm install` / `npm start`) — `setup-vendor` and the codec calls
+are cross-platform. To build the installer **on a Windows machine**:
+
+```
+npm run setup-vendor          # picks the Windows-x64 uv.exe asset automatically
+npm run dist:win              # electron-builder --win --x64 → NSIS installer in dist/
+```
+
+- **Installer**: NSIS, x64, **per-user** (no admin prompt), user can change the
+  install dir, creates desktop + Start-menu shortcuts. Currently **unsigned**
+  (Windows code signing is deferred — see roadmap item #5); an unsigned
+  installer trips SmartScreen until a publisher cert is in place.
+- **uv**: `setup-vendor.mjs` downloads `uv.exe` per host platform; electron-builder
+  ships the whole `vendor/uv` dir to `resources/uv/`, and `UV_BIN` resolves to
+  `resources/uv/uv.exe` on Windows (`uv` on macOS) via the `UV_EXE` switch.
+- **jx3p source**: `JX3P_SRC` must point at the **danielspils/JP-Patches fork**
+  (carries `AUTO_BOOST_TARGET = 0.92`), not bruceoberg upstream — default is
+  `~/JP-Patches`, override with `JX3P_SRC=<path>`.
+- **Icon**: `build/icon.ico` is generated from `build/icon.png` via
+  `node scripts/make-icon-ico.mjs` (macOS-only helper; regenerate when the PNG
+  changes). The mac DMG continues to use `build/icon.png`.
+- **Not yet done** (needs the test laptop): build + smoke-test the installer on
+  real hardware, tune the Windows speaker-label regex, code signing. Non-OS-
+  specific bug fixes made on `main` merge cleanly into `windows-port`.
 
 Window opens at **1140×710** (sized for Daniel's logical screen of 1147×719) and is non-resizable in v1 — but the View menu zoom presets (75% / 100%) scale window + renderer together, so 75% (855×532) works on smaller laptops. Fullscreen toggle via the green ⛶ button or Cmd+Ctrl+F.
 
@@ -270,7 +300,7 @@ Public-facing site for JP Patches, hosted on GitHub Pages from the `docs/` sourc
 2. README screenshots refresh (current shots predate vintage cream + Custom Banks redesign).
 3. Mac App Store publish (after signing).
 4. Adaptive window sizing + 125/150/200% zoom presets (need screen-bound clamp first).
-5. Windows port (waiting for a Windows-using JX-3P owner to volunteer testing).
+5. Windows port 🚧 **in progress on the `windows-port` branch** (not merged to main). The code + build-config work is done: jx3p codec calls routed through `execFile`, platform-aware `UV_BIN`, cross-platform `scripts/setup-vendor.mjs`, macOS-gated `system_profiler` probe, platform-aware Tape Dump Sounds speaker allowlist, and an electron-builder NSIS x64 target (`npm run dist:win`, `build/icon.ico`). Same GitHub Releases distribution channel as the DMG. **Remaining:** (a) build + smoke-test the actual NSIS installer on real Windows hardware; (b) tune `WIN_SPEAKER_LABEL_RE` in `renderer/transmission-sounds.js` against real device labels; (c) Windows code signing (the ~$10/mo "verified publisher" cert — Windows analog of Developer ID; until then the installer is unsigned and trips SmartScreen). Waiting on a Windows test laptop / JX-3P owner.
 
 Other parking-lot items in `docs/future-features.md`.
 
@@ -311,7 +341,7 @@ When designing a new modal or panel, the first question to ask: *what would this
 2. **Don't modify `panel.svg`** unless the change is essential and unavoidable. `panel_locked_v6.svg` is the current canonical reference snapshot. Functional changes happen in `app.js` (tagging, event handling) without touching the SVG. New components that need panel-style artwork should *reference* panel.svg's primitives by copying the SVG shapes inline, not by editing panel.svg.
 3. **Window stays at 1140×710** (`resizable: false`) — until adaptive sizing lands. The View menu zoom presets (75% / 100%) are the only sanctioned size variants. Daniel's screen is 1147×719 — anything wider than 1140 will be clipped.
 4. **CSP**: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`. Update the meta tag in `index.html` if external resources or `eval`-style features become needed.
-5. **macOS-only for v1.** Code freely uses `~/`, `pkill`, etc.
+5. **macOS + Windows (Windows port in progress on the `windows-port` branch).** The shipped app is macOS-only; a Windows (Electron, NSIS) target is being added on `windows-port`. Keep OS-touching code platform-aware: route external binaries through `runJx3p`/`execFile` (no shell strings), gate macOS-only probes like `system_profiler` behind `process.platform === 'darwin'`, pick binary names per platform (`UV_EXE`), and don't hardcode `~/`, `pkill`, or POSIX-only shell idioms in new main-process code. The renderer is platform-clean — keep it that way. Mac-specific assumptions that already exist (e.g. the speaker allowlist) are being made platform-aware as the port proceeds.
 6. **Color palette + design language** — see the "Design language — north star" section above. Don't introduce off-palette colors or framework-default components without a deliberate reason.
 7. **Commit messages** prefixed with `feat:`, `fix:`, `chore:`, `docs:`, `Spec:`, etc. See `git log --oneline` for the style.
 8. **Co-author trailer** on commits: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
@@ -470,7 +500,7 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
 
 1. **`node_modules/` symlinks can vanish** after some npm operations. If `npm start` fails with `electron: command not found`, run `npm install` to restore the `.bin/` symlinks.
 2. **`~/Desktop/patches.json` is a legacy boot source.** Absence is no longer fatal — first-run empty state + seed handle it gracefully — but the hard-coded path is still in `main.js`.
-3. **The `jx3p` Python tool path is hard-coded** to `~/JP-Patches/` when running from source. In packaged DMGs, `extraResources/jx3p/` is used. From-source clones need `~/JP-Patches/` present (or `JX3P_SRC=/path` for `setup-vendor.sh`).
+3. **The `jx3p` Python tool path is hard-coded** to `~/JP-Patches/` when running from source. In packaged DMGs, `extraResources/jx3p/` is used. From-source clones need `~/JP-Patches/` present (or `JX3P_SRC=/path` for `setup-vendor.mjs`).
 4. **macOS filesystem is case-insensitive.** `~/JP-Patches` and `~/jp-patches` are the same directory. Don't try to create a sibling clone with only-case differences.
 5. **Don't commit `node_modules/`, `vendor/`, `dist/`, or `build/` outputs.** The first commit in repo history did include node_modules and required a `git filter-branch` rewrite to undo (GitHub rejected the push due to Electron Framework being >100 MB). `.gitignore` handles this now but stay vigilant.
 6. **Window can't grow past 1140×710** on Daniel's machine — his logical display is 1147×719. Anything wider will be partially offscreen. The View menu 75% preset is the workaround for tighter screens until adaptive sizing lands.
