@@ -3,9 +3,10 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // Pin the userData directory name to "jp-patches" (lowercase) so dev runs
 // (`npm start`) and packaged DMG builds always share the same library.json.
@@ -29,6 +30,21 @@ const JX3P_REPO = app.isPackaged
 const UV_BIN = app.isPackaged
   ? path.join(process.resourcesPath, 'uv', 'uv')
   : 'uv';
+
+// All jx3p codec invocations route through here. Using execFile (argv array)
+// instead of a shell command string avoids cmd.exe-vs-/bin/sh quoting
+// differences across platforms AND fixes a latent macOS bug where a path
+// containing spaces or shell metacharacters (&, $, etc.) corrupted the quoted
+// command string. windowsHide suppresses the console window flash on win32.
+// Callers pass just the jx3p subcommand + its args, e.g.
+//   await runJx3p(['wav-to-json', filePath, outputPath]);
+function runJx3p(args) {
+  return execFileAsync(
+    UV_BIN,
+    ['run', '--directory', JX3P_REPO, 'jx3p', ...args],
+    { maxBuffer: 10 * 1024 * 1024, windowsHide: true }
+  );
+}
 
 const PATCHES_PATH   = path.join(os.homedir(), 'Desktop', 'patches.json');
 const PANEL_SVG_PATH = path.join(__dirname, 'renderer', 'panel.svg');
@@ -798,8 +814,7 @@ async function decodeTapeFile(filePath) {
   if (ext === '.wav') {
     const outputPath = path.join(os.tmpdir(), `jp_patches_import_${Date.now()}.json`);
     try {
-      const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-json "${filePath}" "${outputPath}"`;
-      await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+      await runJx3p(['wav-to-json', filePath, outputPath]);
       const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
       const slotMeta = readSlotMetaFromWav(filePath);
       return { loaded: true, kind: 'wav', data, slotMeta, path: filePath };
@@ -879,8 +894,7 @@ ipcMain.handle('tape-load', async (e, data, suggestedName) => {
   const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
   try {
     fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${dlg.filePath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['json-to-wav', tempJson, dlg.filePath]);
     try { embedSlotMetaInWav(dlg.filePath, _slotMeta); } catch (e2) {
       // Best-effort: a chunk failure shouldn't fail the whole export. The WAV
       // is still a valid tape dump without the embedded names.
@@ -923,8 +937,7 @@ ipcMain.handle('tape-save-wav-to-path', async (e, data, filename) => {
   const tempJson = path.join(os.tmpdir(), `jp_patches_export_${Date.now()}.json`);
   try {
     fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${destPath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['json-to-wav', tempJson, destPath]);
     try { embedSlotMetaInWav(destPath, _slotMeta); } catch (e2) {
       console.warn('embedSlotMetaInWav failed:', e2 && e2.message);
     }
@@ -951,8 +964,7 @@ ipcMain.handle('tape-encode-to-temp', async (_e, data) => {
   const { _slotMeta, ...jx3pData } = data || {};
   try {
     fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p json-to-wav "${tempJson}" "${tempWav}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['json-to-wav', tempJson, tempWav]);
     try { embedSlotMetaInWav(tempWav, _slotMeta); } catch (e2) {
       console.warn('embedSlotMetaInWav failed:', e2 && e2.message);
     }
@@ -994,8 +1006,7 @@ ipcMain.handle('seq-tape-encode-to-temp', async (_e, data) => {
   const { _sequenceMeta, ...jx3pData } = data || {};
   try {
     fs.writeFileSync(tempJson, JSON.stringify(jx3pData, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${tempWav}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['seq-json-to-wav', tempJson, tempWav]);
     try { embedJpMetaInWav(tempWav, { sequenceMeta: _sequenceMeta }); } catch (e2) {
       // Best-effort: chunk failure shouldn't break the export. The WAV is
       // still a valid sequence tape dump without the metadata chunk.
@@ -1024,8 +1035,7 @@ async function decodeSeqFile(filePath) {
   }
   const outputPath = path.join(os.tmpdir(), `jp_seq_import_${Date.now()}.json`);
   try {
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p wav-to-seq-json "${filePath}" "${outputPath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['wav-to-seq-json', filePath, outputPath]);
     const data = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
     // If the WAV carries a jPpS v:2 chunk with sequenceMeta (embedded by
     // another JP Patches export), surface it alongside the decoded data
@@ -1106,8 +1116,7 @@ ipcMain.handle('seq-tape-load', async (e, data, suggestedName) => {
       pages: (data && Array.isArray(data.pages)) ? data.pages : [],
     };
     fs.writeFileSync(tempJson, JSON.stringify(payload, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${dlg.filePath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['seq-json-to-wav', tempJson, dlg.filePath]);
     try { embedJpMetaInWav(dlg.filePath, { sequenceMeta: _sequenceMeta }); } catch (e2) {
       // Best-effort: chunk failure shouldn't fail the export. The WAV is
       // still a valid sequence tape dump without the embedded metadata.
@@ -1149,8 +1158,7 @@ ipcMain.handle('seq-tape-save-wav-to-path', async (e, data, filename) => {
       pages: (data && Array.isArray(data.pages)) ? data.pages : [],
     };
     fs.writeFileSync(tempJson, JSON.stringify(payload, null, 2), 'utf8');
-    const cmd = `"${UV_BIN}" run --directory "${JX3P_REPO}" jx3p seq-json-to-wav "${tempJson}" "${destPath}"`;
-    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    await runJx3p(['seq-json-to-wav', tempJson, destPath]);
     try { embedJpMetaInWav(destPath, { sequenceMeta: _sequenceMeta }); } catch (e2) {
       console.warn('embedJpMetaInWav(sequenceMeta) failed:', e2 && e2.message);
     }
