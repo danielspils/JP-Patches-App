@@ -36,6 +36,18 @@
 (function () {
   'use strict';
 
+  // Are we on Windows? Detect from the UA/platform string, which carries
+  // "Windows NT" in the Electron renderer but resolves to "Node.js/…" under
+  // the Node test runner — so the unit tests always exercise the macOS
+  // allowlist regardless of which OS runs them.
+  const IS_WIN = (() => {
+    try {
+      const nav = (typeof navigator !== 'undefined' && navigator) || null;
+      const ua = nav ? (nav.userAgent || nav.platform || '') : '';
+      return /Windows|Win32|Win64/i.test(ua);
+    } catch { return false; }
+  })();
+
   // Allowlist for Apple built-in speaker device labels. Anchored to the
   // model name + " Speakers", with an OPTIONAL " (Built-in)" transport
   // suffix — which is what Chromium's enumerateDevices actually appends
@@ -46,8 +58,23 @@
   // (31b2:2024)") and virtual devices ("… (Virtual)") out. Studio Display
   // / external-monitor speakers (USB transport, not Built-in) are the
   // deferred power-user-picker case — intentionally not matched here.
-  const MAC_SPEAKER_LABEL_RE =
+  const MAC_SPEAKER_RE =
     /^(MacBook( Pro| Air)?|iMac|Mac mini|Mac Studio|Studio Display) Speakers( \(Built-in\))?$/;
+
+  // Looser allowlist for Windows output-device labels, which are far less
+  // consistent than macOS's (vendor/driver-dependent). Matches the common
+  // built-in/onboard output names. Unanchored + case-insensitive on purpose.
+  // ⚠ OPEN ITEM: the exact Windows labels need tuning against the real test
+  // laptop once it's available — these are best-guess patterns. The cable
+  // exclusion (deviceId !== cableDeviceId) in selectTapeDumpSpeaker remains
+  // the real safety net regardless of how loose this regex is.
+  const WIN_SPEAKER_RE =
+    /(Speakers|Headphones|Realtek|High Definition Audio|Internal Speaker|Built-in)/i;
+
+  // The active allowlist for THIS platform, published under the historical
+  // MAC_SPEAKER_LABEL_RE name so every downstream reader (selectTapeDumpSpeaker,
+  // isBuiltInSpeakerOutput, app.js, the export, the tests) keeps working.
+  const MAC_SPEAKER_LABEL_RE = IS_WIN ? WIN_SPEAKER_RE : MAC_SPEAKER_RE;
 
   /**
    * Pick the eligible Mac built-in speaker to play tape-dump sound out of,
