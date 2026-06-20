@@ -11,7 +11,7 @@
     "test": "node --test test/*.test.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "setup-vendor": "./scripts/setup-vendor.sh",
+    "setup-vendor": "node scripts/setup-vendor.mjs",
     "dist": "npm run setup-vendor && electron-builder --mac --arm64",
     "dist:unsigned": "npm run setup-vendor && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
     "stats": "bash scripts/usage.sh"
