@@ -27,9 +27,13 @@ const REPO_URL     = 'https://github.com/danielspils/JP-Patches-App';
 const JX3P_REPO = app.isPackaged
   ? path.join(process.resourcesPath, 'jx3p')
   : path.join(os.homedir(), 'JP-Patches');
+// The uv binary is named `uv.exe` on Windows and `uv` everywhere else. This
+// applies to BOTH the packaged path (under extraResources/uv/) and the
+// from-source fallback (the bare name resolved on PATH).
+const UV_EXE = process.platform === 'win32' ? 'uv.exe' : 'uv';
 const UV_BIN = app.isPackaged
-  ? path.join(process.resourcesPath, 'uv', 'uv')
-  : 'uv';
+  ? path.join(process.resourcesPath, 'uv', UV_EXE)
+  : UV_EXE;
 
 // All jx3p codec invocations route through here. Using execFile (argv array)
 // instead of a shell command string avoids cmd.exe-vs-/bin/sh quoting
