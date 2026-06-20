@@ -624,6 +624,11 @@ ipcMain.handle('load-panel-svg', () => {
 // appends VID:PID, e.g. "Default - KT USB Audio (31b2:2024)"; system_profiler
 // returns the bare name "KT USB Audio").
 ipcMain.handle('audio-input-rates', async () => {
+  // system_profiler is macOS-only. On other platforms report unsupported with
+  // an empty device list; the renderer's probeDeviceSampleRate returns early
+  // on !result.ok, so the sample-rate advisory simply doesn't surface (it's
+  // informational only — the KT cable input is 48k-locked and decodes fine).
+  if (process.platform !== 'darwin') return { ok: false, unsupported: true, devices: [] };
   try {
     const { stdout } = await execAsync('system_profiler SPAudioDataType -json', { maxBuffer: 4 * 1024 * 1024 });
     const parsed = JSON.parse(stdout);
