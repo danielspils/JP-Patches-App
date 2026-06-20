@@ -14,6 +14,7 @@
     "setup-vendor": "node scripts/setup-vendor.mjs",
     "dist": "npm run setup-vendor && electron-builder --mac --arm64",
     "dist:unsigned": "npm run setup-vendor && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
+    "dist:win": "npm run setup-vendor && electron-builder --win --x64",
     "stats": "bash scripts/usage.sh"
   },
   "devDependencies": {
@@ -45,8 +46,8 @@
     ],
     "extraResources": [
       {
-        "from": "vendor/uv/uv",
-        "to": "uv/uv"
+        "from": "vendor/uv",
+        "to": "uv"
       },
       {
         "from": "vendor/jx3p",
@@ -79,6 +80,24 @@
     "dmg": {
       "title": "JP Patches ${version}",
       "artifactName": "JP-Patches.${ext}"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": "x64"
+        }
+      ],
+      "artifactName": "JP-Patches-${version}-${arch}-win.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JP Patches"
     }
   },
   "dependencies": {
