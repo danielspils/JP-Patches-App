@@ -6381,7 +6381,7 @@ async function doToneSaveFromFile() {
   if (result.kind === 'wav') {
     const decoded = decodedToInMemoryBanks(result.data);
     if (!decoded || allPatchesIdentical(decoded)) {
-      showImportError(UNREADABLE_WAV_MSG);
+      showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
       return;
     }
   }
@@ -11102,10 +11102,13 @@ async function handleDownloadSequence(idx) {
 // timing is broken, so it can't decode. Real case 2026-06-14: a user's WAV
 // had a metronome click accidentally mixed in during a Logic export —
 // removing the click fixed it. (Lossy re-encoding like MP3 does the same.)
-const UNREADABLE_WAV_MSG =
-  "Couldn't read this WAV as a patch bank or a sequence. It has to be a clean " +
-  'tape-dump recording on its own — anything mixed in (a metronome click, other ' +
-  'audio) or lossy re-encoding (MP3) keeps the sound but breaks the decode.';
+const UNREADABLE_WAV = {
+  title: 'Couldn\'t read this tape dump',
+  body:
+    'It needs to be a clean WAV straight from the JX-3P. Extra audio mixed in ' +
+    '(like a metronome click) or lossy re-encoding (MP3) keeps the sound but ' +
+    'breaks the data — try a fresh tape dump.',
+};
 
 async function handleSequenceDropImport(filePath, { direct = false, borrowed = null, rerouted = false } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
@@ -11125,7 +11128,7 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   // WAV that decodes as neither format (bug 2026-06-14).
   const action = planImportReroute({ looksMisrouted: !hasContent, rerouted });
   if (action === 'unreadable') {
-    showImportError(UNREADABLE_WAV_MSG);
+    showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
     return;
   }
   if (action === 'reroute') {
@@ -11194,7 +11197,7 @@ async function handleTonesDropImport(filePath, { borrowed = null, rerouted = fal
     rerouted,
   });
   if (rerouteAction === 'unreadable') {
-    showImportError(UNREADABLE_WAV_MSG);
+    showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
     return;
   }
   if (rerouteAction === 'reroute') {
@@ -11264,7 +11267,7 @@ function handleBankDropImport(filePath) {
       // backup in the library. (2026-06-14 — sibling of the reroute-loop bug.)
       const decoded = decodedToInMemoryBanks(result.data);
       if (!decoded || allPatchesIdentical(decoded)) {
-        showImportError(UNREADABLE_WAV_MSG);
+        showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
         return;
       }
       snapshotCurrentBanksToLibrary();   // safety backup — only on a good decode
