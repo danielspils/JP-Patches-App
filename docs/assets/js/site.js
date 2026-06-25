@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  wirePanelButton(document.querySelector('.site-download'));  // header
+  wirePanelButton(document.querySelector('.site-contact'));   // header — "Email me" → /feedback/
   wirePanelButton(document.querySelector('.feedback-btn'));   // landing page
 
   // Stop any in-flight click sound before the page is hidden/cached, so
@@ -360,4 +360,32 @@ document.addEventListener('DOMContentLoaded', () => {
   newerBtn.addEventListener('click', function () { if (page > 0) { page--; render(); } });
   olderBtn.addEventListener('click', function () { if (page < pageCount - 1) { page++; render(); } });
   render();
+})();
+
+/* Mobile hamburger nav (≤540px) — toggles the NOTES dropdown. The menu is
+   CSS-hidden until .open; this flips the class + ARIA, and closes on an
+   outside click or Escape. The element only exists in the header markup, so
+   on wider viewports (where it's display:none) the handlers are harmless. */
+(function () {
+  var nav = document.querySelector('.mobile-nav');
+  if (!nav) return;
+  var toggle = nav.querySelector('.mobile-nav-toggle');
+  if (!toggle) return;
+
+  var setOpen = function (open) {
+    nav.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+
+  toggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    setOpen(!nav.classList.contains('open'));
+  });
+  document.addEventListener('click', function (e) {
+    if (nav.classList.contains('open') && !nav.contains(e.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') setOpen(false);
+  });
 })();

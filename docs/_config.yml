@@ -18,8 +18,16 @@ url: "https://jx-3p.com"
 plugins:
   - jekyll-sitemap
 
-# Default front matter for any markdown file that doesn't specify its own.
-# Only `index.md` opts into the `default` layout via explicit front matter;
-# other .md files in docs/ (release notes, smoke test, etc.) render bare
-# without layout — they're internal docs, not landing-page consumers.
-defaults: []
+# Front-matter defaults.
+# Blog posts (docs/_posts/*.md → the Notes section) automatically get the
+# `post` layout and a clean /notes/<title>/ URL, so each note file only needs
+# `title:` + `date:` of its own. Other .md files in docs/ (release notes,
+# smoke test, etc.) still render bare without a layout — they're internal
+# docs, not landing-page consumers.
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+      permalink: /notes/:title/

@@ -82,6 +82,8 @@ export default [
         // Globals exposed by renderer/record-flow.js
         chooseCaptureGain:        'readonly',
         planDecodeFailureResponse:'readonly',
+        planImportReroute:        'readonly',
+        describeUnsupportedImport:'readonly',
         FAILURE_DEFAULTS:         'readonly',
 
         // Globals exposed by renderer/capture-warnings.js

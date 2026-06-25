@@ -18,6 +18,7 @@ This file is the cold-start summary. Pair it with:
 - **[`docs/library-and-midi-spec.md`](docs/library-and-midi-spec.md)** — authoritative design spec for Phases 1–4. Phase 2 has an "As-shipped summary" noting where the actual implementation diverged from the original design.
 - **[`docs/record-from-jx.md`](docs/record-from-jx.md)** — shipped-feature reference for in-app JX-3P tape capture + two-pass auto-calibration. The place to land when reading `showRecordFromJxModal` in `app.js`.
 - **[`docs/smoke-test.md`](docs/smoke-test.md)** — pre-release manual QA checklist (11 sections, ~50 individual checks). Run before publishing any release; catches integration issues unit tests can't.
+- **[`docs/site-architecture.md`](docs/site-architecture.md)** — how **jx-3p.com** is built: no-theme Jekyll layout, the nav tabs, the **Notes blog** (`_posts`), the lending-library catalog (`_data` → `/library/index.json`), CSS tokens, and the **deploys-from-`main`-only** gotcha. Read before touching anything under `docs/` that affects the public site.
 - **[`docs/session-handoff-2026-06-10.md`](docs/session-handoff-2026-06-10.md)** — most-recent session-end snapshot: the User Lending Library day (borrow/lend/relay/hearts), the new Cloudflare infrastructure Daniel owns, open threads. **A fresh Claude session should read this right after CLAUDE.md.** Note: its manual-curation section is superseded — submissions auto-publish since June 11 (see the User Lending Library section below). Supersede with a newer dated doc as state moves on.
 - **[`docs/future-features.md`](docs/future-features.md)** — parking lot for ideas not yet on the roadmap (screenshots refresh, signing, Windows port, adaptive sizing, sound samples, app-level Undo/Redo, etc.).
 - **[`README.md`](README.md)** — end-user docs (install, first run, Tape Memory reference, Library, Custom Banks, Roadmap).
@@ -25,7 +26,7 @@ This file is the cold-start summary. Pair it with:
 
 ## Status
 
-Current version: **0.8.2** (June 14, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
+Current version: **0.8.3** (June 25, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
 
 - **Phase 1** ✅ shipped — panel UI + patch editing
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
@@ -587,6 +588,11 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
 23. **Relay-filed lending issues are authored by Daniel's own PAT — GitHub never notifies you of your own activity.** EVERY lending submission (Daniel's or a stranger's from the site) lands as "danielspils opened this issue" and would be silent. `.github/workflows/lending-notify.yml` has the Actions bot @mention Daniel per `community-*` issue — mentions from another actor DO email. Don't remove that workflow without replacing the notification path. Related: the Worker's `GITHUB_TOKEN` secret (fine-grained PAT `jp-patches-lend-relay`, Issues-only) expires ~June 2027 — renew on github.com then `cd relay && npx wrangler secret put GITHUB_TOKEN`.
 
 24. **`sanitizeWavFilename` APPENDS `.wav`** — it's the WAV-export helper. Using it to clean a name for any non-WAV file gives `Name.wav.json`-style double extensions (borrowed packages briefly labeled "Spils Sounds.wav", 2026-06-10). Strip the suffix back off, or extract a base sanitizer if a third caller appears.
+
+25. **A WAV that decodes to nothing real must be REJECTED, never applied or re-routed in a loop.** Two adjacent failure modes, both hit 2026-06-14 from one user's bad WAV. **The exact chain (so it doesn't mislead):** user Dirk sent an **MP3** → Daniel converted it to WAV in Logic, which accidentally **baked in a metronome click** → that *click* broke the decode. A click-free re-export of the same audio decoded fine, so **the MP3→WAV conversion itself was OK — the click was the culprit, not the MP3.** (Lossy re-encoding *can* destroy FSK in general, so the guards + warnings still mention it, but it wasn't the cause here.) Either way the result is the same: extra audio or lossy re-encoding leaves a file that still *sounds* like a tape dump but whose FSK zero-crossing timing is gone, so it decodes as neither a patch bank nor a sequence:
+    - **Reroute loop:** `handleTonesDropImport` ⇄ `handleSequenceDropImport` auto-reroute to each other when a decode "looks misrouted" (tones → 32 all-identical patches; sequence → empty pages). A WAV that trips BOTH ping-ponged forever. Guarded by a one-shot `rerouted` flag via `planImportReroute` (renderer/record-flow.js, tested).
+    - **Silent clobber:** every path that applies a decode to the **active C/D banks** (`handleBankDropImport`, `doToneSaveFromFile` → `applyToneResult` → `applyWavData`) must first check `decodedToInMemoryBanks(...)` for `null`/`allPatchesIdentical` and reject (`UNREADABLE_WAV_MSG`) BEFORE snapshotting or applying — otherwise junk overwrites the user's banks (the file-dialog path had no safety snapshot at all).
+    - **Rule for any NEW import entry point:** gate the filename with `describeUnsupportedImport` (names MP3/MP4/etc.), and before applying-to-banks run the all-default/identical guard. The Record-from-JX capture path is already covered by `isDecodeAllDefault` → recalibrate prompt. Don't add a conditional reroute without a once-only flag.
 
 ## When in doubt
 

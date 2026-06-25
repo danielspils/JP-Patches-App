@@ -4679,6 +4679,10 @@ function buildWavUploadZone(kind, opts) {
       ? window.api.getPathForFile(file)
       : null;
     if (!filePath) { showImportError('Could not read file path. Try drag-and-drop instead.'); return; }
+    // input.accept filters the picker, but it isn't bulletproof across OSes —
+    // give the same type-aware rejection as the drop path.
+    const unsupported = describeUnsupportedImport(filePath);
+    if (unsupported) { showImportError(unsupported.body, unsupported.title); input.value = ''; return; }
     if (kind === 'sequences') {
       handleSequenceDropImport(filePath);
     } else {
@@ -6366,6 +6370,20 @@ async function doToneSaveFromFile() {
   if (!result || !result.loaded) {
     if (result && result.error) console.error('Save (import) error:', result.error);
     return;
+  }
+  // Garbage-WAV guard (same class as the drag-drop fixes): the file-dialog
+  // Tone load overwrites the active C/D banks via applyToneResult with NO
+  // safety snapshot, so a WAV that decodes to no real patches (non-JX file,
+  // MP3-/click-corrupted dump) would irreversibly clobber them. Reject first.
+  // (The live-record caller of applyToneResult is guarded upstream by the
+  // isDecodeAllDefault → recalibrate prompt, so the guard lives here, not in
+  // applyToneResult.) JSON imports validate separately downstream.
+  if (result.kind === 'wav') {
+    const decoded = decodedToInMemoryBanks(result.data);
+    if (!decoded || allPatchesIdentical(decoded)) {
+      showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
+      return;
+    }
   }
   await applyToneResult(result, result.path);
 }
@@ -10987,12 +11005,12 @@ function setupPatchListDropZone() {
       return;
     }
     // .json joins .wav (2026-06-10): community-library downloads + app
-    // exports are .json payloads; main-side decodeTapeFile/decodeSeqFile
-    // both handle the format, including embedded _slotMeta/_sequenceMeta
-    // name restoration.
-    const lower = filePath.toLowerCase();
-    if (!lower.endsWith('.wav') && !lower.endsWith('.json')) {
-      showImportError('Only .wav and .json files can be dropped here.');
+    // exports are .json payloads. Anything else is rejected with a
+    // type-aware message (names MP3/MP4/etc. so the user knows to convert
+    // — describeUnsupportedImport in record-flow.js, tested).
+    const unsupported = describeUnsupportedImport(filePath);
+    if (unsupported) {
+      showImportError(unsupported.body, unsupported.title);
       return;
     }
     routeWavDrop(filePath);
@@ -11078,7 +11096,21 @@ async function handleDownloadSequence(idx) {
 // for unit-testability — see test/library-math.test.js). The UMD wrapper
 // attaches it to window, so the call site below picks it up as a global.
 
-async function handleSequenceDropImport(filePath, { direct = false, borrowed = null } = {}) {
+// Shown when a dropped/uploaded WAV decodes as neither a patch bank nor a
+// sequence. The hint is load-bearing: a tape dump corrupted by ANYTHING
+// extra in the recording still SOUNDS like a dump but its FSK zero-crossing
+// timing is broken, so it can't decode. Real case 2026-06-14: a user's WAV
+// had a metronome click accidentally mixed in during a Logic export —
+// removing the click fixed it. (Lossy re-encoding like MP3 does the same.)
+const UNREADABLE_WAV = {
+  title: 'Couldn\'t read this tape dump',
+  body:
+    'It needs to be a clean WAV straight from the JX-3P. Extra audio mixed in ' +
+    '(like a metronome click) or lossy re-encoding (MP3) keeps the sound but ' +
+    'breaks the data — try a fresh tape dump.',
+};
+
+async function handleSequenceDropImport(filePath, { direct = false, borrowed = null, rerouted = false } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
@@ -11091,10 +11123,18 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   // when they forget [which] tab they're on (or so goes my theory)."
   const hasContent = result.data && Array.isArray(result.data.pages)
     && result.data.pages.some((p) => Array.isArray(p));
-  if (!hasContent) {
+  // Reroute decision is pure + tested in renderer/record-flow.js. The
+  // 'rerouted' guard prevents the infinite tones↔sequence ping-pong on a
+  // WAV that decodes as neither format (bug 2026-06-14).
+  const action = planImportReroute({ looksMisrouted: !hasContent, rerouted });
+  if (action === 'unreadable') {
+    showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
+    return;
+  }
+  if (action === 'reroute') {
     selLibTab = 'tones';
     renderPatchList();
-    handleTonesDropImport(filePath);
+    handleTonesDropImport(filePath, { rerouted: true });
     return;
   }
   // Community borrow (direct): the lender's name/notes/paired patch came
@@ -11135,7 +11175,7 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   });
 }
 
-async function handleTonesDropImport(filePath, { borrowed = null } = {}) {
+async function handleTonesDropImport(filePath, { borrowed = null, rerouted = false } = {}) {
   const result = await window.api.tapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
@@ -11152,10 +11192,18 @@ async function handleTonesDropImport(filePath, { borrowed = null } = {}) {
   // signal — Daniel: "users will only do this when they forget [which]
   // tab they're on (or so goes my theory)." Heuristic is reliable —
   // legitimate bank exports almost never have 32 identical patches.
-  if (banks && allPatchesIdentical(banks)) {
+  const rerouteAction = planImportReroute({
+    looksMisrouted: !!(banks && allPatchesIdentical(banks)),
+    rerouted,
+  });
+  if (rerouteAction === 'unreadable') {
+    showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
+    return;
+  }
+  if (rerouteAction === 'reroute') {
     selLibTab = 'sequences';
     renderPatchList();
-    handleSequenceDropImport(filePath);
+    handleSequenceDropImport(filePath, { rerouted: true });
     return;
   }
   // Prefer the slotMeta embedded in the WAV's "jPpS" chunk (set by another
@@ -11206,12 +11254,23 @@ function handleBankDropImport(filePath) {
       `Saving the current C & D banks to the library — then loading ${fileName}`,
     confirmLabel: 'Continue',
     onConfirm: async () => {
-      snapshotCurrentBanksToLibrary();
       const result = await window.api.tapeSaveFromPath(filePath);
       if (!result || !result.loaded) {
         showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
         return;
       }
+      // Same garbage-WAV guard as the Tones-library drop: a WAV that decodes
+      // to nothing real (all-default / all-identical patches — e.g. a non-JX
+      // file, an MP3-derived dump, or a click-contaminated recording) must
+      // NOT overwrite the active banks. Validate BEFORE snapshotting/applying
+      // so a bad drop neither clobbers the user's banks nor leaves a junk
+      // backup in the library. (2026-06-14 — sibling of the reroute-loop bug.)
+      const decoded = decodedToInMemoryBanks(result.data);
+      if (!decoded || allPatchesIdentical(decoded)) {
+        showImportError(UNREADABLE_WAV.body, UNREADABLE_WAV.title);
+        return;
+      }
+      snapshotCurrentBanksToLibrary();   // safety backup — only on a good decode
       try {
         applyWavData(result.data, labelFromPath(filePath), result.slotMeta);
         saveLibraryDebounced();
@@ -11293,9 +11352,9 @@ function decodedToSlotMeta(data) {
   return meta;
 }
 
-function showImportError(message) {
+function showImportError(message, title = 'Import error') {
   showConfirmModal({
-    title: 'Import error',
+    title,
     body: message,
     confirmLabel: 'OK',
     hideCancel: true,   // acknowledgement — nothing to cancel
