@@ -167,6 +167,10 @@
           <a role="menuitem" href="{{ '/notes/' | relative_url }}"
              class="mobile-nav-link{% if page.url == '/notes/' or page.layout == 'post' %} active{% endif %}">NOTES</a>
         </li>
+        <li role="none">
+          <a role="menuitem" href="{{ '/feedback/' | relative_url }}"
+             class="mobile-nav-link{% if page.url == '/feedback/' %} active{% endif %}">EMAIL ME</a>
+        </li>
       </ul>
     </div>
   </header>
