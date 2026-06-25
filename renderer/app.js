@@ -11078,6 +11078,17 @@ async function handleDownloadSequence(idx) {
 // for unit-testability — see test/library-math.test.js). The UMD wrapper
 // attaches it to window, so the call site below picks it up as a global.
 
+// Shown when a dropped/uploaded WAV decodes as neither a patch bank nor a
+// sequence. The hint is load-bearing: a tape dump corrupted by ANYTHING
+// extra in the recording still SOUNDS like a dump but its FSK zero-crossing
+// timing is broken, so it can't decode. Real case 2026-06-14: a user's WAV
+// had a metronome click accidentally mixed in during a Logic export —
+// removing the click fixed it. (Lossy re-encoding like MP3 does the same.)
+const UNREADABLE_WAV_MSG =
+  "Couldn't read this WAV as a patch bank or a sequence. It has to be a clean " +
+  'tape-dump recording on its own — anything mixed in (a metronome click, other ' +
+  'audio) or lossy re-encoding (MP3) keeps the sound but breaks the decode.';
+
 async function handleSequenceDropImport(filePath, { direct = false, borrowed = null, rerouted = false } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
@@ -11091,16 +11102,15 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   // when they forget [which] tab they're on (or so goes my theory)."
   const hasContent = result.data && Array.isArray(result.data.pages)
     && result.data.pages.some((p) => Array.isArray(p));
-  if (!hasContent) {
-    // Reroute at most ONCE. A WAV that decodes as empty-sequence AND as
-    // all-identical-patches would otherwise ping-pong between the two
-    // import handlers forever (bug, latent since v0.7.2 — hit 2026-06-14
-    // on a non-JX WAV). If we already came here via a reroute, it's
-    // neither format — stop and tell the user.
-    if (rerouted) {
-      showImportError("Couldn't read this WAV as a patch bank or a sequence — it may not be a JX-3P tape dump, or the recording didn't decode cleanly.");
-      return;
-    }
+  // Reroute decision is pure + tested in renderer/record-flow.js. The
+  // 'rerouted' guard prevents the infinite tones↔sequence ping-pong on a
+  // WAV that decodes as neither format (bug 2026-06-14).
+  const action = planImportReroute({ looksMisrouted: !hasContent, rerouted });
+  if (action === 'unreadable') {
+    showImportError(UNREADABLE_WAV_MSG);
+    return;
+  }
+  if (action === 'reroute') {
     selLibTab = 'tones';
     renderPatchList();
     handleTonesDropImport(filePath, { rerouted: true });
@@ -11161,14 +11171,15 @@ async function handleTonesDropImport(filePath, { borrowed = null, rerouted = fal
   // signal — Daniel: "users will only do this when they forget [which]
   // tab they're on (or so goes my theory)." Heuristic is reliable —
   // legitimate bank exports almost never have 32 identical patches.
-  if (banks && allPatchesIdentical(banks)) {
-    // Reroute at most ONCE — see the matching guard in
-    // handleSequenceDropImport. Prevents the infinite tones↔sequence
-    // ping-pong on a WAV that decodes as neither format.
-    if (rerouted) {
-      showImportError("Couldn't read this WAV as a patch bank or a sequence — it may not be a JX-3P tape dump, or the recording didn't decode cleanly.");
-      return;
-    }
+  const rerouteAction = planImportReroute({
+    looksMisrouted: !!(banks && allPatchesIdentical(banks)),
+    rerouted,
+  });
+  if (rerouteAction === 'unreadable') {
+    showImportError(UNREADABLE_WAV_MSG);
+    return;
+  }
+  if (rerouteAction === 'reroute') {
     selLibTab = 'sequences';
     renderPatchList();
     handleSequenceDropImport(filePath, { rerouted: true });

@@ -7,7 +7,7 @@
 
 const test   = require('node:test');
 const assert = require('node:assert/strict');
-const { chooseCaptureGain, planDecodeFailureResponse } = require('../renderer/record-flow.js');
+const { chooseCaptureGain, planDecodeFailureResponse, planImportReroute } = require('../renderer/record-flow.js');
 
 // ── chooseCaptureGain ──────────────────────────────────────────────────
 
@@ -101,4 +101,23 @@ test('plan — custom opts (thresholds + factor) are honored', () => {
   });
   assert.equal(p.kind, 'clipping-stepdown');
   assert.equal(p.nextGain, 1.5);
+});
+
+// ── planImportReroute (the tones↔sequence loop guard) ──────────────────
+
+test('reroute — a valid-looking decode imports', () => {
+  assert.equal(planImportReroute({ looksMisrouted: false, rerouted: false }), 'import');
+  assert.equal(planImportReroute({ looksMisrouted: false, rerouted: true }), 'import');
+});
+
+test('reroute — first misrouted look reroutes to the other handler', () => {
+  assert.equal(planImportReroute({ looksMisrouted: true, rerouted: false }), 'reroute');
+});
+
+test('reroute — REGRESSION: a misrouted look AFTER a reroute is unreadable, never loops', () => {
+  // The 2026-06-14 bug: a WAV with a metronome click mixed in decoded as
+  // neither format, so both handlers kept rerouting to each other forever.
+  // The guard must return 'unreadable' (→ error) the second time, not
+  // 'reroute' again.
+  assert.equal(planImportReroute({ looksMisrouted: true, rerouted: true }), 'unreadable');
 });

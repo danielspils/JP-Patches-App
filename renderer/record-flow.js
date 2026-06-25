@@ -88,5 +88,25 @@
     return { kind: 'retry' };
   }
 
-  return { chooseCaptureGain, planDecodeFailureResponse, FAILURE_DEFAULTS };
+  /**
+   * Decide what a WAV-import handler does when its decoder produced a
+   * result that looks like it belongs to the OTHER sub-tab (a tones decode
+   * that came back as all-identical patches, or a sequence decode with no
+   * populated pages):
+   *   'import'     — looks valid for this handler; proceed.
+   *   'reroute'    — looks misrouted; hand off to the other handler ONCE.
+   *   'unreadable' — already rerouted once and STILL looks wrong → the WAV
+   *                  is neither format. Show an error; do NOT reroute again.
+   *
+   * The `rerouted` guard is what prevents the infinite tones↔sequence
+   * ping-pong on a WAV that decodes as neither format (e.g. an MP3-derived
+   * file whose FSK timing is destroyed). Bug hit 2026-06-14; latent since
+   * the v0.7.2 auto-reroute landed.
+   */
+  function planImportReroute({ looksMisrouted, rerouted }) {
+    if (!looksMisrouted) return 'import';
+    return rerouted ? 'unreadable' : 'reroute';
+  }
+
+  return { chooseCaptureGain, planDecodeFailureResponse, planImportReroute, FAILURE_DEFAULTS };
 });
