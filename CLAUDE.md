@@ -33,7 +33,9 @@ Current version: **0.8.2** (June 14, 2026). 25+ public releases since v0.1.0 on 
 - **Phase 4** 🚧 in progress — distribution. **Signed + notarized DMGs ship via `scripts/release.sh`** (Developer ID since May 29 — Gatekeeper-clean, auto-update working). Marketing/onboarding site lives at jx-3p.com.
 - **User Lending Library** ✅ shipped in v0.8.0 (June 11): borrow + lend in-app, backed by the `relay/` Cloudflare Worker at **lend.jx-3p.com** (Daniel's first hosted infra). Fully automated end-to-end: submissions auto-publish (~3 min to live, strict validation + dedup, `needs-review` on doubt), withdraw via the in-app **submitted** button, hearts + borrow counts on the site, 5/day rate limit. Architecture in the "User Lending Library" section below; session narrative in `docs/session-handoff-2026-06-10.md` (its curation section is superseded by auto-publish).
 
-**System requirement**: macOS 12+ on **Apple Silicon (arm64) only**. Intel Macs are not supported by the published DMGs.
+**System requirements**:
+- **macOS**: 12+ on **Apple Silicon (arm64) only**. Intel Macs are not supported by the published DMGs.
+- **Windows** (port in progress on `windows-port`): **Windows 10 (64-bit) or later**. Windows 7/8/8.1 are NOT supported — Electron dropped them in v23 (we ship Electron 35), so the app binary targets Win10+ and refuses to launch on older Windows with a misleading *"is not a valid Win32 application"* error. This is a hard Electron/Chromium floor, not a packaging bug, and compatibility mode can't bridge it. Validated working on real Windows 10 Pro x64 (2026-06; a Win7 SP1 tester hit exactly the above error). Do NOT downgrade Electron to chase Win7 — Electron 22 (its last Win7-capable release) is itself EOL with an ancient, unpatched Chromium.
 
 ## File map
 
