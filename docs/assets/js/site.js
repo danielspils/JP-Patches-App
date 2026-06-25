@@ -425,9 +425,9 @@ document.addEventListener('DOMContentLoaded', () => {
             '<line x1="4" y1="3.5" x2="20" y2="20.5"></line>' +
           '</svg>' +
         '</div>' +
-        '<div class="mobile-dl-title">This is a desktop app</div>' +
-        '<p class="mobile-dl-text">JP Patches is a desktop Mac &amp; PC app.<br>It won\'t work on your phone or tablet.</p>' +
-        '<p class="mobile-dl-sub">Open jx-3p.com on a Mac or PC to download.</p>' +
+        '<div class="mobile-dl-title">JP Patches is a desktop app</div>' +
+        '<p class="mobile-dl-text">It won\'t work on mobile</p>' +
+        '<p class="mobile-dl-sub">Open jx-3p.com on Mac or PC to download</p>' +
         '<button type="button" class="mobile-dl-ok">Got it</button>' +
         '<div><button type="button" class="mobile-dl-anyway">Download anyway</button></div>' +
       '</div>' +
