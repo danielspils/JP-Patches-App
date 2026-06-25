@@ -4682,7 +4682,7 @@ function buildWavUploadZone(kind, opts) {
     // input.accept filters the picker, but it isn't bulletproof across OSes —
     // give the same type-aware rejection as the drop path.
     const unsupported = describeUnsupportedImport(filePath);
-    if (unsupported) { showImportError(unsupported); input.value = ''; return; }
+    if (unsupported) { showImportError(unsupported.body, unsupported.title); input.value = ''; return; }
     if (kind === 'sequences') {
       handleSequenceDropImport(filePath);
     } else {
@@ -11010,7 +11010,7 @@ function setupPatchListDropZone() {
     // — describeUnsupportedImport in record-flow.js, tested).
     const unsupported = describeUnsupportedImport(filePath);
     if (unsupported) {
-      showImportError(unsupported);
+      showImportError(unsupported.body, unsupported.title);
       return;
     }
     routeWavDrop(filePath);
@@ -11349,9 +11349,9 @@ function decodedToSlotMeta(data) {
   return meta;
 }
 
-function showImportError(message) {
+function showImportError(message, title = 'Import error') {
   showConfirmModal({
-    title: 'Import error',
+    title,
     body: message,
     confirmLabel: 'OK',
     hideCancel: true,   // acknowledgement — nothing to cancel

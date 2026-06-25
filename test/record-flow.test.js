@@ -132,22 +132,24 @@ test('unsupported — importable types pass (null), case-insensitive', () => {
   assert.equal(describeUnsupportedImport('/x/My Patches.WAV'), null);
 });
 
-test('unsupported — MP3/MP4 are named specifically with convert guidance', () => {
-  const mp3 = describeUnsupportedImport('/Users/d/Desktop/patches.mp3');
-  assert.match(mp3, /MP3/);
-  assert.match(mp3, /convert/i);
-  assert.match(describeUnsupportedImport('/x/clip.mp4'), /MP4/);
+test('unsupported — title is the fixed header; body names the type + convert guidance', () => {
+  const m4a = describeUnsupportedImport('/Users/d/Desktop/patches.m4a');
+  assert.equal(m4a.title, 'This is not a WAV or JSON');
+  assert.equal(m4a.body, 'This looks like an M4A file. Convert it to a WAV or JSON file and try again!');
+  assert.match(describeUnsupportedImport('/x/clip.mp4').body, /an MP4/);
 });
 
-test('unsupported — other known media types named (incl. correct a/an)', () => {
-  assert.match(describeUnsupportedImport('/x/a.flac'), /FLAC/);
-  assert.match(describeUnsupportedImport('/x/a.m4a'), /M4A/);
-  assert.match(describeUnsupportedImport('/x/a.aiff'), /an AIFF/);   // vowel → "an"
-  assert.match(describeUnsupportedImport('/x/a.mp3'), /a MP3/);      // consonant sound → "a"
+test('unsupported — article baked in per type (vowel sound = "an")', () => {
+  assert.match(describeUnsupportedImport('/x/a.mp3').body, /an MP3/);
+  assert.match(describeUnsupportedImport('/x/a.aiff').body, /an AIFF/);
+  assert.match(describeUnsupportedImport('/x/a.flac').body, /a FLAC/);
+  assert.match(describeUnsupportedImport('/x/a.wma').body, /a WMA/);
 });
 
-test('unsupported — unknown extension / none falls back to the generic message', () => {
-  assert.match(describeUnsupportedImport('/x/notes.txt'), /Only \.wav and \.json/);
-  assert.match(describeUnsupportedImport('/x/noext'), /Only \.wav and \.json/);
-  assert.match(describeUnsupportedImport(null), /Only \.wav and \.json/);
+test('unsupported — unknown extension / none still rejects with the header + generic body', () => {
+  for (const f of ['/x/notes.txt', '/x/noext', null]) {
+    const r = describeUnsupportedImport(f);
+    assert.equal(r.title, 'This is not a WAV or JSON');
+    assert.equal(r.body, 'Convert it to a WAV or JSON file and try again!');
+  }
 });

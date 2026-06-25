@@ -114,31 +114,33 @@
   // dump but the FSK timing the decoder needs is gone. Name the type so the
   // user knows to convert, rather than hitting a generic "couldn't decode".
   const IMPORTABLE_EXTS = ['.wav', '.json'];
+  const UNSUPPORTED_TITLE = 'This is not a WAV or JSON';
+  // Article baked in (not derived) so letter-acronyms read right — "an M4A",
+  // "an MP3" (vowel SOUND), "a FLAC", "a WMA".
   const KNOWN_UNSUPPORTED = Object.freeze({
-    '.mp3': 'MP3', '.mp4': 'MP4', '.m4a': 'M4A', '.aac': 'AAC',
-    '.ogg': 'OGG', '.opus': 'Opus', '.flac': 'FLAC', '.wma': 'WMA',
-    '.aif': 'AIFF', '.aiff': 'AIFF', '.mov': 'MOV', '.caf': 'CAF',
+    '.mp3': 'an MP3', '.mp4': 'an MP4', '.m4a': 'an M4A', '.aac': 'an AAC',
+    '.ogg': 'an OGG', '.opus': 'an Opus', '.flac': 'a FLAC', '.wma': 'a WMA',
+    '.aif': 'an AIFF', '.aiff': 'an AIFF', '.mov': 'a MOV', '.caf': 'a CAF',
   });
 
   /**
    * Decide whether a to-be-imported file is an unsupported type, by
-   * extension. Returns a user-facing rejection message, or null if the file
-   * is importable (.wav / .json). Known media types are named specifically
-   * ("This looks like an MP3…"); anything else gets a generic message.
-   * Extension-based by design — a mislabeled file (e.g. an MP3 saved as
-   * .wav) still passes here but is caught downstream by the decode guard.
+   * extension. Returns `{ title, body }` for the rejection modal, or null if
+   * the file is importable (.wav / .json). Known media types are named
+   * specifically ("This looks like an M4A file…"). Extension-based by design
+   * — a mislabeled file (e.g. an MP3 saved as .wav) passes here but is caught
+   * downstream by the decode guard.
    */
   function describeUnsupportedImport(filePath) {
     const lower = String(filePath || '').toLowerCase();
     if (IMPORTABLE_EXTS.some((e) => lower.endsWith(e))) return null;
     const dot = lower.lastIndexOf('.');
     const ext = dot >= 0 ? lower.slice(dot) : '';
-    const type = KNOWN_UNSUPPORTED[ext];
-    if (type) {
-      return `This looks like ${/^[AEIOU]/.test(type) ? 'an' : 'a'} ${type} file, which JP Patches can't read. ` +
-        'A tape dump has to be an uncompressed WAV (or a JSON export) — convert it and try again.';
-    }
-    return 'Only .wav and .json files can be imported here.';
+    const named = KNOWN_UNSUPPORTED[ext];
+    const body = named
+      ? `This looks like ${named} file. Convert it to a WAV or JSON file and try again!`
+      : 'Convert it to a WAV or JSON file and try again!';
+    return { title: UNSUPPORTED_TITLE, body };
   }
 
   return {
