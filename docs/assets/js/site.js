@@ -391,3 +391,80 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') setOpen(false);
   });
 })();
+
+/* Mobile download guard — see .mobile-dl-* in style.css. JP Patches is a
+   desktop Mac/PC binary; on a phone or tablet the download buttons lead
+   nowhere useful, so intercept the click and show a heads-up modal. Runs
+   ONLY on a mobile OS — desktop is left completely untouched. */
+(function () {
+  function isMobileOS() {
+    var ua = navigator.userAgent || '';
+    if (/iPhone|iPad|iPod|Android/i.test(ua)) return true;
+    // Modern iPadOS reports a desktop Safari UA — catch it via touch points.
+    if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
+    return false;
+  }
+  if (!isMobileOS()) return;
+
+  var dlLinks = document.querySelectorAll('.site-content a[href*="/releases/"]');
+  if (!dlLinks.length) return;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'mobile-dl-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.innerHTML =
+    '<div class="mobile-dl-card" role="document">' +
+      '<div class="mobile-dl-accent"></div>' +
+      '<div class="mobile-dl-body">' +
+        '<div class="mobile-dl-icon" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1f6e5b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<rect x="7" y="3" width="10" height="18" rx="2"></rect>' +
+            '<line x1="11" y1="18" x2="13" y2="18"></line>' +
+            '<line x1="4" y1="3.5" x2="20" y2="20.5"></line>' +
+          '</svg>' +
+        '</div>' +
+        '<div class="mobile-dl-title">This is a desktop app</div>' +
+        '<p class="mobile-dl-text">JP Patches is a desktop Mac &amp; PC app.<br>It won\'t work on your phone or tablet.</p>' +
+        '<p class="mobile-dl-sub">Open jx-3p.com on a Mac or PC to download.</p>' +
+        '<button type="button" class="mobile-dl-ok">Got it</button>' +
+        '<div><button type="button" class="mobile-dl-anyway">Download anyway</button></div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var pendingHref = null;
+  function openModal(href) {
+    pendingHref = href;
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    pendingHref = null;
+  }
+
+  overlay.querySelector('.mobile-dl-ok').addEventListener('click', closeModal);
+  overlay.querySelector('.mobile-dl-anyway').addEventListener('click', function () {
+    var href = pendingHref;
+    closeModal();
+    if (href) window.location.href = href;
+  });
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) closeModal();   // backdrop click
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+  });
+
+  dlLinks.forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      openModal(a.href);
+    });
+  });
+})();

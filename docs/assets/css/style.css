@@ -1289,3 +1289,84 @@ body {
   font-weight: 600;
 }
 .note-post-back a:hover { color: var(--roland-green-hot); }
+
+/* Mobile download guard — JP Patches is a desktop binary, so on a phone or
+   tablet the download buttons go nowhere useful. site.js intercepts the
+   release-link clicks on a mobile OS and opens this heads-up modal (with a
+   "download anyway" escape). Built/shown only on mobile; desktop never
+   sees it. */
+.mobile-dl-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.55);
+}
+.mobile-dl-overlay.open { display: flex; }
+.mobile-dl-card {
+  width: 100%;
+  max-width: 330px;
+  background: var(--cream);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-stack);
+}
+.mobile-dl-accent { height: 6px; background: var(--roland-green); }
+.mobile-dl-body { padding: 24px 22px 22px; text-align: center; }
+.mobile-dl-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: #ece4d4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mobile-dl-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 10px;
+}
+.mobile-dl-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4a463d;
+  margin: 0 0 6px;
+}
+.mobile-dl-sub {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8a8579;
+  margin: 0 0 20px;
+}
+.mobile-dl-ok {
+  width: 100%;
+  padding: 11px 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--roland-green);
+  color: var(--cream);
+  font-family: var(--font-stack);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.mobile-dl-ok:hover { background: var(--roland-green-hot); }
+.mobile-dl-anyway {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 12px;
+  color: #8a8579;
+  text-decoration: underline;
+  cursor: pointer;
+}
