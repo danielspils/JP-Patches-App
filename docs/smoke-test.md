@@ -351,7 +351,10 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Drag a sequencer-dump `.wav` onto Library Sequences | save-sequence modal | |
 | Drag a tones `.json` (per-row download export) onto Library Tones | imports as a new package **with patch names restored** (from `_slotMeta`) | |
 | Drag a sequence `.json` onto Library Sequences | imports with name/notes/paired patch restored (from `_sequenceMeta`) | |
-| Drag a `.txt` (or other extension) anywhere | "Only .wav and .json files can be dropped here." error — no import | |
+| Drag a `.txt` (or other unknown extension) anywhere | modal **"This is not a WAV or JSON"** + generic convert message — no import | |
+| Drag/upload an **`.mp3` or `.mp4`** | modal **"This is not a WAV or JSON"** → *"This looks like an MP3 file. Convert it to a WAV or JSON file and try again!"* — no import, **no flicker/freeze** | |
+| Drag a `.wav` that isn't a real JX dump (e.g. MP3-derived or with a click) onto Library Tones/Sequences | modal **"Couldn't read this tape dump"** + convert hint — **no infinite tab-flicker loop** (the 2026-06-14 bug) | |
+| Same junk `.wav` dropped on **Bank C/D** | rejected with the same modal — **active C/D banks unchanged**, no junk overwrite, no stray library snapshot | |
 
 ## 8a. User Lending Library (new in v0.8.0)
 
