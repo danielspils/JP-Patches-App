@@ -254,6 +254,69 @@ body {
   color: #ffffff;
 }
 
+/* Mobile hamburger nav. On phones (≤540px) the dark band loses the swoops
+   + stripes, so a lone green Notes tab reads as orphaned — there a hamburger
+   is the cleaner convention. Hidden everywhere else; the ≤540px block below
+   flips it on (and hides the inline tab). One item for now (NOTES), built to
+   take more. The green left-accent keeps the editorial-section association
+   the desktop Notes tab carries. */
+.mobile-nav {
+  display: none;
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  z-index: 30;
+}
+.mobile-nav-toggle {
+  display: block;
+  padding: 8px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-nav-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+.mobile-nav-icon rect {
+  fill: var(--cream);
+}
+.mobile-nav-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin: 8px 0 0;
+  padding: 4px;
+  min-width: 136px;
+  list-style: none;
+  background: var(--bg-panel);
+  border: 1px solid rgba(247, 241, 230, 0.18);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  display: none;
+}
+.mobile-nav.open .mobile-nav-menu {
+  display: block;
+}
+.mobile-nav-link {
+  display: block;
+  padding: 11px 14px;
+  border-left: 3px solid var(--roland-green);
+  color: var(--cream);
+  font-family: var(--font-stack);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+  background: var(--roland-green);
+  color: #ffffff;
+}
+
 /* Hide tabs at narrow desktop widths where they'd overlap the C/D
    swoops. C/D swoops' right edge sits at x=410; the three tabs
    (Notes/Patches/Sequences) need ~330px of right-anchored space; an
@@ -261,7 +324,11 @@ body {
    the swoops + other desktop motif still render (everything else hides
    at the broader 540px mobile breakpoint below). */
 @media (max-width: 820px) {
-  .cd-nav-tabs {
+  /* Three tabs overlap the C/D swoops at this width — but a single tab
+     still clears them. Drop Patches/Sequences here and keep just the green
+     Notes (blog) tab so the blog stays reachable on tablet + mobile. (The
+     web catalog pages remain reachable by URL / from the desktop nav.) */
+  .cd-nav-tab:not(.cd-nav-tab--notes) {
     display: none;
   }
 }
@@ -338,7 +405,7 @@ body {
    strip, followed by a white left-caret and "JP Patches" Helvetica
    label that matches the subtitle's 16px cream-sec styling.
    JS toggles .armed on click to flash the LED red before nav. */
-.site-download {
+.site-contact {
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -346,7 +413,7 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
-.site-download-btn {
+.site-contact-btn {
   width: 44px;
   height: 44px;
   display: block;
@@ -355,19 +422,19 @@ body {
 /* LED transitions from dark to Roland-red when the click handler
    adds .armed to the parent <a>. .15s ease gives a brief but
    readable flash before the navigation kicks in. */
-.site-download-led {
+.site-contact-led {
   transition: fill 0.15s ease;
 }
-.site-download.armed .site-download-led {
+.site-contact.armed .site-contact-led {
   fill: var(--roland-red);
 }
-.site-download-caret {
+.site-contact-caret {
   width: 11px;
   height: 11px;
   display: block;
   flex-shrink: 0;
 }
-.site-download-label {
+.site-contact-label {
   color: var(--cream-sec);
   font-family: var(--font-stack);
   font-size: 16px;
@@ -377,7 +444,7 @@ body {
      also tightening the button-to-caret spacing. */
   margin-left: -5px;
 }
-.site-download:hover .site-download-label {
+.site-contact:hover .site-contact-label {
   opacity: 0.85;
 }
 
@@ -483,7 +550,7 @@ body {
   letter-spacing: 0.02em;
   margin: 0.2em 0;
   transition: background 0.15s ease, transform 0.05s ease;
-  /* JX-panel parallelogram shape — same shear as .site-download
+  /* JX-panel parallelogram shape — same shear as .site-contact
      and the header swoops (top sheared right, 14px at the
      top-left/bottom-right corners). */
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
@@ -829,18 +896,26 @@ body {
     padding: 0 16px;
     height: 110px;
   }
-  /* Hide the desktop motif elements + the panel-button CTA + the
-     Patches/Sequences nav tabs. Mobile nav will be its own treatment
-     (hamburger or stacked links below the logo) — wire up when the
-     /patches and /sequences pages exist. */
+  /* Hide the desktop motif elements + the panel-button CTA. With the swoops
+     + stripes gone, the inline Notes tab loses its context, so it's hidden
+     here too and replaced by the hamburger (.mobile-nav) below. */
   .ab-swoops,
   .stripe-a,
   .stripe-b,
   .cd-swoops,
   .stripe-cd,
   .cd-nav-tabs,
-  .site-download {
+  .site-contact {
     display: none;
+  }
+  /* Swap the inline Notes tab for the hamburger menu. Elevate the header so
+     the dropdown (which overflows below the 110px band) paints over the page
+     content rather than behind it. */
+  .mobile-nav {
+    display: block;
+  }
+  .site-header {
+    z-index: 5;
   }
   /* Mobile motif temporarily disabled (per Daniel — to revisit later).
      The SVG is still in default.html; just re-enable with display:block
