@@ -6367,6 +6367,20 @@ async function doToneSaveFromFile() {
     if (result && result.error) console.error('Save (import) error:', result.error);
     return;
   }
+  // Garbage-WAV guard (same class as the drag-drop fixes): the file-dialog
+  // Tone load overwrites the active C/D banks via applyToneResult with NO
+  // safety snapshot, so a WAV that decodes to no real patches (non-JX file,
+  // MP3-/click-corrupted dump) would irreversibly clobber them. Reject first.
+  // (The live-record caller of applyToneResult is guarded upstream by the
+  // isDecodeAllDefault → recalibrate prompt, so the guard lives here, not in
+  // applyToneResult.) JSON imports validate separately downstream.
+  if (result.kind === 'wav') {
+    const decoded = decodedToInMemoryBanks(result.data);
+    if (!decoded || allPatchesIdentical(decoded)) {
+      showImportError(UNREADABLE_WAV_MSG);
+      return;
+    }
+  }
   await applyToneResult(result, result.path);
 }
 
