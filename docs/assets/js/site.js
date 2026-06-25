@@ -106,8 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  wirePanelButton(document.querySelector('.site-contact'));   // header — "Email me" → /feedback/
-  wirePanelButton(document.querySelector('.feedback-btn'));   // landing page
+  wirePanelButton(document.querySelector('.site-contact'));   // header — "email me" → /feedback/
+  // Landing page has TWO feedback buttons (Feedback Form + Drop me a line) —
+  // wire both, not just the first (querySelector only grabbed one).
+  document.querySelectorAll('.feedback-btn').forEach(wirePanelButton);
 
   // Stop any in-flight click sound before the page is hidden/cached, so
   // the back/forward cache doesn't restore a mid-playback page and replay
