@@ -11078,7 +11078,7 @@ async function handleDownloadSequence(idx) {
 // for unit-testability — see test/library-math.test.js). The UMD wrapper
 // attaches it to window, so the call site below picks it up as a global.
 
-async function handleSequenceDropImport(filePath, { direct = false, borrowed = null } = {}) {
+async function handleSequenceDropImport(filePath, { direct = false, borrowed = null, rerouted = false } = {}) {
   const result = await window.api.seqTapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV as a sequence: ${result && result.error || 'unknown error'}`);
@@ -11092,9 +11092,18 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   const hasContent = result.data && Array.isArray(result.data.pages)
     && result.data.pages.some((p) => Array.isArray(p));
   if (!hasContent) {
+    // Reroute at most ONCE. A WAV that decodes as empty-sequence AND as
+    // all-identical-patches would otherwise ping-pong between the two
+    // import handlers forever (bug, latent since v0.7.2 — hit 2026-06-14
+    // on a non-JX WAV). If we already came here via a reroute, it's
+    // neither format — stop and tell the user.
+    if (rerouted) {
+      showImportError("Couldn't read this WAV as a patch bank or a sequence — it may not be a JX-3P tape dump, or the recording didn't decode cleanly.");
+      return;
+    }
     selLibTab = 'tones';
     renderPatchList();
-    handleTonesDropImport(filePath);
+    handleTonesDropImport(filePath, { rerouted: true });
     return;
   }
   // Community borrow (direct): the lender's name/notes/paired patch came
@@ -11135,7 +11144,7 @@ async function handleSequenceDropImport(filePath, { direct = false, borrowed = n
   });
 }
 
-async function handleTonesDropImport(filePath, { borrowed = null } = {}) {
+async function handleTonesDropImport(filePath, { borrowed = null, rerouted = false } = {}) {
   const result = await window.api.tapeSaveFromPath(filePath);
   if (!result || !result.loaded) {
     showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
@@ -11153,9 +11162,16 @@ async function handleTonesDropImport(filePath, { borrowed = null } = {}) {
   // tab they're on (or so goes my theory)." Heuristic is reliable —
   // legitimate bank exports almost never have 32 identical patches.
   if (banks && allPatchesIdentical(banks)) {
+    // Reroute at most ONCE — see the matching guard in
+    // handleSequenceDropImport. Prevents the infinite tones↔sequence
+    // ping-pong on a WAV that decodes as neither format.
+    if (rerouted) {
+      showImportError("Couldn't read this WAV as a patch bank or a sequence — it may not be a JX-3P tape dump, or the recording didn't decode cleanly.");
+      return;
+    }
     selLibTab = 'sequences';
     renderPatchList();
-    handleSequenceDropImport(filePath);
+    handleSequenceDropImport(filePath, { rerouted: true });
     return;
   }
   // Prefer the slotMeta embedded in the WAV's "jPpS" chunk (set by another
