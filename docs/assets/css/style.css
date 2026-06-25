@@ -239,13 +239,28 @@ body {
   color: #ffffff;
 }
 
+/* Notes tab — the blog. Roland green instead of the red library tabs so it
+   reads as a separate (editorial) section. Same hover-lighter / active-darker
+   treatment. Declared after the base rules so the equal-specificity overrides
+   win on source order. */
+.cd-nav-tab--notes {
+  background: var(--roland-green);
+}
+.cd-nav-tab--notes:hover {
+  background: var(--roland-green-hot);
+}
+.cd-nav-tab--notes.active {
+  background: #154e3e;  /* darker Roland green — "pressed in" */
+  color: #ffffff;
+}
+
 /* Hide tabs at narrow desktop widths where they'd overlap the C/D
-   swoops. C/D swoops' right edge sits at x=410; tabs need ~240px of
-   right-anchored space; 720px viewport leaves a comfortable ~70px
-   gap. Below 720, no tabs but the swoops + other desktop motif still
-   render (everything else hides at the broader 540px mobile
-   breakpoint below). */
-@media (max-width: 720px) {
+   swoops. C/D swoops' right edge sits at x=410; the three tabs
+   (Notes/Patches/Sequences) need ~330px of right-anchored space; an
+   820px viewport leaves a comfortable ~80px gap. Below 820, no tabs but
+   the swoops + other desktop motif still render (everything else hides
+   at the broader 540px mobile breakpoint below). */
+@media (max-width: 820px) {
   .cd-nav-tabs {
     display: none;
   }
@@ -1130,3 +1145,66 @@ body {
   font-style: italic;
   color: var(--body-text-mid);
 }
+
+/* ─── Notes (blog) ──────────────────────────────────────────────────────
+   The /notes/ listing page + individual post pages (layout: post). Content
+   sits on the white body background, so dark body-text tokens. */
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 24px;
+}
+.note-entry {
+  display: block;
+  padding: 18px 0;
+  border-top: 1px solid var(--body-border);
+  text-decoration: none;
+  color: inherit;
+}
+.note-entry:last-child { border-bottom: 1px solid var(--body-border); }
+.note-entry:hover .note-entry-title { color: var(--roland-green); }
+.note-entry-date {
+  display: block;
+  font-size: 13px;
+  color: var(--body-text-mid);
+  margin-bottom: 4px;
+}
+.note-entry-title {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--body-text);
+  transition: color 0.15s ease;
+}
+.note-entry-excerpt {
+  display: block;
+  margin-top: 6px;
+  color: var(--body-text-sec);
+  line-height: 1.55;
+}
+.notes-empty {
+  margin-top: 24px;
+  color: var(--body-text-mid);
+  font-style: italic;
+}
+
+/* Individual post page (layout: post) */
+.note-post-head { margin-bottom: 24px; }
+.note-post-title { margin: 0 0 6px; }
+.note-post-date {
+  margin: 0;
+  font-size: 14px;
+  color: var(--body-text-mid);
+}
+.note-post-body { line-height: 1.7; }
+.note-post-back {
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid var(--body-border);
+}
+.note-post-back a {
+  color: var(--roland-green);
+  text-decoration: none;
+  font-weight: 600;
+}
+.note-post-back a:hover { color: var(--roland-green-hot); }

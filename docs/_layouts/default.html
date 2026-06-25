@@ -135,12 +135,15 @@
     </svg>
     <span class="header-stripe stripe-cd" aria-hidden="true"></span>
 
-    <!-- 5. Patches / Sequences nav tabs — community library navigation.
+    <!-- 5. Notes / Patches / Sequences nav tabs.
             Same vertical band as the C/D swoops (y=145–195, 50px tall)
             but right-anchored. Square corners (rectangles, not
             parallelograms) so they read as tabs, not as a continuation
-            of the swoop motif. -->
-    <nav class="cd-nav-tabs" aria-label="Community library">
+            of the swoop motif. Notes (the blog) leads in Roland green to
+            set it apart from the red community-library tabs; it stays
+            active on individual post pages (layout: post) too. -->
+    <nav class="cd-nav-tabs" aria-label="Site sections">
+      <a href="{{ '/notes/' | relative_url }}" class="cd-nav-tab cd-nav-tab--notes{% if page.url == '/notes/' or page.layout == 'post' %} active{% endif %}">Notes</a>
       <a href="{{ '/patches/' | relative_url }}" class="cd-nav-tab{% if page.url == '/patches/' %} active{% endif %}">Patches</a>
       <a href="{{ '/sequences/' | relative_url }}" class="cd-nav-tab{% if page.url == '/sequences/' %} active{% endif %}">Sequences</a>
     </nav>

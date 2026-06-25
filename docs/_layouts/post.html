@@ -1,0 +1,15 @@
+---
+layout: default
+---
+<article class="note-post">
+  <header class="note-post-head">
+    <h1 class="note-post-title">{{ page.title }}</h1>
+    <p class="note-post-date">{{ page.date | date: '%B %-d, %Y' }}</p>
+  </header>
+
+  <div class="note-post-body">
+    {{ content }}
+  </div>
+
+  <p class="note-post-back"><a href="{{ '/notes/' | relative_url }}">&larr; All notes</a></p>
+</article>
