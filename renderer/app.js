@@ -11233,12 +11233,23 @@ function handleBankDropImport(filePath) {
       `Saving the current C & D banks to the library — then loading ${fileName}`,
     confirmLabel: 'Continue',
     onConfirm: async () => {
-      snapshotCurrentBanksToLibrary();
       const result = await window.api.tapeSaveFromPath(filePath);
       if (!result || !result.loaded) {
         showImportError(`Could not decode this WAV: ${result && result.error || 'unknown error'}`);
         return;
       }
+      // Same garbage-WAV guard as the Tones-library drop: a WAV that decodes
+      // to nothing real (all-default / all-identical patches — e.g. a non-JX
+      // file, an MP3-derived dump, or a click-contaminated recording) must
+      // NOT overwrite the active banks. Validate BEFORE snapshotting/applying
+      // so a bad drop neither clobbers the user's banks nor leaves a junk
+      // backup in the library. (2026-06-14 — sibling of the reroute-loop bug.)
+      const decoded = decodedToInMemoryBanks(result.data);
+      if (!decoded || allPatchesIdentical(decoded)) {
+        showImportError(UNREADABLE_WAV_MSG);
+        return;
+      }
+      snapshotCurrentBanksToLibrary();   // safety backup — only on a good decode
       try {
         applyWavData(result.data, labelFromPath(filePath), result.slotMeta);
         saveLibraryDebounced();
