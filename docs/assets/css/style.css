@@ -1317,16 +1317,6 @@ body {
 }
 .mobile-dl-accent { height: 6px; background: var(--roland-green); }
 .mobile-dl-body { padding: 24px 22px 22px; text-align: center; }
-.mobile-dl-icon {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 16px;
-  border-radius: 50%;
-  background: #ece4d4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .mobile-dl-title {
   font-size: 17px;
   font-weight: 700;

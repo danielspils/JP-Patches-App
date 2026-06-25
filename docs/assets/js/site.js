@@ -418,13 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
     '<div class="mobile-dl-card" role="document">' +
       '<div class="mobile-dl-accent"></div>' +
       '<div class="mobile-dl-body">' +
-        '<div class="mobile-dl-icon" aria-hidden="true">' +
-          '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1f6e5b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-            '<rect x="7" y="3" width="10" height="18" rx="2"></rect>' +
-            '<line x1="11" y1="18" x2="13" y2="18"></line>' +
-            '<line x1="4" y1="3.5" x2="20" y2="20.5"></line>' +
-          '</svg>' +
-        '</div>' +
         '<div class="mobile-dl-title">JP Patches is a desktop app</div>' +
         '<p class="mobile-dl-text">It won\'t work on mobile</p>' +
         '<p class="mobile-dl-sub">Open jx-3p.com on Mac or PC to download</p>' +
