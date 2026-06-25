@@ -41,7 +41,7 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 * use this [USB-to-1/4-splitter cable](https://www.amazon.com/dp/B0G43JQJXT)<br>(or your audio interface)
 * plug the TS end into Tape Memory/Save
 * plug the TRS end into Tape Memory/Load
-* plug the USB C end into a Mac 
+* plug the USB-C end into your computer
 * alternatively, you can upload WAV files
 
 [JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green} [JP Patches for PC (beta)](https://github.com/danielspils/JP-Patches-App/releases/tag/v0.8.3-win-preview){:.btn-blue}
