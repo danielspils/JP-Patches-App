@@ -418,11 +418,11 @@ document.addEventListener('DOMContentLoaded', () => {
     '<div class="mobile-dl-card" role="document">' +
       '<div class="mobile-dl-accent"></div>' +
       '<div class="mobile-dl-body">' +
-        '<div class="mobile-dl-title">JP Patches is a desktop app</div>' +
+        '<div class="mobile-dl-title">This is a desktop app</div>' +
         '<p class="mobile-dl-text">It won\'t work on mobile</p>' +
-        '<p class="mobile-dl-sub">Open jx-3p.com on Mac or PC to download</p>' +
+        '<p class="mobile-dl-sub">Download on Mac or PC at jx-3p.com</p>' +
         '<button type="button" class="mobile-dl-ok">Got it</button>' +
-        '<div><button type="button" class="mobile-dl-anyway">Download anyway</button></div>' +
+        '<div><button type="button" class="mobile-dl-anyway">download anyway</button></div>' +
       '</div>' +
     '</div>';
   document.body.appendChild(overlay);
