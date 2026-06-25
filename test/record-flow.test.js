@@ -7,7 +7,9 @@
 
 const test   = require('node:test');
 const assert = require('node:assert/strict');
-const { chooseCaptureGain, planDecodeFailureResponse, planImportReroute } = require('../renderer/record-flow.js');
+const {
+  chooseCaptureGain, planDecodeFailureResponse, planImportReroute, describeUnsupportedImport,
+} = require('../renderer/record-flow.js');
 
 // ── chooseCaptureGain ──────────────────────────────────────────────────
 
@@ -120,4 +122,32 @@ test('reroute — REGRESSION: a misrouted look AFTER a reroute is unreadable, ne
   // The guard must return 'unreadable' (→ error) the second time, not
   // 'reroute' again.
   assert.equal(planImportReroute({ looksMisrouted: true, rerouted: true }), 'unreadable');
+});
+
+// ── describeUnsupportedImport (file-type sniff) ────────────────────────
+
+test('unsupported — importable types pass (null), case-insensitive', () => {
+  assert.equal(describeUnsupportedImport('/x/dump.wav'), null);
+  assert.equal(describeUnsupportedImport('/x/bank.JSON'), null);
+  assert.equal(describeUnsupportedImport('/x/My Patches.WAV'), null);
+});
+
+test('unsupported — MP3/MP4 are named specifically with convert guidance', () => {
+  const mp3 = describeUnsupportedImport('/Users/d/Desktop/patches.mp3');
+  assert.match(mp3, /MP3/);
+  assert.match(mp3, /convert/i);
+  assert.match(describeUnsupportedImport('/x/clip.mp4'), /MP4/);
+});
+
+test('unsupported — other known media types named (incl. correct a/an)', () => {
+  assert.match(describeUnsupportedImport('/x/a.flac'), /FLAC/);
+  assert.match(describeUnsupportedImport('/x/a.m4a'), /M4A/);
+  assert.match(describeUnsupportedImport('/x/a.aiff'), /an AIFF/);   // vowel → "an"
+  assert.match(describeUnsupportedImport('/x/a.mp3'), /a MP3/);      // consonant sound → "a"
+});
+
+test('unsupported — unknown extension / none falls back to the generic message', () => {
+  assert.match(describeUnsupportedImport('/x/notes.txt'), /Only \.wav and \.json/);
+  assert.match(describeUnsupportedImport('/x/noext'), /Only \.wav and \.json/);
+  assert.match(describeUnsupportedImport(null), /Only \.wav and \.json/);
 });

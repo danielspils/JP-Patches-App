@@ -556,6 +556,11 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
 
 24. **`sanitizeWavFilename` APPENDS `.wav`** — it's the WAV-export helper. Using it to clean a name for any non-WAV file gives `Name.wav.json`-style double extensions (borrowed packages briefly labeled "Spils Sounds.wav", 2026-06-10). Strip the suffix back off, or extract a base sanitizer if a third caller appears.
 
+25. **A WAV that decodes to nothing real must be REJECTED, never applied or re-routed in a loop.** Two adjacent failure modes, both hit 2026-06-14 from one user's bad WAV (an MP3-sourced file with a metronome click baked in by a Logic export — lossy/contaminated audio still *sounds* like a tape dump but its FSK zero-crossing timing is destroyed, so it decodes as neither a patch bank nor a sequence):
+    - **Reroute loop:** `handleTonesDropImport` ⇄ `handleSequenceDropImport` auto-reroute to each other when a decode "looks misrouted" (tones → 32 all-identical patches; sequence → empty pages). A WAV that trips BOTH ping-ponged forever. Guarded by a one-shot `rerouted` flag via `planImportReroute` (renderer/record-flow.js, tested).
+    - **Silent clobber:** every path that applies a decode to the **active C/D banks** (`handleBankDropImport`, `doToneSaveFromFile` → `applyToneResult` → `applyWavData`) must first check `decodedToInMemoryBanks(...)` for `null`/`allPatchesIdentical` and reject (`UNREADABLE_WAV_MSG`) BEFORE snapshotting or applying — otherwise junk overwrites the user's banks (the file-dialog path had no safety snapshot at all).
+    - **Rule for any NEW import entry point:** gate the filename with `describeUnsupportedImport` (names MP3/MP4/etc.), and before applying-to-banks run the all-default/identical guard. The Record-from-JX capture path is already covered by `isDecodeAllDefault` → recalibrate prompt. Don't add a conditional reroute without a once-only flag.
+
 ## When in doubt
 
 - Read the spec doc before designing a new feature.

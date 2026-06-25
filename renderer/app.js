@@ -4679,6 +4679,10 @@ function buildWavUploadZone(kind, opts) {
       ? window.api.getPathForFile(file)
       : null;
     if (!filePath) { showImportError('Could not read file path. Try drag-and-drop instead.'); return; }
+    // input.accept filters the picker, but it isn't bulletproof across OSes —
+    // give the same type-aware rejection as the drop path.
+    const unsupported = describeUnsupportedImport(filePath);
+    if (unsupported) { showImportError(unsupported); input.value = ''; return; }
     if (kind === 'sequences') {
       handleSequenceDropImport(filePath);
     } else {
@@ -11001,12 +11005,12 @@ function setupPatchListDropZone() {
       return;
     }
     // .json joins .wav (2026-06-10): community-library downloads + app
-    // exports are .json payloads; main-side decodeTapeFile/decodeSeqFile
-    // both handle the format, including embedded _slotMeta/_sequenceMeta
-    // name restoration.
-    const lower = filePath.toLowerCase();
-    if (!lower.endsWith('.wav') && !lower.endsWith('.json')) {
-      showImportError('Only .wav and .json files can be dropped here.');
+    // exports are .json payloads. Anything else is rejected with a
+    // type-aware message (names MP3/MP4/etc. so the user knows to convert
+    // — describeUnsupportedImport in record-flow.js, tested).
+    const unsupported = describeUnsupportedImport(filePath);
+    if (unsupported) {
+      showImportError(unsupported);
       return;
     }
     routeWavDrop(filePath);

@@ -108,5 +108,41 @@
     return rerouted ? 'unreadable' : 'reroute';
   }
 
-  return { chooseCaptureGain, planDecodeFailureResponse, planImportReroute, FAILURE_DEFAULTS };
+  // JP imports patch banks / sequences from uncompressed WAV (a JX-3P tape
+  // dump) or a .json export. Anything else can't work — and a lossy audio
+  // file (MP3/MP4/etc.) is the common mistake: it still SOUNDS like a tape
+  // dump but the FSK timing the decoder needs is gone. Name the type so the
+  // user knows to convert, rather than hitting a generic "couldn't decode".
+  const IMPORTABLE_EXTS = ['.wav', '.json'];
+  const KNOWN_UNSUPPORTED = Object.freeze({
+    '.mp3': 'MP3', '.mp4': 'MP4', '.m4a': 'M4A', '.aac': 'AAC',
+    '.ogg': 'OGG', '.opus': 'Opus', '.flac': 'FLAC', '.wma': 'WMA',
+    '.aif': 'AIFF', '.aiff': 'AIFF', '.mov': 'MOV', '.caf': 'CAF',
+  });
+
+  /**
+   * Decide whether a to-be-imported file is an unsupported type, by
+   * extension. Returns a user-facing rejection message, or null if the file
+   * is importable (.wav / .json). Known media types are named specifically
+   * ("This looks like an MP3…"); anything else gets a generic message.
+   * Extension-based by design — a mislabeled file (e.g. an MP3 saved as
+   * .wav) still passes here but is caught downstream by the decode guard.
+   */
+  function describeUnsupportedImport(filePath) {
+    const lower = String(filePath || '').toLowerCase();
+    if (IMPORTABLE_EXTS.some((e) => lower.endsWith(e))) return null;
+    const dot = lower.lastIndexOf('.');
+    const ext = dot >= 0 ? lower.slice(dot) : '';
+    const type = KNOWN_UNSUPPORTED[ext];
+    if (type) {
+      return `This looks like ${/^[AEIOU]/.test(type) ? 'an' : 'a'} ${type} file, which JP Patches can't read. ` +
+        'A tape dump has to be an uncompressed WAV (or a JSON export) — convert it and try again.';
+    }
+    return 'Only .wav and .json files can be imported here.';
+  }
+
+  return {
+    chooseCaptureGain, planDecodeFailureResponse, planImportReroute,
+    describeUnsupportedImport, FAILURE_DEFAULTS,
+  };
 });

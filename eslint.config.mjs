@@ -83,6 +83,7 @@ export default [
         chooseCaptureGain:        'readonly',
         planDecodeFailureResponse:'readonly',
         planImportReroute:        'readonly',
+        describeUnsupportedImport:'readonly',
         FAILURE_DEFAULTS:         'readonly',
 
         // Globals exposed by renderer/capture-warnings.js
