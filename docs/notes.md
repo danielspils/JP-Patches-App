@@ -6,8 +6,7 @@ permalink: /notes/
 
 ## NOTES
 
-Occasional notes from me on JP Patches — what I'm building, why, and the
-JX-3P rabbit holes along the way.
+<p class="notes-subhead">Notes on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
 
 <div class="notes-list">
 {% if site.posts.size > 0 %}

@@ -1149,6 +1149,12 @@ body {
 /* ─── Notes (blog) ──────────────────────────────────────────────────────
    The /notes/ listing page + individual post pages (layout: post). Content
    sits on the white body background, so dark body-text tokens. */
+.notes-subhead {
+  margin: -4px 0 0;
+  font-size: 16px;
+  font-style: italic;
+  color: var(--body-text-mid);
+}
 .notes-list {
   display: flex;
   flex-direction: column;
