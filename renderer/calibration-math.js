@@ -183,12 +183,13 @@
    *
    * @param {number} currentGain Software gain in effect during pass 1
    * @param {number} measurePeak Observed FSK peak in [0, 1]
-   * @param {number} [TARGET_PEAK=0.78] Desired peak for pass 2; defaults
-   *   to 0.78 (mid-amber zone of the meter) if not a positive number
+   * @param {number} [TARGET_PEAK=0.45] Desired peak for pass 2; defaults
+   *   to 0.45 (lowered from 0.78 in v0.8.6 — the decode-time boost lifts quiet
+   *   captures, so a hot target only risks over-driving the gain) if not positive
    * @returns {number} New gain to save, clamped to [0.5, 30]
    */
   const computeCalibratedGain = (currentGain, measurePeak, TARGET_PEAK) => {
-    if (typeof TARGET_PEAK !== 'number' || TARGET_PEAK <= 0) TARGET_PEAK = 0.78;
+    if (typeof TARGET_PEAK !== 'number' || TARGET_PEAK <= 0) TARGET_PEAK = 0.45;
     const cappedMeasurePeak = Math.min(0.95, Math.max(0.001, measurePeak));
     const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
     return Math.max(0.5, Math.min(30, rawNewGain));
