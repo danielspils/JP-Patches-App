@@ -2247,50 +2247,44 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
   const emptyDesc  = isSeq ? 'an empty sequence (no pages decoded)' : 'empty patches';
   const safetyText = isSeq ? 'Your existing sequences will not be modified.'
                            : 'Your active C/D banks will not be modified.';
+  const hasSavedCal = !!getCalibratedGain(deviceId, deviceLabel);
+  const reapply = async (tempWavPath, deviceInfo) => {
+    if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
+    else                     await applyToneCapture(tempWavPath, deviceInfo);
+  };
   showConfirmModal({
     title: 'Recording didn\'t decode cleanly',
     body:
       `The capture from${labelText} came back as ${emptyDesc}. Audio reached ` +
       'JP, but the decoder couldn\'t make sense of it.\n\n' +
-      `Most often this is a one-off glitch — **try again** with the same ` +
-      'calibration. If it keeps failing, then try **recalibrating** the ' +
-      `input gain. ${safetyText}`,
+      (hasSavedCal
+        ? 'Most often this is a one-off glitch — **try again**. If it keeps ' +
+          'failing, **reset to auto-decode** to clear this device\'s saved gain ' +
+          '(a too-high saved gain is a common cause). '
+        : 'Most often this is a one-off glitch — **try again** with the same ' +
+          'settings. If it keeps failing, try **recalibrating** the input gain. ') +
+      safetyText,
     // Primary (Roland green) = Try again — most likely to fix things now
     // that truncation is no longer the dominant failure mode.
     confirmLabel: 'Try again',
     confirmStyle: 'confirm',
     onConfirm: reopenWithoutRecalibrating,
-    // Tertiary (Roland blue, alt-style) = Recalibrate — secondary
-    // alternative when gain really is the issue.
-    tertiaryLabel: 'Recalibrate',
+    // Tertiary (Roland blue, alt-style). When the device has a saved gain it
+    // becomes "Reset to auto-decode" — clearing an over-hot calibration is the
+    // right recovery (recalibrating could re-drive it hot and loop, #26). With
+    // no saved gain, it's "Recalibrate" (the two-pass flow) as before.
+    tertiaryLabel: hasSavedCal ? 'Reset to auto-decode' : 'Recalibrate',
     tertiaryStyle: 'alt',
     onTertiary: () => {
-      // Capture the prior gain BEFORE clearing it so we can hand it
-      // forward to the new calibration session as the starting slider
-      // position. Otherwise calibration always opens at 1.0× — which
-      // for the JX-3P's TAPE OUT means the meter looks barely alive
-      // (the whole reason we calibrated to ~13× in the first place is
-      // that unity gain on this hardware is too quiet to read), and
-      // the user has to manually dial gain back up before pass 1 has
-      // anything useful to measure. The calibration math
-      // (newGain = currentGain * TARGET / measurePeak) works from any
-      // starting position, so seeding from the prior gain is purely a
-      // UX improvement — it lets pass 1 land near-target on the first
-      // try instead of requiring the user to re-find the ballpark.
-      const priorCal  = getCalibratedGain(deviceId, deviceLabel);
-      const priorGain = priorCal ? priorCal.gain : null;
+      // Either way we clear the saved gain first. If there WAS one, just
+      // reopen on the auto-decode default (the reset path — breaks the loop).
+      // If there wasn't, force the two-pass Recalibrate flow.
       if (deviceId) clearCalibratedGain(deviceId);
-      showRecordFromJxModal({
-        kind,
-        initialGain: priorGain,
-        // Force the two-pass flow even with AUTO_DECODE_DEFAULT on — the
-        // user explicitly chose Recalibrate, so don't bounce back to auto.
-        forceCalibrate: true,
-        onCaptured: async (tempWavPath, deviceInfo) => {
-          if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
-          else                     await applyToneCapture(tempWavPath, deviceInfo);
-        },
-      });
+      if (hasSavedCal) {
+        showRecordFromJxModal({ kind, onCaptured: reapply });   // → auto-decode
+        return;
+      }
+      showRecordFromJxModal({ kind, forceCalibrate: true, onCaptured: reapply });
     },
   });
 }
@@ -8865,7 +8859,13 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
       // and SNR was lower than necessary. JX FSK has stable amplitude
       // (no transient peaks like music) so the tighter clipping headroom
       // (~12% to red) is safe.
-      const TARGET_PEAK = 0.78;
+      // Lowered 0.78 → 0.45 in v0.8.6. The decode-time boost (AUTO_BOOST_TARGET
+      // 0.92 in the fork) lifts any clean capture, so calibration does NOT need
+      // a hot peak — and aiming for 0.78 drove the gain so high on a quiet-input
+      // machine (Daniel's downstairs Mini: ~14×) that it over-drove the capture
+      // and decodes failed, re-prompting Recalibrate → loop (CLAUDE.md #26).
+      // 0.45 keeps comfortable margin over the noise floor with far less gain.
+      const TARGET_PEAK = 0.45;
       // Cap measurePeak at 0.95 before division. Without this, any
       // clipping transient during pass 1 (peak briefly hit 0.95–1.0)
       // would inflate measurePeak and make the saved gain too low,
@@ -8877,10 +8877,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
       // dialed in pass 1" UX surprise.
       const cappedMeasurePeak = Math.min(0.95, measurePeak);
       const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
-      // Clamp so we don't end up with absurd gain. 0.5×–30× covers the
-      // span of the slider (and avoids near-zero attenuations that would
-      // turn future captures into silence).
-      const newGain = Math.max(0.5, Math.min(30, rawNewGain));
+      // Clamp so we don't end up with absurd gain. Upper cap lowered 30 → 12
+      // in v0.8.6: a clean capture only needs to clear the noise floor (the
+      // decode-time boost does the rest), so there's no reason to let calibration
+      // drive into the over-drive zone — the failure mode that loops Recalibrate.
+      const newGain = Math.max(0.5, Math.min(12, rawNewGain));
 
       setCalibratedGain(calibrationDeviceId, newGain, calibrationDeviceLabel);
 

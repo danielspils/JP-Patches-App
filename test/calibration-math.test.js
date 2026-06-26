@@ -216,11 +216,11 @@ test('computeCalibratedGain — clamps result to 0.5×–30×', () => {
   approx(computeCalibratedGain(0.1, 0.95, 0.6), 0.5, 1e-9);
 });
 
-test('computeCalibratedGain — defaults TARGET_PEAK to 0.78 when missing', () => {
-  // current gain 5×, peak 0.6, default target 0.78 → 5 × 0.78 / 0.6 = 6.5
-  approx(computeCalibratedGain(5, 0.6), 6.5, 1e-9);
-  approx(computeCalibratedGain(5, 0.6, null), 6.5, 1e-9);
-  approx(computeCalibratedGain(5, 0.6, 0), 6.5, 1e-9);
+test('computeCalibratedGain — defaults TARGET_PEAK to 0.45 when missing', () => {
+  // current gain 5×, peak 0.6, default target 0.45 → 5 × 0.45 / 0.6 = 3.75
+  approx(computeCalibratedGain(5, 0.6), 3.75, 1e-9);
+  approx(computeCalibratedGain(5, 0.6, null), 3.75, 1e-9);
+  approx(computeCalibratedGain(5, 0.6, 0), 3.75, 1e-9);
 });
 
 test('computeCalibratedGain — guards against zero peak (clamps to 0.001)', () => {
