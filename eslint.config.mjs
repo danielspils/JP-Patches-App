@@ -76,6 +76,7 @@ export default [
 
         // Globals exposed by renderer/record-trim.js
         computeFskTrim:         'readonly',
+        findFskStartByFreq:     'readonly',
         classifyWindows:        'readonly',
         floatToInt16WithPeak:   'readonly',
 

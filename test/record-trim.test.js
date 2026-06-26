@@ -2,7 +2,25 @@
 
 const test   = require('node:test');
 const assert = require('node:assert/strict');
-const { computeFskTrim, classifyWindows, computeTrimThresholds, floatToInt16WithPeak } = require('../renderer/record-trim.js');
+const { computeFskTrim, findFskStartByFreq, classifyWindows, computeTrimThresholds, floatToInt16WithPeak } = require('../renderer/record-trim.js');
+
+// Helpers for the frequency-detector tests: synthesize tones whose
+// half-period lands in (3675 Hz → ~6 samples = "short"/bit-0) or out of
+// (882 Hz → ~25 samples = "long"/idle-pilot) the bit-0 crossing-interval band.
+const SR = 44100;
+function tone(freqHz, durSec, amp) {
+  const n = Math.floor(durSec * SR);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = amp * Math.sin(2 * Math.PI * freqHz * i / SR);
+  return out;
+}
+function concatF32(...arrs) {
+  const total = arrs.reduce((s, a) => s + a.length, 0);
+  const out = new Float32Array(total);
+  let o = 0;
+  for (const a of arrs) { out.set(a, o); o += a.length; }
+  return out;
+}
 
 // ── computeTrimThresholds ───────────────────────────────────────────
 
@@ -188,6 +206,44 @@ test('computeFskTrim — applies ~50 ms backoff before the detected window', () 
   assert.ok(r.trimStart < transition, `trimStart (${r.trimStart}) should be < transition (${transition})`);
   // and within ~250 ms of it
   assert.ok(transition - r.trimStart < 0.25 * sampleRate);
+});
+
+// ── findFskStartByFreq (frequency-aware trim, pitfall #26) ──────────
+
+test('findFskStartByFreq — leading loud-idle then data: trims ~1 s before data, NOT amplitude-gated', () => {
+  // 2 s of idle tone + 3 s of data tone, at the SAME amplitude (the amplitude
+  // trim would find no silence gap here). Expect a trim ~1 s before the 2 s
+  // data start (the pilot backoff), i.e. ~1 s.
+  const all = concatF32(tone(882, 2.0, 0.3), tone(3675, 3.0, 0.3));
+  const ts = findFskStartByFreq(all, SR);
+  assert.ok(ts > 0, `expected a positive trim, got ${ts}`);
+  assert.ok(ts < 2.0 * SR, 'must cut into the leading idle, not keep all of it');
+  assert.ok(Math.abs(ts - 1.0 * SR) <= 0.5 * SR, `trimStart ${ts} should be ~1 s (${SR})`);
+});
+
+test('findFskStartByFreq — amplitude-INDEPENDENT: same result at a tiny 0.04 level', () => {
+  // Quarter the test above but at 0.04 amplitude — far below any silence
+  // threshold. The boost-then-frequency approach must still find the start.
+  const all = concatF32(tone(882, 2.0, 0.04), tone(3675, 3.0, 0.04));
+  const ts = findFskStartByFreq(all, SR);
+  assert.ok(ts > 0 && ts < 2.0 * SR, `low-level capture should still trim, got ${ts}`);
+  assert.ok(Math.abs(ts - 1.0 * SR) <= 0.5 * SR);
+});
+
+test('findFskStartByFreq — pure idle tone (no bit-0 cycles) → -1 (caller falls back)', () => {
+  const all = tone(882, 4.0, 0.3);
+  assert.equal(findFskStartByFreq(all, SR), -1);
+});
+
+test('findFskStartByFreq — data from the very start → 0 (nothing to trim)', () => {
+  const all = tone(3675, 3.0, 0.3);
+  assert.equal(findFskStartByFreq(all, SR), 0);
+});
+
+test('findFskStartByFreq — empty / silent / no sampleRate → -1, never throws', () => {
+  assert.equal(findFskStartByFreq(new Float32Array(0), SR), -1);
+  assert.equal(findFskStartByFreq(tone(3675, 1.0, 0), SR), -1);   // all zeros
+  assert.equal(findFskStartByFreq(tone(3675, 1.0, 0.3), 0), -1);  // bad sampleRate
 });
 
 // ── floatToInt16WithPeak ────────────────────────────────────────────

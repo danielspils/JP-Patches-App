@@ -8919,9 +8919,19 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // computeFskTrim returns the sample index to trim before, plus
     // diagnostic flags for telemetry.
     const currentGainAtTrim = sliderToGain(parseInt(gainSlider.value, 10));
-    const trimResult        = computeFskTrim(all, actualSampleRate, currentGainAtTrim);
-    const trimStart         = trimResult.trimStart;
-    const trimmed           = trimStart > 0 ? all.subarray(trimStart) : all;
+    // PRIMARY: frequency-aware FSK start (renderer/record-trim.js). It finds
+    // the dump by its bit-0 cycle signature, so it cuts the leading idle even
+    // when the idle hum is as loud as the dump and the amplitude trim can't
+    // (CLAUDE.md pitfall #26 — the root cause of the 2026-06-26 decode
+    // failures). Falls back to the amplitude silence→signal trim when no clear
+    // FSK is found (degenerate/empty captures).
+    const freqStart  = findFskStartByFreq(all, actualSampleRate);
+    const usedFreq   = freqStart >= 0;
+    const trimResult = usedFreq
+      ? { trimStart: freqStart, usedFreqDetect: true }
+      : computeFskTrim(all, actualSampleRate, currentGainAtTrim);
+    const trimStart  = trimResult.trimStart;
+    const trimmed    = trimStart > 0 ? all.subarray(trimStart) : all;
 
     // Convert trimmed Float32 → 16-bit signed PCM bytes + measure peak
     // in one pass. See renderer/record-trim.js for the fused-loop
@@ -8930,13 +8940,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // Visible feedback for debugging the trim path. The status text is
     // already replaced moments later with the peak-quality message, but
     // for ~200 ms it shows whether the trim fired and at what offset.
+    const trimMethod = usedFreq ? 'bit-0 frequency detect' : 'amplitude silence→signal';
     if (trimStart > 0) {
       const trimSec = (trimStart / actualSampleRate).toFixed(2);
-      console.log(`record-jx: trimmed ${trimStart} leading samples (${trimSec}s) of pre-signal noise`);
-      statusText.textContent = `Trimmed ${trimSec}s of pre-FSK noise…`;
+      console.log(`record-jx: trimmed ${trimStart} leading samples (${trimSec}s) of pre-FSK idle via ${trimMethod}`);
+      statusText.textContent = `Trimmed ${trimSec}s of pre-FSK idle…`;
     } else {
-      console.log('record-jx: no trim applied (no silence-then-signal pattern found, fallback longest-run yielded 0)');
-      statusText.textContent = 'No leading-noise trim applied…';
+      console.log(`record-jx: no trim applied (${trimMethod} found the dump at the very start)`);
+      statusText.textContent = 'No leading-idle trim needed…';
     }
     stopCapture();
 
