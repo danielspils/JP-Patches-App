@@ -1236,33 +1236,46 @@ body {
   margin-top: 24px;
 }
 .note-entry {
-  display: block;
-  padding: 18px 0;
+  padding: 24px 0;
   border-top: 1px solid var(--body-border);
-  text-decoration: none;
-  color: inherit;
 }
 .note-entry:last-child { border-bottom: 1px solid var(--body-border); }
-.note-entry:hover .note-entry-title { color: var(--roland-green); }
+/* Index video sits a touch smaller than the full-post embed so the list stays
+   scannable; same 320:568 vertical ratio. */
+.note-entry .video-embed {
+  width: 280px;
+  height: 497px;
+  margin: 0 0 16px;
+}
 .note-entry-date {
   display: block;
   font-size: 13px;
   color: var(--body-text-mid);
   margin-bottom: 4px;
 }
-.note-entry-title {
-  display: block;
+/* .notes-list prefix outweighs the global `.site-content a` link styling. */
+.notes-list .note-entry-title {
+  display: inline-block;
   font-size: 20px;
   font-weight: 600;
   color: var(--body-text);
+  text-decoration: none;
   transition: color 0.15s ease;
 }
+.notes-list .note-entry-title:hover { color: var(--roland-green); }
 .note-entry-excerpt {
-  display: block;
-  margin-top: 6px;
+  margin: 6px 0 0;
   color: var(--body-text-sec);
   line-height: 1.55;
 }
+.notes-list .note-entry-more {
+  display: inline-block;
+  margin-top: 10px;
+  font-weight: 600;
+  color: var(--roland-green);
+  text-decoration: none;
+}
+.notes-list .note-entry-more:hover { color: var(--roland-green-hot); }
 .notes-empty {
   margin-top: 24px;
   color: var(--body-text-mid);
@@ -1289,3 +1302,74 @@ body {
   font-weight: 600;
 }
 .note-post-back a:hover { color: var(--roland-green-hot); }
+
+/* Mobile download guard — JP Patches is a desktop binary, so on a phone or
+   tablet the download buttons go nowhere useful. site.js intercepts the
+   release-link clicks on a mobile OS and opens this heads-up modal (with a
+   "download anyway" escape). Built/shown only on mobile; desktop never
+   sees it. */
+.mobile-dl-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.55);
+}
+.mobile-dl-overlay.open { display: flex; }
+.mobile-dl-card {
+  width: 100%;
+  max-width: 330px;
+  background: var(--cream);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-stack);
+}
+.mobile-dl-accent { height: 6px; background: var(--roland-green); }
+.mobile-dl-body { padding: 24px 22px 22px; text-align: center; }
+.mobile-dl-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 10px;
+}
+.mobile-dl-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4a463d;
+  margin: 0 0 6px;
+}
+.mobile-dl-sub {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8a8579;
+  margin: 0 0 20px;
+}
+.mobile-dl-ok {
+  width: 100%;
+  padding: 11px 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--roland-green);
+  color: var(--cream);
+  font-family: var(--font-stack);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.mobile-dl-ok:hover { background: var(--roland-green-hot); }
+.mobile-dl-anyway {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 12px;
+  color: #8a8579;
+  text-decoration: underline;
+  cursor: pointer;
+}

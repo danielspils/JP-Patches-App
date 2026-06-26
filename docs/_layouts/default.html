@@ -47,7 +47,10 @@
   <link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/img/favicon-32.png' | relative_url }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ '/assets/img/favicon-192.png' | relative_url }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ '/assets/img/apple-touch-icon.png' | relative_url }}">
-  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+  <!-- ?v=<build-time> busts the browser cache on every deploy, so CSS/JS
+       changes show up immediately instead of waiting out the 10-min
+       max-age on GitHub Pages assets. -->
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}?v={{ site.time | date: '%s' }}">
 </head>
 <body>
   <header class="site-header" aria-label="Site header">
@@ -108,7 +111,7 @@
       </svg>
       <a href="{{ '/feedback/' | relative_url }}"
          class="site-contact"
-         aria-label="Email me">
+         aria-label="Contact">
         <!-- Panel-button primitive from docs/design-system.md §3.1:
              58×58 cream face + dark LED + cream highlight strip.
              JS arms the LED to Roland-red on click before navigating.
@@ -124,7 +127,7 @@
         <svg class="site-contact-caret" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <polygon points="11,1 11,13 1,7" fill="#ffffff"/>
         </svg>
-        <span class="site-contact-label">Email me</span>
+        <span class="site-contact-label">contact</span>
       </a>
     </div>
 
@@ -167,6 +170,10 @@
           <a role="menuitem" href="{{ '/notes/' | relative_url }}"
              class="mobile-nav-link{% if page.url == '/notes/' or page.layout == 'post' %} active{% endif %}">NOTES</a>
         </li>
+        <li role="none">
+          <a role="menuitem" href="{{ '/feedback/' | relative_url }}"
+             class="mobile-nav-link{% if page.url == '/feedback/' %} active{% endif %}">CONTACT</a>
+        </li>
       </ul>
     </div>
   </header>
@@ -191,7 +198,7 @@
       by Roland Corporation. 'JX-3P' and 'PG-200' are trademarks of Roland Corporation.</p>
   </footer>
 
-  <script src="{{ '/assets/js/site.js' | relative_url }}"></script>
+  <script src="{{ '/assets/js/site.js' | relative_url }}?v={{ site.time | date: '%s' }}"></script>
 
   <!-- GoatCounter — privacy-friendly analytics (no cookies, no consent
        banner needed). Dashboard: https://jx-3p.goatcounter.com

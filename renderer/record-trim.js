@@ -227,6 +227,97 @@
     return { trimStart, numWindows, foundSilenceGap, usedFallback };
   }
 
+  // ── Frequency-aware FSK start detection ──────────────────────────────
+  // The amplitude trim above can only find the dump start when the JX's idle
+  // tone is quieter than the FSK (a silence gap to anchor on). On a loud-idle
+  // capture — high gain, or a unit whose idle hum is as loud as the dump —
+  // there IS no silence gap: the whole buffer reads as 'signal', pass 1 fails,
+  // the longest-run fallback keeps everything, and the leading idle wrecks the
+  // demodulator's calibration (CLAUDE.md pitfall #26; the user's "only decodes
+  // well below the yellow target" was them turning the idle down under the
+  // silence threshold so this trim could fire).
+  //
+  // This pass is amplitude-INDEPENDENT: it finds the dump by FREQUENCY. Real
+  // FSK data carries short (bit-0) cycles; idle and pilot tones are single low
+  // frequencies with none. Boost a copy so crossings clear the detector band,
+  // count short cycles per window, take the first window with clear data, and
+  // back up ~1 s to keep the pilot the demodulator needs to lock long_width.
+  // Verified on a real failing capture: trims to 3.50 s, decodes 30/32 patches
+  // where the full buffer decoded 0.
+  const FREQ_BOOST_TARGET   = 0.92;   // mirror jx3p codec AUTO_BOOST_TARGET
+  const FREQ_QUIESCENCE     = 0.15;   // mirror jx3p codec QUIESCENCE_THRESHOLD
+  const FREQ_WIN_SEC        = 0.5;
+  const SHORT_MIN_SAMPLES   = 4;      // bit-0 crossing-interval lower bound @44.1k
+  const SHORT_MAX_SAMPLES   = 12;     // bit-0 crossing-interval upper bound
+  const MIN_PEAK_SHORT      = 30;     // peak window must hold ≥ this many short cycles, else "no clear FSK"
+  const MIN_DATA_SHORT      = 15;     // absolute floor for the per-window data threshold
+  const DATA_SHORT_FRACTION = 0.25;   // a data window = short count > this × the peak window's count
+  const PILOT_BACKOFF_SEC   = 1.0;    // keep ~1 s of pilot ahead of the first data window
+
+  // Count short (bit-0) crossing cycles in samples[lo, hi), applying `scale`
+  // (the boost) inline. Schmitt trigger: phase sticks at ±1 once the signal
+  // passes ±FREQ_QUIESCENCE; a crossing is a phase flip; tally flips whose
+  // interval since the previous flip lands in the bit-0 sample range.
+  function countShortCycles(samples, lo, hi, scale) {
+    let phase = 0, lastCross = -1, shortCount = 0;
+    for (let i = lo; i < hi; i++) {
+      const v = samples[i] * scale;
+      let next = phase;
+      if (v > FREQ_QUIESCENCE) next = 1;
+      else if (v < -FREQ_QUIESCENCE) next = -1;
+      if (next !== 0 && next !== phase) {
+        if (phase !== 0 && lastCross >= 0) {
+          const iv = i - lastCross;
+          if (iv >= SHORT_MIN_SAMPLES && iv < SHORT_MAX_SAMPLES) shortCount += 1;
+        }
+        lastCross = i;
+        phase = next;
+      }
+    }
+    return shortCount;
+  }
+
+  /**
+   * Find the FSK dump start by its bit-0 frequency content — works regardless
+   * of capture level, where {@link computeFskTrim}'s amplitude pass can't.
+   * See the block comment above for the algorithm + rationale.
+   *
+   * @param {Float32Array | number[]} samples Captured PCM in [-1, 1]
+   * @param {number} sampleRate Hz (typically 44100)
+   * @returns {number} Sample index to trim BEFORE (≥ 0), or -1 if no clear FSK
+   *   data is present (caller should fall back to {@link computeFskTrim}).
+   */
+  function findFskStartByFreq(samples, sampleRate) {
+    const n = samples.length;
+    if (n === 0 || !sampleRate) return -1;
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const a = samples[i] < 0 ? -samples[i] : samples[i];
+      if (a > peak) peak = a;
+    }
+    if (peak === 0) return -1;
+    const scale = peak < FREQ_BOOST_TARGET ? FREQ_BOOST_TARGET / peak : 1;
+    const win = Math.floor(FREQ_WIN_SEC * sampleRate);
+    if (win <= 0) return -1;
+    const numWindows = Math.floor(n / win);
+    const counts = new Array(numWindows);
+    let maxShort = 0;
+    for (let w = 0; w < numWindows; w++) {
+      const c = countShortCycles(samples, w * win, w * win + win, scale);
+      counts[w] = c;
+      if (c > maxShort) maxShort = c;
+    }
+    if (maxShort < MIN_PEAK_SHORT) return -1;   // no clear FSK data anywhere
+    const dataThresh = Math.max(MIN_DATA_SHORT, DATA_SHORT_FRACTION * maxShort);
+    let firstData = -1;
+    for (let w = 0; w < numWindows; w++) {
+      if (counts[w] > dataThresh) { firstData = w; break; }
+    }
+    if (firstData < 0) return -1;
+    const backoff = Math.floor(PILOT_BACKOFF_SEC * sampleRate);
+    return Math.max(0, firstData * win - backoff);
+  }
+
   // Convert a Float32 sample buffer to signed-16-bit PCM bytes while
   // simultaneously measuring the peak amplitude in one pass. The two
   // operations were fused inline in stopRecording for a small perf
@@ -281,6 +372,7 @@
   // index.html loads this file before app.js.
   if (typeof window !== 'undefined') {
     window.computeFskTrim         = computeFskTrim;
+    window.findFskStartByFreq     = findFskStartByFreq;
     window.classifyWindows        = classifyWindows;
     window.computeTrimThresholds  = computeTrimThresholds;
     window.floatToInt16WithPeak   = floatToInt16WithPeak;
@@ -289,6 +381,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       computeFskTrim,
+      findFskStartByFreq,
       classifyWindows,
       computeTrimThresholds,
       floatToInt16WithPeak,

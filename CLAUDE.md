@@ -26,7 +26,7 @@ This file is the cold-start summary. Pair it with:
 
 ## Status
 
-Current version: **0.8.3** (June 25, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
+Current version: **0.8.5** (June 26, 2026). 25+ public releases since v0.1.0 on May 19. Public site live at **[jx-3p.com](https://jx-3p.com)** (built May 28–29). Release automation (`scripts/release.sh`) shipped May 29.
 
 - **Phase 1** ✅ shipped — panel UI + patch editing
 - **Phase 2** ✅ shipped — Library (Tones + Sequences with paired-patch model), Custom Bank Builder, drag-and-drop WAV import, sequencer codec, sequence-send-to-JX
@@ -593,6 +593,35 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
     - **Reroute loop:** `handleTonesDropImport` ⇄ `handleSequenceDropImport` auto-reroute to each other when a decode "looks misrouted" (tones → 32 all-identical patches; sequence → empty pages). A WAV that trips BOTH ping-ponged forever. Guarded by a one-shot `rerouted` flag via `planImportReroute` (renderer/record-flow.js, tested).
     - **Silent clobber:** every path that applies a decode to the **active C/D banks** (`handleBankDropImport`, `doToneSaveFromFile` → `applyToneResult` → `applyWavData`) must first check `decodedToInMemoryBanks(...)` for `null`/`allPatchesIdentical` and reject (`UNREADABLE_WAV_MSG`) BEFORE snapshotting or applying — otherwise junk overwrites the user's banks (the file-dialog path had no safety snapshot at all).
     - **Rule for any NEW import entry point:** gate the filename with `describeUnsupportedImport` (names MP3/MP4/etc.), and before applying-to-banks run the all-default/identical guard. The Record-from-JX capture path is already covered by `isDecodeAllDefault` → recalibrate prompt. Don't add a conditional reroute without a once-only flag.
+
+26. **Record-from-JX "didn't decode cleanly" — troubleshooting playbook.** When a capture fails to decode, get DATA before theorizing (the 2026-06-26 session burned two wrong theories first). 
+
+    **Diagnostic toolkit:**
+    - **The failing WAV is on disk** — the renderer writes the trimmed capture to `os.tmpdir()/jp_seq_record_<ts>.wav` (sequences) or `jp_patches_record_<ts>.wav` (tones); it's NOT cleaned up immediately, so grab it right after the failure modal (`find $(node -e 'console.log(require("os").tmpdir())') -name 'jp_*record_*.wav' -mmin -30`).
+    - **Per-capture telemetry** in `library.captureLog` (`~/Library/Application Support/jp-patches/library.json`): `{timestamp, gain, capturePeak, decode, populatedPages}`. `gain: null` = auto-decode path; a number = the old calibrated path. **Compare a failing run against a past SUCCESS at the same `capturePeak`** — that isolates signal-quality regressions from level.
+    - **Known-good reference**: `~/JP-Patches/tests/fixtures/quiet-unit-seq.wav` decodes to 8 pages. Run the suspect WAV and this fixture through the codec side-by-side.
+    - **Analyze via codec internals** (`uv run python` from `~/JP-Patches`): `codec._load_wav_mono_float(path)` (applies the auto-boost) → `_detect_crossings` (returns inter-crossing **intervals in samples**, NOT indices — don't `np.diff` them) → `_demodulate_bits` → `_decode_sequence_records`. A healthy dump shows a **bimodal interval histogram**: a short cluster ~6 samples (bit-0, the high-freq tone) + a long cluster ~25 samples (bit-1 / pilot).
+
+    **Ruled OUT (2026-06-26 — don't re-chase):**
+    - **Sample rate** — the on-disk WAV is always 44.1 kHz even when the KT device is at 48 kHz (Chromium resamples during capture). The "prefers 44.1 kHz" warning is real but is NOT the decode culprit; the codec sees clean 44.1 k.
+    - **Clipping** — check `clip% = mean(|sample| ≥ 0.99)`. Real failures showed 0%. Clipping is rare and usually decodes anyway (preserves zero-crossings).
+
+    **Leading mechanism — explains "only decodes well below the yellow target":** the crossing detector threshold (`QUIESCENCE_THRESHOLD = 0.15`) is FIXED, but the auto-boost normalizes to the **peak**, which is set by the strong long/bit-1 tone. So a **weak high-freq bit-0 tone** interacts with capture level: a LOUD capture (near the ~0.78 yellow target) → small boost → bit-0 stays below 0.15 → undetected → demod emits **all/mostly 1-bits → "all-null" decode**. A QUIET capture → big boost → bit-0 lifted above 0.15 → decodes. Failure fingerprints: `bits` all/mostly ones, and the interval histogram **missing the short cluster** = bit-0 too weak.
+
+    **ROOT CAUSE — CONFIRMED + FIXED (v0.8.5): the amplitude trimmer couldn't separate a loud idle tone from the dump.** The JX hums a leader/idle tone before AND after the dump. `computeFskTrim` found the dump start by looking for a *silence gap* before it — but when the idle hum is as loud as the dump (high gain, or a loud-idle unit/cable), there's NO silence gap: the whole capture reads as `signal`, the trim falls through to its longest-run fallback, keeps everything, and the **leading idle wrecks the demodulator's `long_width` calibration → 0 records** (the bits look healthy but never frame). Proven on the real failing capture: full 46.8 s buffer → 0 patches; trim the leading ~3 s → **30/32 patches**. This dissolves every earlier red herring in this session:
+    - **"Reducing gain fixed it / only works well below the yellow target"** → lowering gain quieted the *idle* below the silence threshold so the amplitude trim could finally fire. Never about the dump's level. (Daniel deduced this himself.)
+    - **"Failed on both rigs (diff computers/JXs/CABLES)"** → both KT setups' idle was loud enough; never the cable. The reseat that "worked" just happened to land a clean trim.
+    - **"Worked before auto-cal"** → auto-cal's default-gain/boost changes shifted the idle into the `signal` band more often.
+    - **Discarded theories — sample rate, clipping, DSP (`processingActive:false` proved it off), weak bit-0, boost, "device-state / reseat the cable" — were ALL WRONG.** The v0.8.4 `audioDiag` telemetry earned its keep by eliminating DSP and forcing the real hunt.
+
+    **THE FIX:** `findFskStartByFreq` (renderer/record-trim.js) finds the dump by its **bit-0 (short-cycle) FREQUENCY signature** instead of amplitude — idle/pilot are single low tones with no bit-0 cycles; data has them. Boost a copy → count short cycles per 0.5 s window → first window with clear data, backed up 1 s for the pilot. **Amplitude-independent, so it cuts the leading idle at any gain.** Wired as the PRIMARY trim in `app.js`, falling back to the amplitude `computeFskTrim` only when no FSK is found. Verified: failing capture 0→30 patches; clean fixtures unchanged (`patchdump` 32, `quiet-unit-seq` 8).
+
+    **FAILURE-MODE TRIAGE (2026-06-26 retrospective — these THREE got conflated in one debugging morning; capturePeak alone does NOT predict success).** Pull the temp WAV (`jp_*record_*.wav` in tmpdir), boost it, count total bit-0 cycles, and run a sliding-window decode:
+    - **~0 bit-0 cycles anywhere** → the capture contains no dump data: the JX dump didn't land in the recording window (capture timing / early auto-stop), the JX didn't dump that press, or a transient. **No software fix — it's a capture/hardware event, not the decoder.** (Seen 2026-06-26: the 14:48 capture had 1 bit-0 cycle total; cause never pinned down — do NOT assume a cable fault; Daniel pushed back on that.)
+    - **Many bit-0 cycles, full buffer fails BUT a sub-window decodes** → the loud-idle **trim bug** → fixed by `findFskStartByFreq` (v0.8.5). This is the systemic, intermittent one (random success/fail at identical gain across weeks of `captureLog`).
+    - **Many bit-0 cycles but even the best window only partially decodes** → a **marginal signal** (too-quiet capture whose boost amplified the noise floor into spurious cycles). Needs more level / a cleaner cable, not a code change.
+
+    The fix is a *strict improvement* (never worse than the old trim on any historical WAV, decisively better on the trim case), but it is not a cure for a bad cable or a too-quiet capture. Related: #11 (boost), #12 (the now-secondary amplitude trim + its gain-scaled thresholds), #15 (dump duration).
 
 ## When in doubt
 

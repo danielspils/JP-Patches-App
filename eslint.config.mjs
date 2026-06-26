@@ -76,6 +76,7 @@ export default [
 
         // Globals exposed by renderer/record-trim.js
         computeFskTrim:         'readonly',
+        findFskStartByFreq:     'readonly',
         classifyWindows:        'readonly',
         floatToInt16WithPeak:   'readonly',
 
@@ -84,6 +85,7 @@ export default [
         planDecodeFailureResponse:'readonly',
         planImportReroute:        'readonly',
         describeUnsupportedImport:'readonly',
+        summarizeCaptureAudio:    'readonly',
         FAILURE_DEFAULTS:         'readonly',
 
         // Globals exposed by renderer/capture-warnings.js

@@ -143,8 +143,43 @@
     return { title: UNSUPPORTED_TITLE, body };
   }
 
+  /**
+   * Summarize a capture stream's ACTUAL audio-processing state, for the
+   * captureLog telemetry. The FSK decoder needs all of Chromium's voice DSP
+   * OFF — echo-cancellation / noise-suppression / auto-gain-control each strip
+   * or pump the carrier and, in particular, can kill the short high-frequency
+   * bit-0 tone (the 2026-06-26 "decode failed across both rigs" signature; see
+   * CLAUDE.md pitfall #26). `acquireRawAudioStream` asks for them off via strict
+   * `{exact:false}` constraints but falls back to soft (advisory) constraints
+   * the device may ignore — so we record what the track ACTUALLY reports.
+   *
+   * @param {Object} [opts]
+   * @param {MediaTrackSettings} [opts.settings] from `track.getSettings()`
+   * @param {boolean} [opts.usedFallback] true if strict constraints rejected
+   *   and we dropped to the soft set
+   * @returns {{echoCancellation: boolean|null, noiseSuppression: boolean|null,
+   *   autoGainControl: boolean|null, sampleRate: number|null,
+   *   usedFallback: boolean, processingActive: boolean}}
+   *   `processingActive` is the smoking gun: any DSP flag true ⇒ the stream is
+   *   mangling the FSK (expect a failed/garbage decode).
+   */
+  function summarizeCaptureAudio({ settings, usedFallback } = {}) {
+    const s = settings || {};
+    const ec = s.echoCancellation;
+    const ns = s.noiseSuppression;
+    const agc = s.autoGainControl;
+    return {
+      echoCancellation: typeof ec === 'boolean' ? ec : null,
+      noiseSuppression: typeof ns === 'boolean' ? ns : null,
+      autoGainControl:  typeof agc === 'boolean' ? agc : null,
+      sampleRate:       typeof s.sampleRate === 'number' ? s.sampleRate : null,
+      usedFallback:     usedFallback === true,
+      processingActive: ec === true || ns === true || agc === true,
+    };
+  }
+
   return {
     chooseCaptureGain, planDecodeFailureResponse, planImportReroute,
-    describeUnsupportedImport, FAILURE_DEFAULTS,
+    describeUnsupportedImport, summarizeCaptureAudio, FAILURE_DEFAULTS,
   };
 });
