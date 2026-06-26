@@ -11,11 +11,13 @@ permalink: /notes/
 <div class="notes-list">
 {% if site.posts.size > 0 %}
 {% for post in site.posts %}
-  <a class="note-entry" href="{{ post.url | relative_url }}">
+  <div class="note-entry">
+    {% if post.video %}{% include video-embed.html id=post.video title=post.title %}{% endif %}
     <span class="note-entry-date">{{ post.date | date: '%B %-d, %Y' }}</span>
-    <span class="note-entry-title">{{ post.title }}</span>
-    {% if post.excerpt %}<span class="note-entry-excerpt">{{ post.excerpt | strip_html | truncatewords: 32 }}</span>{% endif %}
-  </a>
+    <a class="note-entry-title" href="{{ post.url | relative_url }}">{{ post.title }}</a>
+    {% if post.excerpt %}<p class="note-entry-excerpt">{{ post.excerpt | strip_html | truncatewords: 24 }}</p>{% endif %}
+    <a class="note-entry-more" href="{{ post.url | relative_url }}">Read more &rarr;</a>
+  </div>
 {% endfor %}
 {% else %}
   <p class="notes-empty">No notes yet — check back soon.</p>

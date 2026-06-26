@@ -1236,33 +1236,46 @@ body {
   margin-top: 24px;
 }
 .note-entry {
-  display: block;
-  padding: 18px 0;
+  padding: 24px 0;
   border-top: 1px solid var(--body-border);
-  text-decoration: none;
-  color: inherit;
 }
 .note-entry:last-child { border-bottom: 1px solid var(--body-border); }
-.note-entry:hover .note-entry-title { color: var(--roland-green); }
+/* Index video sits a touch smaller than the full-post embed so the list stays
+   scannable; same 320:568 vertical ratio. */
+.note-entry .video-embed {
+  width: 280px;
+  height: 497px;
+  margin: 0 0 16px;
+}
 .note-entry-date {
   display: block;
   font-size: 13px;
   color: var(--body-text-mid);
   margin-bottom: 4px;
 }
-.note-entry-title {
-  display: block;
+/* .notes-list prefix outweighs the global `.site-content a` link styling. */
+.notes-list .note-entry-title {
+  display: inline-block;
   font-size: 20px;
   font-weight: 600;
   color: var(--body-text);
+  text-decoration: none;
   transition: color 0.15s ease;
 }
+.notes-list .note-entry-title:hover { color: var(--roland-green); }
 .note-entry-excerpt {
-  display: block;
-  margin-top: 6px;
+  margin: 6px 0 0;
   color: var(--body-text-sec);
   line-height: 1.55;
 }
+.notes-list .note-entry-more {
+  display: inline-block;
+  margin-top: 10px;
+  font-weight: 600;
+  color: var(--roland-green);
+  text-decoration: none;
+}
+.notes-list .note-entry-more:hover { color: var(--roland-green-hot); }
 .notes-empty {
   margin-top: 24px;
   color: var(--body-text-mid);
