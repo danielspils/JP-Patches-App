@@ -2116,6 +2116,10 @@ const DEFAULT_CAPTURE_GAIN = 2.0;
 //     deviceLabel:  Chromium picker label of the input device
 //     gain:         applied software gain (from saved calibration)
 //     capturePeak:  max amplitude observed during the LIVE meter (0..1)
+//     audioDiag:    summarizeCaptureAudio() of the acquired stream —
+//                   {echoCancellation, noiseSuppression, autoGainControl,
+//                   sampleRate, usedFallback, processingActive}. processingActive:true
+//                   means Chromium DSP got left on and mangled the FSK (pitfall #26).
 //     decode:       'success' | 'all-null' | 'error'
 //     populatedPages:     for sequences only — count of non-null pages
 //     populatedPatches:   for tones only — count of non-default-vca slots
@@ -6425,6 +6429,7 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
       deviceLabel:  di.deviceLabel || null,
       gain:         calGain,
       capturePeak:  di.capturePeak ?? null,
+      audioDiag:    di.audioDiag ?? null,
       decode:       'error',
       errorMessage: (result && result.error) || 'unknown error',
     });
@@ -6450,6 +6455,7 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
     deviceLabel:      di.deviceLabel || null,
     gain:             calGain,
     capturePeak:      di.capturePeak ?? null,
+    audioDiag:        di.audioDiag ?? null,
     decode:           allDefault ? 'all-null' : 'success',
     populatedPatches: populatedPatches,
   });
@@ -7273,6 +7279,7 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
       deviceLabel:  di.deviceLabel || null,
       gain:         calGain,
       capturePeak:  di.capturePeak ?? null,
+      audioDiag:    di.audioDiag ?? null,
       decode:       'error',
       errorMessage: (result && result.error) || 'unknown error',
     });
@@ -7287,6 +7294,7 @@ async function applySequencerCapture(tempWavPath, deviceInfo) {
     deviceLabel:    di.deviceLabel || null,
     gain:           calGain,
     capturePeak:    di.capturePeak ?? null,
+    audioDiag:      di.audioDiag ?? null,
     decode:         isAllNullPages ? 'all-null' : 'success',
     populatedPages: populatedPages,
   });
@@ -8001,6 +8009,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   let runningPeak  = 0;             // mirror from captureState.runningPeak; read by the onCaptured handoff. (Originally a local var inside startRecording that was invisible to stopRecording — every clean-capture auto-proceed threw a silent ReferenceError. Fixed 2026-05-25.)
   let elapsedTimer = null;
   let timerStartMs = null;          // set inside onTick when events.fskJustStarted fires; null while "Waiting…" for JX dump
+  let captureAudioDiag = null;      // summarizeCaptureAudio() of the acquired stream — flows into captureLog so a decode failure shows whether DSP got left on (pitfall #26)
 
   // Periodic re-probe of the selected device's sample rate. Catches
   // changes made externally in Audio MIDI Setup that don't reliably
@@ -8539,6 +8548,16 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     try {
       const result = await acquireRawAudioStream(devicePicker.value || undefined);
       mediaStream = result.mediaStream;
+      // Record what the stream ACTUALLY negotiated (DSP flags + soft-constraint
+      // fallback) so a decode failure shows whether processing got left on —
+      // the suspected device-state cause behind pitfall #26.
+      try {
+        const track = mediaStream.getAudioTracks()[0];
+        captureAudioDiag = summarizeCaptureAudio({
+          settings: track ? track.getSettings() : null,
+          usedFallback: result.usedFallback,
+        });
+      } catch { captureAudioDiag = null; }
     } catch (err) {
       statusText.textContent = `Couldn't start mic: ${err.name} — ${err.message}`;
       stopBtn.disabled = true;
@@ -8959,6 +8978,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
         capturePeak: runningPeak,
         captureGain: gainNode ? gainNode.gain.value : null,  // for clipping auto-step-down
         stepDownCount,
+        audioDiag: captureAudioDiag,   // DSP/fallback summary → captureLog (pitfall #26)
       });
       if (captured && typeof captured.catch === 'function') {
         captured.catch((err) => {

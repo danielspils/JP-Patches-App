@@ -9,6 +9,7 @@ const test   = require('node:test');
 const assert = require('node:assert/strict');
 const {
   chooseCaptureGain, planDecodeFailureResponse, planImportReroute, describeUnsupportedImport,
+  summarizeCaptureAudio,
 } = require('../renderer/record-flow.js');
 
 // ── chooseCaptureGain ──────────────────────────────────────────────────
@@ -152,4 +153,53 @@ test('unsupported — unknown extension / none still rejects with the header + g
     assert.equal(r.title, 'This is not a WAV or JSON');
     assert.equal(r.body, 'Convert it to a WAV or JSON file and try again!');
   }
+});
+
+// ── summarizeCaptureAudio (capture-stream DSP telemetry, pitfall #26) ───
+
+test('summarizeCaptureAudio — clean stream: all DSP off → processingActive false', () => {
+  const r = summarizeCaptureAudio({
+    settings: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 44100 },
+    usedFallback: false,
+  });
+  assert.equal(r.processingActive, false);
+  assert.equal(r.usedFallback, false);
+  assert.equal(r.sampleRate, 44100);
+  assert.equal(r.noiseSuppression, false);
+});
+
+test('summarizeCaptureAudio — ANY DSP flag on → processingActive true (the smoking gun)', () => {
+  assert.equal(summarizeCaptureAudio({ settings: { noiseSuppression: true } }).processingActive, true);
+  assert.equal(summarizeCaptureAudio({ settings: { autoGainControl: true } }).processingActive, true);
+  assert.equal(summarizeCaptureAudio({ settings: { echoCancellation: true } }).processingActive, true);
+});
+
+test('summarizeCaptureAudio — soft fallback is recorded even with flags off', () => {
+  const r = summarizeCaptureAudio({
+    settings: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    usedFallback: true,
+  });
+  assert.equal(r.usedFallback, true);
+  assert.equal(r.processingActive, false);   // device honored the soft prefs this time
+});
+
+test('summarizeCaptureAudio — missing/partial settings coerce to null, never throw', () => {
+  const r = summarizeCaptureAudio({});
+  assert.equal(r.echoCancellation, null);
+  assert.equal(r.noiseSuppression, null);
+  assert.equal(r.autoGainControl, null);
+  assert.equal(r.sampleRate, null);
+  assert.equal(r.usedFallback, false);
+  assert.equal(r.processingActive, false);
+  // a getSettings() that omits the audio-processing keys (some drivers do)
+  const partial = summarizeCaptureAudio({ settings: { sampleRate: 48000 } });
+  assert.equal(partial.sampleRate, 48000);
+  assert.equal(partial.noiseSuppression, null);
+  assert.equal(partial.processingActive, false);
+});
+
+test('summarizeCaptureAudio — no args at all → safe defaults', () => {
+  const r = summarizeCaptureAudio();
+  assert.equal(r.processingActive, false);
+  assert.equal(r.usedFallback, false);
 });

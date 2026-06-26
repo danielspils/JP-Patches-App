@@ -84,6 +84,7 @@ export default [
         planDecodeFailureResponse:'readonly',
         planImportReroute:        'readonly',
         describeUnsupportedImport:'readonly',
+        summarizeCaptureAudio:    'readonly',
         FAILURE_DEFAULTS:         'readonly',
 
         // Globals exposed by renderer/capture-warnings.js
