@@ -562,6 +562,22 @@ On import, the renderer prefers fingerprint-history (the user's own remembered n
     - **Silent clobber:** every path that applies a decode to the **active C/D banks** (`handleBankDropImport`, `doToneSaveFromFile` → `applyToneResult` → `applyWavData`) must first check `decodedToInMemoryBanks(...)` for `null`/`allPatchesIdentical` and reject (`UNREADABLE_WAV_MSG`) BEFORE snapshotting or applying — otherwise junk overwrites the user's banks (the file-dialog path had no safety snapshot at all).
     - **Rule for any NEW import entry point:** gate the filename with `describeUnsupportedImport` (names MP3/MP4/etc.), and before applying-to-banks run the all-default/identical guard. The Record-from-JX capture path is already covered by `isDecodeAllDefault` → recalibrate prompt. Don't add a conditional reroute without a once-only flag.
 
+26. **Record-from-JX "didn't decode cleanly" — troubleshooting playbook.** When a capture fails to decode, get DATA before theorizing (the 2026-06-26 session burned two wrong theories first). 
+
+    **Diagnostic toolkit:**
+    - **The failing WAV is on disk** — the renderer writes the trimmed capture to `os.tmpdir()/jp_seq_record_<ts>.wav` (sequences) or `jp_patches_record_<ts>.wav` (tones); it's NOT cleaned up immediately, so grab it right after the failure modal (`find $(node -e 'console.log(require("os").tmpdir())') -name 'jp_*record_*.wav' -mmin -30`).
+    - **Per-capture telemetry** in `library.captureLog` (`~/Library/Application Support/jp-patches/library.json`): `{timestamp, gain, capturePeak, decode, populatedPages}`. `gain: null` = auto-decode path; a number = the old calibrated path. **Compare a failing run against a past SUCCESS at the same `capturePeak`** — that isolates signal-quality regressions from level.
+    - **Known-good reference**: `~/JP-Patches/tests/fixtures/quiet-unit-seq.wav` decodes to 8 pages. Run the suspect WAV and this fixture through the codec side-by-side.
+    - **Analyze via codec internals** (`uv run python` from `~/JP-Patches`): `codec._load_wav_mono_float(path)` (applies the auto-boost) → `_detect_crossings` (returns inter-crossing **intervals in samples**, NOT indices — don't `np.diff` them) → `_demodulate_bits` → `_decode_sequence_records`. A healthy dump shows a **bimodal interval histogram**: a short cluster ~6 samples (bit-0, the high-freq tone) + a long cluster ~25 samples (bit-1 / pilot).
+
+    **Ruled OUT (2026-06-26 — don't re-chase):**
+    - **Sample rate** — the on-disk WAV is always 44.1 kHz even when the KT device is at 48 kHz (Chromium resamples during capture). The "prefers 44.1 kHz" warning is real but is NOT the decode culprit; the codec sees clean 44.1 k.
+    - **Clipping** — check `clip% = mean(|sample| ≥ 0.99)`. Real failures showed 0%. Clipping is rare and usually decodes anyway (preserves zero-crossings).
+
+    **Leading mechanism — explains "only decodes well below the yellow target":** the crossing detector threshold (`QUIESCENCE_THRESHOLD = 0.15`) is FIXED, but the auto-boost normalizes to the **peak**, which is set by the strong long/bit-1 tone. So a **weak high-freq bit-0 tone** interacts with capture level: a LOUD capture (near the ~0.78 yellow target) → small boost → bit-0 stays below 0.15 → undetected → demod emits **all/mostly 1-bits → "all-null" decode**. A QUIET capture → big boost → bit-0 lifted above 0.15 → decodes. Failure fingerprints: `bits` all/mostly ones, and the interval histogram **missing the short cluster** = bit-0 too weak.
+
+    **Open (unconfirmed as of 2026-06-26):** whether the weak bit-0 is *physical* (KT-cable/contact high-freq rolloff — directional, since Load-to-JX still works fine) or *content* (a denser sequence needs more bit-0s; a near-empty sequence decodes despite the weakness). **Proposed fix direction:** auto-cal should aim LOW, not at a hot peak — or decode-verify during calibration and settle on the level that actually decodes (what the pre-auto-cal two-pass flow effectively did). See pitfalls [#11](boost), [#12](gain-scaled thresholds), [#15](sequence dump duration), [#17](48 kHz advisory).
+
 ## When in doubt
 
 - Read the spec doc before designing a new feature.
