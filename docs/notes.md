@@ -6,7 +6,7 @@ permalink: /notes/
 
 ## disPATCHES
 
-<p class="notes-subhead">Notes on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
+<p class="notes-subhead">My thoughts on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
 
 <div class="notes-list">
 {% if site.posts.size > 0 %}
