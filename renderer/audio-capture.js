@@ -24,38 +24,40 @@
   // The strict constraint set — all the audio processing disabled.
   // FSK captures NEED this; without it, the carrier comes back
   // partially filtered and every checksum fails.
-  function strictConstraints(deviceId) {
-    return {
-      audio: {
-        deviceId:                 deviceId ? { exact: deviceId } : undefined,
-        echoCancellation:         { exact: false },
-        noiseSuppression:         { exact: false },
-        autoGainControl:          { exact: false },
-        googEchoCancellation:     false,
-        googAutoGainControl:      false,
-        googNoiseSuppression:     false,
-        googHighpassFilter:       false,
-        googTypingNoiseDetection: false,
-        channelCount:             1,
-        sampleRate:               44100,
-      },
+  function strictConstraints(deviceId, sampleRate) {
+    const audio = {
+      deviceId:                 deviceId ? { exact: deviceId } : undefined,
+      echoCancellation:         { exact: false },
+      noiseSuppression:         { exact: false },
+      autoGainControl:          { exact: false },
+      googEchoCancellation:     false,
+      googAutoGainControl:      false,
+      googNoiseSuppression:     false,
+      googHighpassFilter:       false,
+      googTypingNoiseDetection: false,
+      channelCount:             1,
     };
+    // Request the device's NATIVE rate so Chromium delivers it un-resampled.
+    // Chromium's no-constraint DEFAULT is 44.1k — which real-time-resamples a
+    // 48k device and jitters the FSK timing (pitfall #27). So we must name the
+    // native rate explicitly (caller passes it from the CoreAudio probe).
+    if (sampleRate) audio.sampleRate = sampleRate;
+    return { audio };
   }
 
   // The soft constraint set — Chromium treats `false` as a preference
   // here, not an absolute. The device may still apply some processing.
   // Used only as a last resort when strict throws OverconstrainedError.
-  function softConstraints(deviceId) {
-    return {
-      audio: {
-        deviceId:         deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl:  false,
-        channelCount:     1,
-        sampleRate:       44100,
-      },
+  function softConstraints(deviceId, sampleRate) {
+    const audio = {
+      deviceId:         deviceId ? { exact: deviceId } : undefined,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl:  false,
+      channelCount:     1,
     };
+    if (sampleRate) audio.sampleRate = sampleRate;   // native rate (see strictConstraints)
+    return { audio };
   }
 
   // Acquire a MediaStream for the given audio input device, preferring
@@ -82,16 +84,18 @@
    *
    * @param {string | undefined} deviceId Specific device or undefined
    *   for system default
+   * @param {number} [sampleRate] Device native rate to request (Hz) so
+   *   Chromium delivers it un-resampled. Omit → Chromium's 44.1k default.
    * @returns {Promise<AcquireResult>}
    * @throws {Error} If both strict and soft getUserMedia fail
    */
-  async function acquireRawAudioStream(deviceId) {
+  async function acquireRawAudioStream(deviceId, sampleRate) {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia(strictConstraints(deviceId));
+      const mediaStream = await navigator.mediaDevices.getUserMedia(strictConstraints(deviceId, sampleRate));
       return { mediaStream, usedFallback: false };
     } catch (err) {
       console.warn('Strict raw-audio constraints failed, falling back:', err && err.name);
-      const mediaStream = await navigator.mediaDevices.getUserMedia(softConstraints(deviceId));
+      const mediaStream = await navigator.mediaDevices.getUserMedia(softConstraints(deviceId, sampleRate));
       return { mediaStream, usedFallback: true };
     }
   }
@@ -168,8 +172,8 @@
 
     // ScriptProcessor for PCM capture. Deprecated in favor of
     // AudioWorklet but vastly simpler and still works in Electron 35.
-    // ~93 ms latency at bufferSize=4096 / 44.1 kHz — fine for offline
-    // capture (we don't monitor the signal, just record it).
+    // ~85–93 ms latency at bufferSize=4096 (depends on the device's
+    // native rate — fine for offline capture; we record, don't monitor).
     const BUFFER_SIZE = 4096;
     const processorNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
     const captured = [];
@@ -252,13 +256,21 @@
     onTick,
     onAutoStop,
   }) {
-    // AudioContext — request 44.1kHz, fall back to system default if
-    // the constructor rejects (older Chromium quirks). We read
-    // audioContext.sampleRate at WAV-write time so the header matches
-    // whatever rate Chromium actually delivered.
+    // AudioContext at the device's NATIVE capture rate so the
+    // MediaStreamSource is NOT resampled. Forcing 44.1k made Chromium
+    // real-time-resample the KT's native 48k input, ~doubling the FSK
+    // cycle-timing jitter and dropping sequence pages (pitfall #27).
+    // Everything downstream (WAV header, trim bit-math) reads
+    // audioContext.sampleRate, so JP is sample-rate-agnostic. Falls back
+    // to the platform default if the native rate is unreadable or the
+    // constructor rejects it.
     let audioContext;
+    const _track = mediaStream.getAudioTracks ? mediaStream.getAudioTracks()[0] : null;
+    const nativeRate = _track && _track.getSettings ? _track.getSettings().sampleRate : undefined;
     try {
-      audioContext = new AudioContext({ sampleRate: 44100 });
+      audioContext = (typeof nativeRate === 'number' && nativeRate > 0)
+        ? new AudioContext({ sampleRate: nativeRate })
+        : new AudioContext();
     } catch {
       audioContext = new AudioContext();
     }

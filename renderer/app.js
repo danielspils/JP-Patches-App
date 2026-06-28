@@ -7588,27 +7588,18 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   const deviceSection = document.createElement('div');
   deviceSection.className = 'record-jx-section';
 
-  // Two-element sample-rate notice. Both elements hidden on the happy
-  // path (device IS at 44.1 — no nagging), both revealed when mismatched.
-  //
-  //   Row 1 (deviceHeaderRow):
-  //     INPUT DEVICE: [left]   ·   JP Patches prefers 44.1kHz [right, FLASHING]
-  //   Row 2 (devicePickerRow):
-  //     <select> [grows]                              ·   48kHz [right, italic amber]
-  //
-  // The FLASH on the preferred-text is the warning signal — italic amber
-  // is informational on its own, the pulse turns it into "fix me." The
-  // rate readout next to the picker tells the user what their device
-  // IS at so they don't have to switch to Audio MIDI Setup just to
-  // diagnose. Amber `#c39a3a` matches the design-system "approaching
-  // limit" token.
+  // INPUT DEVICE header. The old sample-rate advisory (devicePreferred /
+  // deviceActual) is kept for layout but permanently hidden — JP is
+  // sample-rate-agnostic now (pitfall #27): it captures at the device's
+  // native rate, so there is no rate to nag about. See setSampleRateWarning
+  // (now a no-op) below.
   const deviceHeaderRow = document.createElement('div');
   deviceHeaderRow.className = 'record-jx-device-header';
   const deviceLabel = document.createElement('label');
   deviceLabel.textContent = 'INPUT DEVICE:';
   const devicePreferred = document.createElement('span');
   devicePreferred.className = 'record-jx-device-preferred';
-  devicePreferred.textContent = 'JP Patches prefers 44.1kHz';
+  devicePreferred.textContent = '';
   devicePreferred.hidden = true;
   deviceHeaderRow.appendChild(deviceLabel);
   deviceHeaderRow.appendChild(devicePreferred);
@@ -8046,38 +8037,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     deviceNoticeTimer = setTimeout(() => { deviceNotice.hidden = true; }, 10000);
   };
 
-  // SEPARATE persistent warning for sample-rate mismatch. Stays
-  // visible until the user fixes the issue (or selects a different
-  // device) because a wrong sample rate WILL silently corrupt every
-  // capture — Chromium resamples device-rate → 44.1 kHz on the fly,
-  // and the resampling artifacts scatter junk frequencies across the
-  // FSK band, breaking decoder bit-timing lock. We learned this the
-  // hard way 2026-05-25 after hours of chasing calibration ghosts:
-  // the KT USB Audio interface was at 48/24 (its macOS default),
-  // every capture produced WAVs that LOOKED structurally correct but
-  // were undecodable. Switching the device to 44.1/24 in Audio MIDI
-  // Setup fixed it instantly. This warning surfaces that condition
-  // proactively. Red border (not amber) to signal "this WILL cause
-  // failures" not "heads up".
-  // Sample-rate warning toggle. Drives both notice elements together:
-  //   - devicePreferred  (header right): show + flashing amber
-  //   - deviceActual     (picker right): show text "<n>kHz" amber
-  // Both hidden when the device IS at 44.1 (happy path, no nagging).
-  // The 2 s background poll auto-refreshes when the user fixes the
-  // rate in Audio MIDI Setup, so no Re-check button is needed.
-  //
-  // Param: mismatchedRateHz — the device's current rate in Hz when
-  // it doesn't match 44.1k, or null/0/falsy to clear (matched state).
-  const setSampleRateWarning = (mismatchedRateHz) => {
-    if (mismatchedRateHz) {
-      devicePreferred.hidden = false;
-      deviceActual.textContent = `${mismatchedRateHz / 1000}kHz`;
-      deviceActual.hidden = false;
-    } else {
-      devicePreferred.hidden = true;
-      deviceActual.hidden = true;
-    }
-  };
+  // The old "prefers 44.1kHz" advisory (devicePreferred / deviceActual) is
+  // gone — JP captures at the device's NATIVE rate now (pitfall #27 fix), so
+  // there is no "wrong" rate to warn about. Both elements stay created-hidden
+  // for layout stability; the warning toggle that drove them is removed.
 
   // Query the selected device's NATIVE sample rate from CoreAudio via a
   // main-process system_profiler call. We previously tried a Web Audio
@@ -8095,37 +8058,28 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   // appears in the Chromium label. Falls back to the system default
   // input when the picker is set to Chromium's "default" deviceId.
   // Failures are non-fatal: capture still runs, we just can't warn.
+  // Resolve the selected input device's NATIVE sample rate via the CoreAudio
+  // probe (system_profiler bypasses Chromium's stream cache — pitfall #17).
+  // Returns the rate in Hz, or null if it can't be identified. We request that
+  // exact rate in getUserMedia so Chromium delivers the stream UN-resampled:
+  // its no-constraint default is 44.1k, which real-time-resamples a 48k device
+  // and jitters the FSK timing → dropped sequence pages (pitfall #27).
   const probeDeviceSampleRate = async (deviceId) => {
-    if (!deviceId) return;
+    if (!deviceId) return null;
     try {
       const result = await window.api.audioInputRates();
-      if (!result || !result.ok || !Array.isArray(result.devices)) {
-        // system_profiler failed (rare) — silently skip the warning.
-        return;
-      }
+      if (!result || !result.ok || !Array.isArray(result.devices)) return null;
       const pickerLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent || '';
-      // Chromium's "default" deviceId points to whatever CoreAudio
-      // currently has marked as default input. system_profiler exposes
-      // that with isDefaultInput=true.
+      // Chromium's "default" deviceId → whatever CoreAudio marks isDefaultInput.
       let match;
-      if (deviceId === 'default') {
-        match = result.devices.find((d) => d.isDefaultInput);
-      }
-      if (!match) {
-        // Fallback / non-default: substring match by device name.
-        match = result.devices.find((d) => d.name && pickerLabel.includes(d.name));
-      }
-      if (!match || !match.sampleRate) {
-        // Couldn't identify which CoreAudio device the picker refers to.
-        // Don't warn — better silent than misleading.
-        return;
-      }
-      const nativeRate = match.sampleRate;
-      // Pass the rate so setSampleRateWarning can render the readout
-      // (e.g. "48kHz"); falsy clears the notice.
-      setSampleRateWarning(nativeRate !== 44100 ? nativeRate : null);
+      if (deviceId === 'default') match = result.devices.find((d) => d.isDefaultInput);
+      // Fallback / non-default: substring match by device name.
+      if (!match) match = result.devices.find((d) => d.name && pickerLabel.includes(d.name));
+      if (!match || !match.sampleRate) return null;
+      return match.sampleRate;
     } catch (err) {
       console.warn('Sample-rate probe failed:', err && err.message);
+      return null;
     }
   };
 
@@ -8531,16 +8485,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // Re-probe sample rate at every capture-start. Belt-and-suspenders
     // against the case where Audio MIDI Setup changed the device's rate
     // since the last probe — devicechange may not fire reliably for every
-    // sample-rate flip on every macOS/Chromium combination. The probe
-    // either renews or clears the warning. Fires async; don't await.
-    probeDeviceSampleRate(devicePicker.value);
     // Acquire the input stream with FSK-safe constraints. See
     // renderer/audio-capture.js for the strict-vs-soft constraint
     // dance + rationale. The helper handles the OverconstrainedError
     // fallback internally; we just need to surface a clean error to
     // the user if both attempts fail.
+    //
+    // First resolve the device's NATIVE rate (CoreAudio) and request it
+    // explicitly, so Chromium delivers the stream un-resampled (pitfall #27).
     try {
-      const result = await acquireRawAudioStream(devicePicker.value || undefined);
+      const desiredRate = await probeDeviceSampleRate(devicePicker.value);
+      const result = await acquireRawAudioStream(devicePicker.value || undefined, desiredRate);
       mediaStream = result.mediaStream;
       // Record what the stream ACTUALLY negotiated (DSP flags + soft-constraint
       // fallback) so a decode failure shows whether processing got left on —
