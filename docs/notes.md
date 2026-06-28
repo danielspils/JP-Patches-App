@@ -1,10 +1,10 @@
 ---
 layout: default
-title: disPATCHES
+title: Notes
 permalink: /notes/
 ---
 
-<h2 class="dispatches-heading">disPATCHES</h2>
+## NOTES
 
 <p class="notes-subhead">My thoughts on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
 
