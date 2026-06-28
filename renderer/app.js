@@ -7588,38 +7588,21 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   const deviceSection = document.createElement('div');
   deviceSection.className = 'record-jx-section';
 
-  // INPUT DEVICE header. The old sample-rate advisory (devicePreferred /
-  // deviceActual) is kept for layout but permanently hidden — JP is
-  // sample-rate-agnostic now (pitfall #27): it captures at the device's
-  // native rate, so there is no rate to nag about. See setSampleRateWarning
-  // (now a no-op) below.
+  // INPUT DEVICE header. JP is sample-rate-agnostic (pitfall #27): it captures
+  // at the device's native rate, so there is no rate advisory to show.
   const deviceHeaderRow = document.createElement('div');
   deviceHeaderRow.className = 'record-jx-device-header';
   const deviceLabel = document.createElement('label');
   deviceLabel.textContent = 'INPUT DEVICE:';
-  const devicePreferred = document.createElement('span');
-  devicePreferred.className = 'record-jx-device-preferred';
-  devicePreferred.textContent = '';
-  devicePreferred.hidden = true;
   deviceHeaderRow.appendChild(deviceLabel);
-  deviceHeaderRow.appendChild(devicePreferred);
   deviceSection.appendChild(deviceHeaderRow);
 
-  // Picker wrap: <select> with an absolutely-positioned actual-rate
-  // overlay sitting just inside the native chevron, right-justified.
-  // pointer-events: none on the overlay so clicks pass through to the
-  // picker. Background-color on the overlay matches the picker so a
-  // long device name visually clips behind the readout cleanly rather
-  // than reading through.
+  // Picker wrap: the <select> for the input device.
   const devicePickerWrap = document.createElement('div');
   devicePickerWrap.className = 'record-jx-device-picker-wrap';
   const devicePicker = document.createElement('select');
   devicePicker.className = 'record-jx-device';
-  const deviceActual = document.createElement('span');
-  deviceActual.className = 'record-jx-device-actual';
-  deviceActual.hidden = true;
   devicePickerWrap.appendChild(devicePicker);
-  devicePickerWrap.appendChild(deviceActual);
   deviceSection.appendChild(devicePickerWrap);
 
   // (Removed 2026-05-24: meterSection / meterLabel / meterOuter /
@@ -7996,18 +7979,9 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   let timerStartMs = null;          // set inside onTick when events.fskJustStarted fires; null while "Waiting…" for JX dump
   let captureAudioDiag = null;      // summarizeCaptureAudio() of the acquired stream — flows into captureLog so a decode failure shows whether DSP got left on (pitfall #26)
 
-  // Periodic re-probe of the selected device's sample rate. Catches
-  // changes made externally in Audio MIDI Setup that don't reliably
-  // emit a devicechange event on every macOS/Chromium combination.
-  // Skipped while a capture is actively running (state === 'recording')
-  // to avoid opening a competing getUserMedia stream that could disrupt
-  // the active capture. Cleared in close() to prevent leakage.
-  let sampleRatePollTimer = null;
-
   const close = () => {
     stopCapture();
     navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
-    if (sampleRatePollTimer) { clearInterval(sampleRatePollTimer); sampleRatePollTimer = null; }
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   };
@@ -8036,11 +8010,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // picker, short enough not to linger after acknowledgement.
     deviceNoticeTimer = setTimeout(() => { deviceNotice.hidden = true; }, 10000);
   };
-
-  // The old "prefers 44.1kHz" advisory (devicePreferred / deviceActual) is
-  // gone — JP captures at the device's NATIVE rate now (pitfall #27 fix), so
-  // there is no "wrong" rate to warn about. Both elements stay created-hidden
-  // for layout stability; the warning toggle that drove them is removed.
 
   // Query the selected device's NATIVE sample rate from CoreAudio via a
   // main-process system_profiler call. We previously tried a Web Audio
@@ -8219,15 +8188,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // still in the list (restored === true), don't tear down a running
     // capture or surface a notice.
     //
-    // BUT — always re-probe the sample rate. Chromium fires devicechange
-    // when a device's configuration changes (sample rate, channel count)
-    // even when the device itself stays present. Without this re-probe,
-    // a user who toggles their interface's sample rate in Audio MIDI
-    // Setup mid-session sees a stale sample-rate warning that doesn't
-    // refresh. The probe is cheap (~100ms getUserMedia round-trip) and
-    // its result either clears or refreshes the warning.
+    // Selection still present and nothing material changed — don't tear
+    // down a running capture or surface a notice. Capture happens at the
+    // device's native rate, so a mid-session rate flip needs no handling.
     if (result.restored && !result.devicesGone) {
-      probeDeviceSampleRate(devicePicker.value);
       return;
     }
 
@@ -8256,21 +8220,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   };
   navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
 
-  // Periodic re-probe (~2s) keeps the sample-rate warning fresh when
-  // the user flips the device's Format in Audio MIDI Setup mid-session.
-  // Chromium's devicechange event is documented for hot-plug but is
-  // inconsistent for sample-rate flips on macOS, so this is the safety
-  // net that guarantees the warning reflects current reality regardless
-  // of what events fire. Runs even during active recording — on macOS,
-  // CoreAudio multiplexes device access, so a brief probe stream
-  // alongside the capture doesn't interrupt it (verified 2026-05-25).
-  // The original "skip while recording" gate left users staring at
-  // stale warnings throughout their entire ~25–30 s capture window.
-  sampleRatePollTimer = setInterval(() => {
-    if (!devicePicker.value) return;
-    probeDeviceSampleRate(devicePicker.value);
-  }, 2000);
-
   // Decide first-time-calibration vs single-pass based on whether this device
   // has a saved calibrated gain in library.json. Called now (initial open) and
   // again on device-picker change. Updates instructions copy + the gain
@@ -8281,10 +8230,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   const configureForCurrentDevice = () => {
     calibrationDeviceId    = devicePicker.value;
     calibrationDeviceLabel = devicePicker.options[devicePicker.selectedIndex]?.textContent || null;
-    // Probe the new selection's native sample rate. Fires async — the
-    // warning shows once the probe resolves. Don't await: we don't
-    // want to block the modal's UI setup on the probe.
-    probeDeviceSampleRate(calibrationDeviceId);
     const cal = getCalibratedGain(calibrationDeviceId);
     // Auto-calibration: with no saved gain, default into single-pass capture
     // at DEFAULT_CAPTURE_GAIN (the decode boost finds the level) instead of
