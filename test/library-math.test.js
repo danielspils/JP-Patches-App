@@ -19,7 +19,99 @@ const {
   remapIndexAfterInsertion,
   remapIndexAfterReorder,
   latestLendingEntries,
+  countBankFingerprintMatches,
+  bestPackageMatch,
+  suggestBankName,
 } = require('../renderer/library-math.js');
+
+// ─── Phase 3A: bank ↔ package fingerprint matching ──────────────────────────
+//
+// A "patch" is any non-empty object (paramsFingerprint hashes its entries);
+// distinct `p` values yield distinct fingerprints. "banks" = [ [16], [16] ].
+function mkBanks(offset = 0) {
+  const bank = (base) => Array.from({ length: 16 }, (_, i) => ({ p: base + i }));
+  return [bank(offset), bank(offset + 1000)];
+}
+
+test('countBankFingerprintMatches — identical banks → 32/32', () => {
+  const r = countBankFingerprintMatches(mkBanks(0), mkBanks(0));
+  assert.equal(r.matched, 32);
+  assert.equal(r.total, 32);
+  assert.equal(r.perSlot[0][0], true);
+  assert.equal(r.perSlot[1][15], true);
+});
+
+test('countBankFingerprintMatches — fully disjoint banks → 0/32', () => {
+  const r = countBankFingerprintMatches(mkBanks(0), mkBanks(5000));
+  assert.equal(r.matched, 0);
+  assert.equal(r.total, 32);
+});
+
+test('countBankFingerprintMatches — one edited slot → 31/32, perSlot flags it', () => {
+  const a = mkBanks(0);
+  const b = mkBanks(0);
+  b[0][3] = { p: 99999 };          // edit C4
+  const r = countBankFingerprintMatches(a, b);
+  assert.equal(r.matched, 31);
+  assert.equal(r.perSlot[0][3], false);
+  assert.equal(r.perSlot[0][2], true);
+});
+
+test('countBankFingerprintMatches — null/missing slots never count as a match', () => {
+  const a = mkBanks(0);
+  const b = mkBanks(0);
+  a[0][0] = null;
+  b[0][0] = null;                  // both null → still NOT a match (null fp)
+  const r = countBankFingerprintMatches(a, b);
+  assert.equal(r.perSlot[0][0], false);
+  assert.equal(r.matched, 31);
+});
+
+test('bestPackageMatch — picks the package with the most matching slots', () => {
+  const active = mkBanks(0);
+  const near = mkBanks(0); near[0][0] = { p: 1 };          // 31/32
+  const far  = mkBanks(0); for (let i = 0; i < 10; i++) far[0][i] = { p: 7000 + i }; // 22/32
+  const best = bestPackageMatch(active, [{ banks: far }, { banks: near }]);
+  assert.equal(best.index, 1);     // the 31/32 package
+  assert.equal(best.matched, 31);
+});
+
+test('bestPackageMatch — ties resolve to the earliest (top-of-list) package', () => {
+  const active = mkBanks(0);
+  const best = bestPackageMatch(active, [{ banks: mkBanks(0) }, { banks: mkBanks(0) }]);
+  assert.equal(best.index, 0);
+});
+
+test('bestPackageMatch — no packages / no match → null', () => {
+  assert.equal(bestPackageMatch(mkBanks(0), []), null);
+  assert.equal(bestPackageMatch(mkBanks(0), [{ banks: mkBanks(9000) }]), null);
+  assert.equal(bestPackageMatch(mkBanks(0), null), null);
+});
+
+test('bestPackageMatch — skips malformed packages without throwing', () => {
+  const best = bestPackageMatch(mkBanks(0), [null, { nope: true }, { banks: mkBanks(0) }]);
+  assert.equal(best.index, 2);
+});
+
+test('suggestBankName — full match → plain name, edited:false', () => {
+  assert.deepEqual(suggestBankName('Spils Sounds', 32, 32), { name: 'Spils Sounds', edited: false });
+});
+
+test('suggestBankName — at/above 50% → "(edited)"', () => {
+  assert.deepEqual(suggestBankName('Spils Sounds', 16, 32), { name: 'Spils Sounds (edited)', edited: true });
+  assert.deepEqual(suggestBankName('Spils Sounds', 31, 32), { name: 'Spils Sounds (edited)', edited: true });
+});
+
+test('suggestBankName — below threshold → null (caller uses generic name)', () => {
+  assert.equal(suggestBankName('Spils Sounds', 15, 32), null);
+});
+
+test('suggestBankName — custom threshold + guards', () => {
+  assert.equal(suggestBankName('X', 24, 32, 0.8), null);                 // 75% < 80%
+  assert.deepEqual(suggestBankName('X', 26, 32, 0.8), { name: 'X (edited)', edited: true });
+  assert.equal(suggestBankName('', 32, 32), null);                       // no name
+  assert.equal(suggestBankName('X', 0, 0), null);                        // no slots
+});
 
 // ─── paramsFingerprint ──────────────────────────────────────────────────────
 

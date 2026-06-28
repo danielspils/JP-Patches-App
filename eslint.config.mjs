@@ -50,6 +50,9 @@ export default [
         remapIndexAfterInsertion: 'readonly',
         remapIndexAfterReorder:   'readonly',
         latestLendingEntries:     'readonly',
+        countBankFingerprintMatches: 'readonly',
+        bestPackageMatch:         'readonly',
+        suggestBankName:          'readonly',
 
         // Globals exposed by renderer/lending.js
         buildLendPayload:         'readonly',

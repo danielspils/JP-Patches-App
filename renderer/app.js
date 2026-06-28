@@ -1604,6 +1604,13 @@ let pendingSaveAnimationId = null;
 // "{origin} from {sourceLabel}" so the user can see at a glance which library
 // the patch was lifted from.
 let activeBanksSourceLabel = null;
+// Phase 3A: when a freshly-imported bank set is recognized as a round-trip
+// of an existing library package (by fingerprint), this holds the name to
+// suggest when the user saves it to the library ("Spils Sounds" on an exact
+// match, "Spils Sounds (edited)" on a partial one). null = no match → the
+// generic dated name. Set in applyWavData; cleared on any other active-bank
+// change (e.g. loading a package).
+let activeBanksSuggestedName = null;
 
 // ═══════════════════════════════════════════════════════════════
 // Undo / Redo (Cmd+Z / Cmd+Shift+Z)
@@ -1834,7 +1841,7 @@ function saveSnapshotInBackground(customName) {
   const pkg = {
     id:          now.toISOString(),
     defaultName: packageDefaultName(now),
-    customName:  (customName || '').trim(),
+    customName:  (customName || activeBanksSuggestedName || '').trim(),
     createdAt:   now.toISOString(),
     savedAt:     now.toISOString(),
     banks:       JSON.parse(JSON.stringify(patches.banks)),
@@ -1960,6 +1967,11 @@ function restoreNamesFromHistory(slotMeta, banks) {
 function ensureLibraryShape() {
   if (!library) library = {};
   if (!library.history || typeof library.history !== 'object') library.history = {};
+  // Phase 3A: provenance for edited patches, keyed by the patch's NEW
+  // fingerprint → { derivedFrom, derivedFromLibrary, ts }. Separate from
+  // library.history (which holds the mutable name) so a later rename never
+  // erases the lineage shown in the (i) info box. Append-only by nature.
+  if (!library.lineage || typeof library.lineage !== 'object') library.lineage = {};
   if (!library.slotMeta || typeof library.slotMeta !== 'object') library.slotMeta = {};
   // v0.7.0: pinned cable-transmission output device. null = fall back to
   // system default (current pre-v0.7 behavior). String = setSinkId target
@@ -3838,11 +3850,12 @@ function renderPatchList() {
   // from-JX import (or any tape-capture load), the snapshot only lives
   // in active state until the user clicks "save C/D banks to library."
   // Surface that friction so users don't lose their import by switching
-  // libraries before saving. The label switches off the "JX-3P tape
-  // capture · …" prefix once the user saves (activeBanksSourceLabel
-  // gets reassigned to the new package's name), so the hint
-  // self-dismisses on save.
-  if (activeBanksSourceLabel && activeBanksSourceLabel.startsWith('JX-3P tape capture')) {
+  // libraries before saving. Fires for a raw capture (label still carries
+  // the "JX-3P tape capture · …" prefix) OR a recognized round-trip (label
+  // was swapped to the package name but activeBanksSuggestedName is set).
+  // handleSaveBanksToLibrary clears both on save, so the hint self-dismisses.
+  if ((activeBanksSourceLabel && activeBanksSourceLabel.startsWith('JX-3P tape capture'))
+      || activeBanksSuggestedName) {
     const hint = document.createElement('div');
     hint.className = 'save-banks-hint';
     hint.textContent = 'Your JX-3P import is in active C/D — save here to keep a snapshot.';
@@ -4490,7 +4503,10 @@ function handleSaveBanksToLibrary() {
   const pkg = {
     id: now.toISOString(),
     defaultName: packageDefaultName(now),
-    customName: '',
+    // Phase 3A: a recognized round-trip pre-fills the package name
+    // ("Spils Sounds" / "Spils Sounds (edited)") instead of leaving the
+    // generic dated default. The user can rename freely from here.
+    customName: activeBanksSuggestedName || '',
     createdAt: now.toISOString(),
     savedAt: now.toISOString(),
     banks: JSON.parse(JSON.stringify(patches.banks)),
@@ -4499,6 +4515,11 @@ function handleSaveBanksToLibrary() {
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);
   if (selPackage !== null) selPackage += 1;  // existing selection shifts down
+  // The active banks now ARE this saved package — relabel them to its name
+  // and consume any round-trip suggestion, so the "save your import" hint
+  // self-dismisses instead of nagging about an already-saved snapshot.
+  activeBanksSourceLabel   = pkg.customName || pkg.defaultName;
+  activeBanksSuggestedName = null;
   saveLibraryDebounced();
 
   // Switch to Library tab > Tones sub-tab so the new entry is visible.
@@ -4884,6 +4905,7 @@ function loadPackageIntoActiveBanks(pkg) {
     banks:       patches && patches.banks ? JSON.parse(JSON.stringify(patches.banks)) : null,
     slotMeta:    library && library.slotMeta ? JSON.parse(JSON.stringify(library.slotMeta)) : null,
     sourceLabel: activeBanksSourceLabel,
+    suggestedName: activeBanksSuggestedName,
     selBank,
     selSlot,
   };
@@ -4892,6 +4914,10 @@ function loadPackageIntoActiveBanks(pkg) {
   library.slotMeta = JSON.parse(JSON.stringify(pkg.slotMeta || {}));
   ensureLibraryShape();
   activeBanksSourceLabel = pkg.customName || pkg.defaultName || null;
+  // Loading a package is not a round-trip import — drop any pending
+  // Phase 3A suggestion so a later "save active banks" uses the normal
+  // dated default, not a stale recognized name.
+  activeBanksSuggestedName = null;
   // Stamp source / origin info onto each slot's slotMeta:
   //   sourceLabel    — the most-recent library load (always updated)
   //   originLibrary  — the FIRST library this patch lived in (set once,
@@ -4940,6 +4966,7 @@ function loadPackageIntoActiveBanks(pkg) {
     banks:       JSON.parse(JSON.stringify(patches.banks)),
     slotMeta:    JSON.parse(JSON.stringify(library.slotMeta)),
     sourceLabel: activeBanksSourceLabel,
+    suggestedName: activeBanksSuggestedName,
     selBank:     'C',
     selSlot:     0,
   };
@@ -4957,6 +4984,7 @@ function restoreActiveState(snap) {
   if (snap.banks)    patches.banks    = JSON.parse(JSON.stringify(snap.banks));
   if (snap.slotMeta) library.slotMeta = JSON.parse(JSON.stringify(snap.slotMeta));
   activeBanksSourceLabel = snap.sourceLabel;
+  activeBanksSuggestedName = snap.suggestedName || null;
   selBank = snap.selBank;
   selSlot = snap.selSlot;
   document.querySelectorAll('.tab').forEach((t) => {
@@ -6337,6 +6365,43 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
       if (embedded && embedded.createdAt)     m.createdAt     = embedded.createdAt;
     });
   });
+  // Phase 3A — recognize a round-trip. If these imported banks fingerprint-
+  // match an existing library package, reuse its name (verbatim on a full
+  // 32/32 match, "(edited)" when ≥50% of slots match) instead of a generic
+  // dated name, and attribute the changed slots positionally so a tweaked
+  // "Square Pants" comes back as "Square Pants (edited)" carrying its lineage.
+  activeBanksSuggestedName = null;
+  const _match = bestPackageMatch(patches.banks, library.packages || []);
+  if (_match) {
+    const _pkg = library.packages[_match.index];
+    const _pkgName = (_pkg && (_pkg.customName || _pkg.defaultName)) || null;
+    const _suggestion = suggestBankName(_pkgName, _match.matched, _match.total);
+    if (_suggestion) {
+      activeBanksSuggestedName = _suggestion.name;
+      activeBanksSourceLabel   = _suggestion.name;   // "arrives as Spils Sounds (edited)"
+      ['C', 'D'].forEach((bank, bankIdx) => {
+        const _pkgSlots = (_pkg.slotMeta && _pkg.slotMeta[bank]) || [];
+        for (let s = 0; s < 16; s++) {
+          const m = library.slotMeta[bank][s];
+          if (!m) continue;
+          m.sourceLabel = _suggestion.name;            // attribute the recognized bank to the package
+          // Changed slots only (fingerprint didn't hit history, still
+          // unnamed): inherit the package slot's name + "(edited)", anchored
+          // to the NEW fingerprint so it sticks; lineage in library.lineage
+          // (separate from the mutable name, so a rename never erases it).
+          if (!_suggestion.edited || _match.perSlot[bankIdx][s] || m.name) continue;
+          const _slotName = _pkgSlots[s] && _pkgSlots[s].name;
+          if (!_slotName) continue;
+          const _editedName = _slotName + ' (edited)';
+          m.name = _editedName;
+          const fp = paramsFingerprint(patches.banks[bankIdx][s]);
+          if (!fp) continue;
+          library.history[fp] = { name: _editedName, origin: m.origin || slotKey(bank, s), ts: Date.now() };
+          library.lineage[fp] = { derivedFrom: _slotName, derivedFromLibrary: _pkgName, ts: Date.now() };
+        }
+      });
+    }
+  }
   // Fresh capture / import = fresh clean baseline for modified-indicator.
   snapshotCleanParamsAll();
   saveLibraryDebounced();   // persist new active state + slotMeta + clean baseline
@@ -11316,6 +11381,19 @@ function showPatchInfo(bank, slot) {
   const lines = [];
   const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
   if (libLabel) lines.push(`**Library:** ${libLabel}`);
+
+  // Phase 3A provenance: this patch arrived as a tweaked copy of a named
+  // patch in a recognized package (its fingerprint didn't match, but the
+  // bank did). "Edited from" is deliberately soft — the slot match is
+  // positional, so a reorder on the JX could make it a best guess rather
+  // than a certainty. Lineage persists across renames (separate map).
+  const lineage = library.lineage && library.lineage[paramsFingerprint(paramsAt(bank, slot))];
+  if (lineage && lineage.derivedFrom) {
+    const from = lineage.derivedFromLibrary
+      ? `${lineage.derivedFrom} · ${lineage.derivedFromLibrary}`
+      : lineage.derivedFrom;
+    lines.push(`**Edited from:** ${from}`);
+  }
 
   // The rest comes from the source package, when the label matches one.
   const pkg = (source && library && Array.isArray(library.packages))
