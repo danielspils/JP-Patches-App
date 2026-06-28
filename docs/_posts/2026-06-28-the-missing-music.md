@@ -1,5 +1,5 @@
 ---
-title: "Missing Music: how I fixed tape dumps from a 1983 synth."
+title: "Missing Music: how I fixed tape dumps."
 date: 2026-06-28
 ---
 
