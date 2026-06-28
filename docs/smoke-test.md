@@ -178,9 +178,7 @@ Mark each row ✅ pass / ❌ fail / ⏭️ skip (with reason).
 | Wait for auto-stop (or click Stop) | save modal appears, patch lands in C/D | |
 | **No red error banners during or after capture** | global error stack stays empty | |
 | Repeat capture 3× in same session without reload | all three succeed | |
-| Sample-rate notice: open Audio MIDI Setup, change KT to 48 kHz | amber notice appears within ~2 s | |
-| Re-check button on the notice | re-probes immediately | |
-| Switch KT back to 44.1 | notice clears (if device input is reconfigurable) | |
+| Sample rate: with KT at 48 kHz (its default), capture a dense sequence (e.g. gnarly) | decodes 8/8 — NO sample-rate notice (JP captures at the device's native rate, pitfall #27) | |
 | Sequence capture: Tape Memory → Sequencer → Save from JX-3P | same flow as tones; save-sequence modal appears | |
 | Recalibrate path: trigger a "didn't decode cleanly" failure, click Recalibrate | calibration modal opens with PRIOR gain (not 1×) | |
 

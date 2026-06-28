@@ -247,8 +247,8 @@
   const FREQ_BOOST_TARGET   = 0.92;   // mirror jx3p codec AUTO_BOOST_TARGET
   const FREQ_QUIESCENCE     = 0.15;   // mirror jx3p codec QUIESCENCE_THRESHOLD
   const FREQ_WIN_SEC        = 0.5;
-  const SHORT_MIN_SAMPLES   = 4;      // bit-0 crossing-interval lower bound @44.1k
-  const SHORT_MAX_SAMPLES   = 12;     // bit-0 crossing-interval upper bound
+  const SHORT_MIN_SAMPLES   = 4;      // bit-0 crossing-interval lower bound (REFERENCE @44.1k; scaled by rate below)
+  const SHORT_MAX_SAMPLES   = 12;     // bit-0 crossing-interval upper bound (REFERENCE @44.1k; scaled by rate below)
   const MIN_PEAK_SHORT      = 30;     // peak window must hold ≥ this many short cycles, else "no clear FSK"
   const MIN_DATA_SHORT      = 15;     // absolute floor for the per-window data threshold
   const DATA_SHORT_FRACTION = 0.25;   // a data window = short count > this × the peak window's count
@@ -258,7 +258,7 @@
   // (the boost) inline. Schmitt trigger: phase sticks at ±1 once the signal
   // passes ±FREQ_QUIESCENCE; a crossing is a phase flip; tally flips whose
   // interval since the previous flip lands in the bit-0 sample range.
-  function countShortCycles(samples, lo, hi, scale) {
+  function countShortCycles(samples, lo, hi, scale, shortMin, shortMax) {
     let phase = 0, lastCross = -1, shortCount = 0;
     for (let i = lo; i < hi; i++) {
       const v = samples[i] * scale;
@@ -268,7 +268,7 @@
       if (next !== 0 && next !== phase) {
         if (phase !== 0 && lastCross >= 0) {
           const iv = i - lastCross;
-          if (iv >= SHORT_MIN_SAMPLES && iv < SHORT_MAX_SAMPLES) shortCount += 1;
+          if (iv >= shortMin && iv < shortMax) shortCount += 1;
         }
         lastCross = i;
         phase = next;
@@ -299,11 +299,17 @@
     const scale = peak < FREQ_BOOST_TARGET ? FREQ_BOOST_TARGET / peak : 1;
     const win = Math.floor(FREQ_WIN_SEC * sampleRate);
     if (win <= 0) return -1;
+    // bit-0 crossing-interval bounds scale linearly with the sample rate
+    // (SHORT_MIN/MAX_SAMPLES are the @44.1k reference). Keeps the trim
+    // rate-agnostic: bit-0 ≈ 5.5 samples @44.1k, ≈ 6 @48k.
+    const rateScale = sampleRate / 44100;
+    const shortMin  = SHORT_MIN_SAMPLES * rateScale;
+    const shortMax  = SHORT_MAX_SAMPLES * rateScale;
     const numWindows = Math.floor(n / win);
     const counts = new Array(numWindows);
     let maxShort = 0;
     for (let w = 0; w < numWindows; w++) {
-      const c = countShortCycles(samples, w * win, w * win + win, scale);
+      const c = countShortCycles(samples, w * win, w * win + win, scale, shortMin, shortMax);
       counts[w] = c;
       if (c > maxShort) maxShort = c;
     }

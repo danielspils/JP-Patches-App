@@ -246,6 +246,24 @@ test('findFskStartByFreq — empty / silent / no sampleRate → -1, never throws
   assert.equal(findFskStartByFreq(tone(3675, 1.0, 0.3), 0), -1);  // bad sampleRate
 });
 
+test('findFskStartByFreq — RATE-AGNOSTIC: same idle+data structure at native 48 kHz', () => {
+  // pitfall #27: JP now captures at the device's native rate (48 kHz on the
+  // KT) instead of forcing 44.1k. The bit-0 interval bounds scale with the
+  // rate, so the trim must locate the data start at 48k just as it does at
+  // 44.1k. Idle 882 Hz, data 3675 Hz — same tones, generated at 48 kHz.
+  const SR48 = 48000;
+  const toneAt = (freqHz, durSec, amp) => {
+    const n = Math.floor(durSec * SR48);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = amp * Math.sin(2 * Math.PI * freqHz * i / SR48);
+    return out;
+  };
+  const all = concatF32(toneAt(882, 2.0, 0.3), toneAt(3675, 3.0, 0.3));
+  const ts = findFskStartByFreq(all, SR48);
+  assert.ok(ts > 0 && ts < 2.0 * SR48, `48 kHz capture should trim into the idle, got ${ts}`);
+  assert.ok(Math.abs(ts - 1.0 * SR48) <= 0.5 * SR48, `trimStart ${ts} should be ~1 s at 48 kHz`);
+});
+
 // ── floatToInt16WithPeak ────────────────────────────────────────────
 
 test('floatToInt16WithPeak — empty buffer yields zero-length pcm and peak 0', () => {
