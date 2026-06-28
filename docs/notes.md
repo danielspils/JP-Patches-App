@@ -4,7 +4,7 @@ title: disPATCHES
 permalink: /notes/
 ---
 
-## disPATCHES
+<h2 class="dispatches-heading">disPATCHES</h2>
 
 <p class="notes-subhead">My thoughts on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
 
