@@ -5688,8 +5688,8 @@ function lendingInfoLines(item) {
   const l = item && item.lending;
   if (!l || !l.submittedAt) return [];
   const lines = [];
-  if (l.author) lines.push(`**Created by:** ${l.author}`);
-  if (l.hometown) lines.push(`**Hometown:** ${l.hometown}`);
+  const by = [l.author, l.hometown].filter(Boolean).join(' · ');
+  if (by) lines.push(`**By:** ${by}`);
   // Lent-to-library details come last (same ordering as Patch History).
   const when = infoDate(l.submittedAt);
   if (when) lines.push(`**Lent to library:** ${when}`);
@@ -5707,12 +5707,12 @@ function borrowedInfoLines(item) {
   const b = item && item.borrowed;
   if (!b || !b.borrowedAt) return [];
   const lines = [];
-  // "Created by", not "Lender" — the consent checkbox makes every
-  // submission an explicit own-work claim, so the lender IS the
-  // creator, and one label serves both sides (Daniel, 2026-06-11).
-  // Person rows first, transaction rows after — lend-side convention.
-  if (b.lender) lines.push(`**Created by:** ${b.lender}`);
-  if (b.hometown) lines.push(`**Hometown:** ${b.hometown}`);
+  // "By:" (not "Lender") — the consent checkbox makes every submission an
+  // explicit own-work claim, so the lender IS the creator; one label serves
+  // both lend + borrow sides, folding in hometown (Daniel, 2026-06-11/28).
+  // Person row first, transaction rows after — lend-side convention.
+  const by = [b.lender, b.hometown].filter(Boolean).join(' · ');
+  if (by) lines.push(`**By:** ${by}`);
   const when = infoDate(b.borrowedAt);
   if (when) lines.push(`**Borrowed on:** ${when}`);
   if (b.notes) lines.push(`**Lend notes:** ${b.notes}`);
@@ -11420,14 +11420,11 @@ function showImportError(message, title = 'Import error') {
 }
 
 // Patch info popover (triggered by the (i) icon in C/D bank rows).
-// Labeled provenance rows (hierarchy per Daniel, 2026-06-11); empty
-// fields are skipped, never placeholdered:
-//   Name:            C1 / Square Pants
-//   Library:         Spils Sounds            (source package, ext stripped)
-//   Created:         May 10, 2026            (that package's creation date)
-//   Lent to library: June 1, 2026            (if the package was lent)
-//   Creator:         Daniel Spils            (lend author OR borrow lender)
-//   Hometown:        Anchorage, AK           (ditto)
+// Provenance hierarchy (Phase 3A, Daniel 2026-06-28): when the bank and/or
+// patch changed since import, show LIBRARY HISTORY + PATCH HISTORY blocks
+// (each Source → Current); otherwise collapse to the simple labeled rows
+// (Library / Created / By / Lent to library / Origin). Empty fields are
+// skipped, never placeholdered. "By:" folds creator + hometown onto one line.
 function showPatchInfo(bank, slot) {
   const key = slotKey(bank, slot);
   const name = patchName(bank, slot);
@@ -11463,15 +11460,16 @@ function showPatchInfo(bank, slot) {
   const b = pkg && pkg.borrowed;
   const creator  = (l && l.author)   || (b && b.lender)   || null;
   const hometown = (l && l.hometown) || (b && b.hometown) || null;
+  // "By: Daniel · Anchorage" — creator + hometown share one line (Daniel, 2026-06-28).
+  const by = [creator, hometown].filter(Boolean).join(' · ');
   const lent = l && l.submittedAt && infoDate(l.submittedAt);
 
   let body;
   if (libBlock || patchBlock) {
     const blocks = [libBlock, patchBlock].filter(Boolean);
     const extras = [];
-    if (creator)  extras.push(`**Created by:** ${creator}`);
-    if (hometown) extras.push(`**Hometown:** ${hometown}`);
-    if (lent)     extras.push(`**Lent to library:** ${lent}`);
+    if (by)   extras.push(`**By:** ${by}`);
+    if (lent) extras.push(`**Lent to library:** ${lent}`);
     if (extras.length) blocks.push(extras.join('\n'));
     body = blocks.join('\n\n');
   } else {
@@ -11480,8 +11478,7 @@ function showPatchInfo(bank, slot) {
     if (libLabel) lines.push(`**Library:** ${libLabel}`);
     const created = pkg && infoDate(pkg.createdAt || pkg.savedAt);
     if (created)  lines.push(`**Created:** ${created}`);
-    if (creator)  lines.push(`**Created by:** ${creator}`);
-    if (hometown) lines.push(`**Hometown:** ${hometown}`);
+    if (by)       lines.push(`**By:** ${by}`);
     if (lent)     lines.push(`**Lent to library:** ${lent}`);
     // Origin row only when the patch moved or was renamed.
     if (origin || originalName) {
