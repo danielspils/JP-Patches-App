@@ -1611,6 +1611,12 @@ let activeBanksSourceLabel = null;
 // generic dated name. Set in applyWavData; cleared on any other active-bank
 // change (e.g. loading a package).
 let activeBanksSuggestedName = null;
+// Phase 3A provenance: the PARENT package a round-trip was recognized as,
+// carried from import (applyWavData) to the moment the user saves the bank
+// to the library, where it's stamped onto the new package as its Source.
+// Shape: { parentName, parentCreatedAt, editedCount } | null. Cleared on any
+// other active-bank change, same as activeBanksSuggestedName.
+let activeBanksRoundTripParent = null;
 
 // ═══════════════════════════════════════════════════════════════
 // Undo / Redo (Cmd+Z / Cmd+Shift+Z)
@@ -1846,6 +1852,11 @@ function saveSnapshotInBackground(customName) {
     savedAt:     now.toISOString(),
     banks:       JSON.parse(JSON.stringify(patches.banks)),
     slotMeta:    JSON.parse(JSON.stringify(library.slotMeta || {})),
+    ...(activeBanksRoundTripParent ? {
+      derivedFrom:          activeBanksRoundTripParent.parentName,
+      derivedFromCreatedAt: activeBanksRoundTripParent.parentCreatedAt,
+      editedCount:          activeBanksRoundTripParent.editedCount,
+    } : {}),
   };
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);
@@ -4511,6 +4522,13 @@ function handleSaveBanksToLibrary() {
     savedAt: now.toISOString(),
     banks: JSON.parse(JSON.stringify(patches.banks)),
     slotMeta: JSON.parse(JSON.stringify(library.slotMeta || {})),
+    // Phase 3A: if this bank was a recognized round-trip, record its Source
+    // package so the (i) box can show Library history (Source → Current).
+    ...(activeBanksRoundTripParent ? {
+      derivedFrom:          activeBanksRoundTripParent.parentName,
+      derivedFromCreatedAt: activeBanksRoundTripParent.parentCreatedAt,
+      editedCount:          activeBanksRoundTripParent.editedCount,
+    } : {}),
   };
   if (!Array.isArray(library.packages)) library.packages = [];
   library.packages.unshift(pkg);
@@ -4518,8 +4536,9 @@ function handleSaveBanksToLibrary() {
   // The active banks now ARE this saved package — relabel them to its name
   // and consume any round-trip suggestion, so the "save your import" hint
   // self-dismisses instead of nagging about an already-saved snapshot.
-  activeBanksSourceLabel   = pkg.customName || pkg.defaultName;
-  activeBanksSuggestedName = null;
+  activeBanksSourceLabel     = pkg.customName || pkg.defaultName;
+  activeBanksSuggestedName   = null;
+  activeBanksRoundTripParent = null;
   saveLibraryDebounced();
 
   // Switch to Library tab > Tones sub-tab so the new entry is visible.
@@ -4906,6 +4925,7 @@ function loadPackageIntoActiveBanks(pkg) {
     slotMeta:    library && library.slotMeta ? JSON.parse(JSON.stringify(library.slotMeta)) : null,
     sourceLabel: activeBanksSourceLabel,
     suggestedName: activeBanksSuggestedName,
+    roundTripParent: activeBanksRoundTripParent,
     selBank,
     selSlot,
   };
@@ -4917,7 +4937,8 @@ function loadPackageIntoActiveBanks(pkg) {
   // Loading a package is not a round-trip import — drop any pending
   // Phase 3A suggestion so a later "save active banks" uses the normal
   // dated default, not a stale recognized name.
-  activeBanksSuggestedName = null;
+  activeBanksSuggestedName   = null;
+  activeBanksRoundTripParent = null;
   // Stamp source / origin info onto each slot's slotMeta:
   //   sourceLabel    — the most-recent library load (always updated)
   //   originLibrary  — the FIRST library this patch lived in (set once,
@@ -4967,6 +4988,7 @@ function loadPackageIntoActiveBanks(pkg) {
     slotMeta:    JSON.parse(JSON.stringify(library.slotMeta)),
     sourceLabel: activeBanksSourceLabel,
     suggestedName: activeBanksSuggestedName,
+    roundTripParent: activeBanksRoundTripParent,
     selBank:     'C',
     selSlot:     0,
   };
@@ -4985,6 +5007,7 @@ function restoreActiveState(snap) {
   if (snap.slotMeta) library.slotMeta = JSON.parse(JSON.stringify(snap.slotMeta));
   activeBanksSourceLabel = snap.sourceLabel;
   activeBanksSuggestedName = snap.suggestedName || null;
+  activeBanksRoundTripParent = snap.roundTripParent || null;
   selBank = snap.selBank;
   selSlot = snap.selSlot;
   document.querySelectorAll('.tab').forEach((t) => {
@@ -5643,6 +5666,19 @@ function infoDate(stamp) {
     : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+// Phase 3A: a "Source → Current" history block for the info modals, rendered
+// in the modal's tiny markdown (**bold** header, *em* row labels). Returns ''
+// when nothing changed (source name === current name) so the caller collapses
+// to the simple view. Dates are optional and appended as "· <date>".
+function provenanceBlock(label, srcName, srcTs, curName, curTs) {
+  if (!srcName || !curName || srcName === curName) return '';
+  const sd = srcTs ? infoDate(srcTs) : null;
+  const cd = curTs ? infoDate(curTs) : null;
+  return `**${label}**\n`
+    + `*Source* ${srcName}${sd ? ` · ${sd}` : ''}\n`
+    + `*Current* ${curName}${cd ? ` · ${cd}` : ''}`;
+}
+
 // The info modals (Patch history, Package info, Sequence info) share a
 // formal row vocabulary (Daniel, 2026-06-11) — `**Label:** value`, one
 // fact per row, empty fields skipped:
@@ -5695,6 +5731,13 @@ function showPackageInfo(idx) {
   const pkgName = pkg.customName || pkg.defaultName || '(unnamed package)';
   const lines = [];
 
+  // Phase 3A: Library history (Source parent → Current this bank) when this
+  // package was a recognized round-trip; '' (collapses) for a normal save.
+  const libBlock = provenanceBlock('LIBRARY HISTORY',
+    pkg.derivedFrom, pkg.derivedFromCreatedAt, pkgName, pkg.createdAt || pkg.savedAt);
+  const editedLine = (libBlock && typeof pkg.editedCount === 'number' && pkg.editedCount > 0)
+    ? `*${pkg.editedCount} of 32 patches edited*` : '';
+
   // Loaded badge — shown ONLY when every slot's fingerprint matches the
   // active C/D banks ("is this what I'm hearing right now?"). The
   // negative case is deliberately silent: a different package differing
@@ -5744,9 +5787,12 @@ function showPackageInfo(idx) {
   }
 
   // Same createdAt-over-savedAt preference as the sequence info modal —
-  // savedAt resets every time a copy lands (e.g. on borrow).
-  const pkgCreated = infoDate(pkg.createdAt || pkg.savedAt);
-  if (pkgCreated) lines.push(`**Created:** ${pkgCreated}`);
+  // savedAt resets every time a copy lands (e.g. on borrow). Skipped when the
+  // Library-history block is shown — its Current row already carries the date.
+  if (!libBlock) {
+    const pkgCreated = infoDate(pkg.createdAt || pkg.savedAt);
+    if (pkgCreated) lines.push(`**Created:** ${pkgCreated}`);
+  }
 
   lines.push(...borrowedInfoLines(pkg));
   lines.push(...lendingInfoLines(pkg));
@@ -5756,7 +5802,9 @@ function showPackageInfo(idx) {
     // Info" label); the loaded state stays as the italic subtitle.
     title: pkgName,
     subtitle: loadedNote.trim() || undefined,
-    body: lines.join('\n'),
+    body: libBlock
+      ? [libBlock + (editedLine ? `\n${editedLine}` : ''), lines.join('\n')].filter(Boolean).join('\n\n')
+      : lines.join('\n'),
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
@@ -6370,15 +6418,25 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
   // 32/32 match, "(edited)" when ≥50% of slots match) instead of a generic
   // dated name, and attribute the changed slots positionally so a tweaked
   // "Square Pants" comes back as "Square Pants (edited)" carrying its lineage.
-  activeBanksSuggestedName = null;
+  activeBanksSuggestedName   = null;
+  activeBanksRoundTripParent = null;
   const _match = bestPackageMatch(patches.banks, library.packages || []);
   if (_match) {
     const _pkg = library.packages[_match.index];
     const _pkgName = (_pkg && (_pkg.customName || _pkg.defaultName)) || null;
     const _suggestion = suggestBankName(_pkgName, _match.matched, _match.total);
     if (_suggestion) {
-      activeBanksSuggestedName = _suggestion.name;
-      activeBanksSourceLabel   = _suggestion.name;   // "arrives as Spils Sounds (edited)"
+      const _now    = Date.now();
+      // Patches carry no birth date of their own, so the bank's created-date
+      // is the Source date for both the library AND its patches (Phase 3A).
+      const _srcTs  = _pkg.createdAt || _pkg.savedAt || null;
+      activeBanksSuggestedName   = _suggestion.name;
+      activeBanksSourceLabel     = _suggestion.name;   // "arrives as Spils Sounds (edited)"
+      activeBanksRoundTripParent = {
+        parentName:      _pkgName,
+        parentCreatedAt: _srcTs,
+        editedCount:     _match.total - _match.matched,
+      };
       ['C', 'D'].forEach((bank, bankIdx) => {
         const _pkgSlots = (_pkg.slotMeta && _pkg.slotMeta[bank]) || [];
         for (let s = 0; s < 16; s++) {
@@ -6396,8 +6454,10 @@ function applyWavData(data, sourceLabel = null, embeddedSlotMeta = null) {
           m.name = _editedName;
           const fp = paramsFingerprint(patches.banks[bankIdx][s]);
           if (!fp) continue;
-          library.history[fp] = { name: _editedName, origin: m.origin || slotKey(bank, s), ts: Date.now() };
-          library.lineage[fp] = { derivedFrom: _slotName, derivedFromLibrary: _pkgName, ts: Date.now() };
+          library.history[fp] = { name: _editedName, origin: m.origin || slotKey(bank, s), ts: _now };
+          // sourceTs = the parent bank's date (the patch's Source date too);
+          // ts = when this edited version came to be (its Current date).
+          library.lineage[fp] = { derivedFrom: _slotName, derivedFromLibrary: _pkgName, sourceTs: _srcTs, ts: _now };
         }
       });
     }
@@ -11374,64 +11434,66 @@ function showPatchInfo(bank, slot) {
   const source = patchSourceLabel(bank, slot) || patchOriginLibrary(bank, slot);
   const origin = patchOrigin(bank, slot);              // slot at first import
   const originalName = patchOriginalName(bank, slot);  // name at first stamp
-
-  // "D2: Juicy Fruit" is the header itself (no "Patch History" label —
-  // Daniel, 2026-06-11); the body rows start at Library.
   const header = `${key}: ${name || '(unnamed)'}`;
-  const lines = [];
   const libLabel = (source || '').replace(/\.(wav|json)$/i, '');
-  if (libLabel) lines.push(`**Library:** ${libLabel}`);
 
-  // Phase 3A provenance: this patch arrived as a tweaked copy of a named
-  // patch in a recognized package (its fingerprint didn't match, but the
-  // bank did). "Edited from" is deliberately soft — the slot match is
-  // positional, so a reorder on the JX could make it a best guess rather
-  // than a certainty. Lineage persists across renames (separate map).
-  const lineage = library.lineage && library.lineage[paramsFingerprint(paramsAt(bank, slot))];
-  if (lineage && lineage.derivedFrom) {
-    const from = lineage.derivedFromLibrary
-      ? `${lineage.derivedFrom} · ${lineage.derivedFromLibrary}`
-      : lineage.derivedFrom;
-    lines.push(`**Edited from:** ${from}`);
-  }
-
-  // The rest comes from the source package, when the label matches one.
-  const pkg = (source && library && Array.isArray(library.packages))
-    ? library.packages.find((p) =>
-        p.customName === source || p.defaultName === source
-        || p.customName === libLabel || p.defaultName === libLabel)
+  // The package the active bank currently maps to (matched by source label).
+  const pkg = (libLabel && library && Array.isArray(library.packages))
+    ? library.packages.find((p) => p.customName === libLabel || p.defaultName === libLabel)
     : null;
-  if (pkg) {
-    const created = infoDate(pkg.createdAt || pkg.savedAt);
-    if (created) lines.push(`**Created:** ${created}`);
-    const l = pkg.lending;
-    const b = pkg.borrowed;
-    // Creator/hometown: the lend author (own work) or the borrow lender
-    // (someone else's) — whichever provenance the package carries.
-    const creator  = (l && l.author)   || (b && b.lender)   || null;
-    const hometown = (l && l.hometown) || (b && b.hometown) || null;
+  const curLibDate = (pkg && (pkg.createdAt || pkg.savedAt)) || null;
+  const lineage = library.lineage && library.lineage[paramsFingerprint(paramsAt(bank, slot))];
+
+  // Phase 3A provenance hierarchy (Daniel, 2026-06-28). Two Source → Current
+  // levels: the BANK's library lineage and the PATCH's own lineage. Each
+  // collapses when nothing changed (provenanceBlock returns ''), so an
+  // untouched round-trip falls back to the simple row vocabulary below.
+  const srcLib   = (pkg && pkg.derivedFrom) || (lineage && lineage.derivedFromLibrary) || null;
+  const srcLibTs = (pkg && pkg.derivedFromCreatedAt) || (lineage && lineage.sourceTs) || null;
+  const libBlock = provenanceBlock('LIBRARY HISTORY', srcLib, srcLibTs,
+    libLabel, curLibDate || (lineage && lineage.ts));
+
+  const srcPatch   = (lineage && lineage.derivedFrom) || originalName || null;
+  const srcPatchTs = (lineage && lineage.sourceTs) || srcLibTs || null;
+  const curPatchTs = (lineage && lineage.ts) || curLibDate || null;
+  const patchBlock = provenanceBlock('PATCH HISTORY', srcPatch, srcPatchTs, name, curPatchTs);
+
+  // Lending/creator provenance (shown in either view when present).
+  const l = pkg && pkg.lending;
+  const b = pkg && pkg.borrowed;
+  const creator  = (l && l.author)   || (b && b.lender)   || null;
+  const hometown = (l && l.hometown) || (b && b.hometown) || null;
+  const lent = l && l.submittedAt && infoDate(l.submittedAt);
+
+  let body;
+  if (libBlock || patchBlock) {
+    const blocks = [libBlock, patchBlock].filter(Boolean);
+    const extras = [];
+    if (creator)  extras.push(`**Created by:** ${creator}`);
+    if (hometown) extras.push(`**Hometown:** ${hometown}`);
+    if (lent)     extras.push(`**Lent to library:** ${lent}`);
+    if (extras.length) blocks.push(extras.join('\n'));
+    body = blocks.join('\n\n');
+  } else {
+    // Collapsed / simple view — nothing changed since import.
+    const lines = [];
+    if (libLabel) lines.push(`**Library:** ${libLabel}`);
+    const created = pkg && infoDate(pkg.createdAt || pkg.savedAt);
+    if (created)  lines.push(`**Created:** ${created}`);
     if (creator)  lines.push(`**Created by:** ${creator}`);
     if (hometown) lines.push(`**Hometown:** ${hometown}`);
-    // Last by design (Daniel, 2026-06-11).
-    const lent = l && l.submittedAt && infoDate(l.submittedAt);
-    if (lent) lines.push(`**Lent to library:** ${lent}`);
-  }
-
-  // Movement detail: an Origin row appears only when the patch has
-  // moved or been renamed since first import (untouched patches show
-  // nothing — the "still in its original slot" sentence was tried and
-  // cut, Daniel 2026-06-11).
-  if (origin || originalName) {
-    const samePlace = (origin || key) === key
-      && (originalName || null) === (name || null);
-    if (!samePlace) {
-      lines.push(`**Origin:** ${origin || key} / ${originalName || 'no name'}`);
+    if (lent)     lines.push(`**Lent to library:** ${lent}`);
+    // Origin row only when the patch moved or was renamed.
+    if (origin || originalName) {
+      const samePlace = (origin || key) === key && (originalName || null) === (name || null);
+      if (!samePlace) lines.push(`**Origin:** ${origin || key} / ${originalName || 'no name'}`);
     }
+    body = lines.join('\n');
   }
 
   showConfirmModal({
     title: header,   // the item IS the header, like the other info modals
-    body: lines.join('\n'),
+    body,
     confirmLabel: 'Close',
     hideCancel: true,   // read-only modal — Cancel and Close would do the same thing
     onConfirm: () => {},
