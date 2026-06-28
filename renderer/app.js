@@ -2180,15 +2180,19 @@ function logCaptureTelemetry(entry) {
 //
 //   (b) BAD-DECODE (capturePeak >= threshold, but all pages decoded as
 //       empty/null): there's audio, just couldn't decode it. Could be
-//       gain-related OR could be a one-off jitter glitch. Three buttons:
-//       [Cancel] [Recalibrate] [Try again]. "Try again" is primary —
-//       since today's truncation fix landed, most "bad decode" failures
-//       are NOT actually gain-related, so retrying with existing gain
-//       is more likely to work than recalibrating.
+//       gain-related OR a one-off jitter glitch. Three buttons:
+//       [Cancel] [Calibrate] [Try again]. "Try again" is primary — since
+//       the native-rate capture fix landed, most "bad decode" failures
+//       are NOT gain-related, so retrying with existing gain is more
+//       likely to work than calibrating.
 //
 // "Try again" re-opens the Record modal WITHOUT clearing the saved gain
-// — fast single-pass capture. "Recalibrate" clears the gain and forces
-// the two-pass calibration flow.
+// — fast single-pass capture. "Calibrate" clears the gain and forces the
+// two-pass calibration flow (aim the yellow target). Simplified 2026-06-28:
+// the old "Reset to auto-decode" branch (a saved-gain-only escape from the
+// over-hot loop) was removed — the v0.8.6 guardrails + native-rate fix make
+// that loop impossible, and clearing the gain before Calibrate folds in the
+// same safety (a Cancel falls back to the auto-decode default).
 //
 // On cancel: do nothing — the active C/D banks / sequences stay at their
 // pre-record state since we never applied the empty decode.
@@ -2270,7 +2274,6 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
   const emptyDesc  = isSeq ? 'an empty sequence (no pages decoded)' : 'empty patches';
   const safetyText = isSeq ? 'Your existing sequences will not be modified.'
                            : 'Your active C/D banks will not be modified.';
-  const hasSavedCal = !!getCalibratedGain(deviceId, deviceLabel);
   const reapply = async (tempWavPath, deviceInfo) => {
     if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
     else                     await applyToneCapture(tempWavPath, deviceInfo);
@@ -2280,33 +2283,26 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
     body:
       `The capture from${labelText} came back as ${emptyDesc}. Audio reached ` +
       'JP, but the decoder couldn\'t make sense of it.\n\n' +
-      (hasSavedCal
-        ? 'Most often this is a one-off glitch — **try again**. If it keeps ' +
-          'failing, **reset to auto-decode** to clear this device\'s saved gain ' +
-          '(a too-high saved gain is a common cause). '
-        : 'Most often this is a one-off glitch — **try again** with the same ' +
-          'settings. If it keeps failing, try **recalibrating** the input gain. ') +
+      'Most often this is a one-off glitch — **try again**. If it keeps ' +
+      'failing, **calibrate** the input gain — dial it to the yellow target. ' +
       safetyText,
     // Primary (Roland green) = Try again — most likely to fix things now
     // that truncation is no longer the dominant failure mode.
     confirmLabel: 'Try again',
     confirmStyle: 'confirm',
     onConfirm: reopenWithoutRecalibrating,
-    // Tertiary (Roland blue, alt-style). When the device has a saved gain it
-    // becomes "Reset to auto-decode" — clearing an over-hot calibration is the
-    // right recovery (recalibrating could re-drive it hot and loop, #26). With
-    // no saved gain, it's "Recalibrate" (the two-pass flow) as before.
-    tertiaryLabel: hasSavedCal ? 'Reset to auto-decode' : 'Recalibrate',
+    // One fallback recovery now: manual calibration (aim the yellow target).
+    // The old "Reset to auto-decode" escape hatch is gone — it existed ONLY to
+    // break the over-hot-calibration loop (#26), which the v0.8.6 guardrails
+    // (calibration target 0.45, gain cap 12×) and the native-rate capture fix
+    // already prevent (Daniel, 2026-06-28). Clearing any saved gain here means
+    // a Cancel out of calibration falls back to the auto-decode default rather
+    // than a stale (possibly bad) gain — folding the old reset-to-auto safety
+    // into this single path.
+    tertiaryLabel: 'Calibrate',
     tertiaryStyle: 'alt',
     onTertiary: () => {
-      // Either way we clear the saved gain first. If there WAS one, just
-      // reopen on the auto-decode default (the reset path — breaks the loop).
-      // If there wasn't, force the two-pass Recalibrate flow.
       if (deviceId) clearCalibratedGain(deviceId);
-      if (hasSavedCal) {
-        showRecordFromJxModal({ kind, onCaptured: reapply });   // → auto-decode
-        return;
-      }
       showRecordFromJxModal({ kind, forceCalibrate: true, onCaptured: reapply });
     },
   });
