@@ -1681,6 +1681,10 @@ function labelFromPath(path) {
   return basename.replace(/\.(wav|json)$/i, '') || null;
 }
 let saveTimer = null;
+// True while a debounced library write is scheduled but not yet flushed.
+// Lets flushLibrarySave() (the quit handler) skip a redundant synchronous
+// write when nothing is actually pending. See saveLibraryDebounced.
+let savePending = false;
 // Write button: when armed, the next patch-list click writes the currently
 // shown patch params into that slot (save-as / clone). Esc cancels.
 let writePending = false;
@@ -6165,20 +6169,26 @@ function cancelListEdit(nm, inp) {
   nm.style.display  = '';
 }
 
+// Fold active C/D bank state into the library object just before a write
+// (2026-05-25). The legacy ~/Desktop/patches.json path is read-only at boot;
+// without this, patches.banks would silently revert to the seed on every
+// restart, leaving cleanParams pointing at the LAST library load — which then
+// shows all 32 slots as "modified" because current (seed) ≠ clean (last
+// library load). Storing active state on every mutation flushes that mismatch
+// and gives the user cross-session edit memory as a bonus. Shared by the
+// debounced and the flush-on-quit save paths.
+function snapshotActiveStateIntoLibrary() {
+  if (patches && Array.isArray(patches.banks)) {
+    library.activePatches = patches.banks;
+  }
+}
+
 function saveLibraryDebounced() {
   clearTimeout(saveTimer);
+  savePending = true;
   saveTimer = setTimeout(() => {
-    // Persist active C/D banks alongside the library (2026-05-25). The
-    // legacy ~/Desktop/patches.json path is read-only at boot; without
-    // this, patches.banks would silently revert to the seed on every
-    // restart, leaving cleanParams pointing at the LAST library load —
-    // which then shows all 32 slots as "modified" because current (seed)
-    // ≠ clean (last library load). Storing active state on every
-    // mutation flushes that mismatch and gives the user cross-session
-    // edit memory as a bonus.
-    if (patches && Array.isArray(patches.banks)) {
-      library.activePatches = patches.banks;
-    }
+    savePending = false;
+    snapshotActiveStateIntoLibrary();
     // Check the IPC result so disk-write failures (full disk, permission
     // denied, sandbox issue) surface as a visible error instead of silent
     // data loss. Before this guard, the user would have no idea their last
@@ -6199,6 +6209,30 @@ function saveLibraryDebounced() {
       .catch((err) => announceSaveError(err && err.message || 'IPC rejection'));
   }, 500);
 }
+
+// Flush a still-pending debounced save before the window tears down (Cmd+Q,
+// window close, reload). A debounced write scheduled <500 ms before quit would
+// otherwise be lost — the renderer dies with its setTimeout unfired — and a
+// rename/reorder/active-state change would silently revert on next launch.
+// Electron does NOT await async work begun in a beforeunload handler, so an
+// async invoke would race the teardown; saveLibrarySync (sendSync) blocks the
+// renderer until main finishes the write, which is the only reliable flush.
+function flushLibrarySave() {
+  if (!savePending) return;
+  clearTimeout(saveTimer);
+  savePending = false;
+  snapshotActiveStateIntoLibrary();
+  try {
+    const res = window.api.saveLibrarySync(library);
+    if (!res || res.ok === false) {
+      console.error('Flush-on-quit library save failed:', (res && res.error) || 'unknown error');
+    }
+  } catch (err) {
+    // Last-ditch: nothing more we can do as the window closes, but log it.
+    console.error('Flush-on-quit library save threw:', err && err.message || err);
+  }
+}
+window.addEventListener('beforeunload', flushLibrarySave);
 
 // ═══════════════════════════════════════════════════════════════
 // Reorder: within-bank (drag-and-drop) and cross-bank (same-slot swap)
