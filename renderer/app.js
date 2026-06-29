@@ -8873,36 +8873,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
         return;
       }
       const currentGain = sliderToGain(parseInt(gainSlider.value, 10));
-      // TARGET_PEAK = 0.78 puts pass-2 capture peak mid-amber (the "hot
-      // but OK" zone, between 0.76 and 0.88). Bumped from 0.60 (mid-green)
-      // on Daniel's 2026-05-24 observation that send-to-JX naturally hits
-      // amber but capture-from-JX was landing in green — visual asymmetry
-      // and SNR was lower than necessary. JX FSK has stable amplitude
-      // (no transient peaks like music) so the tighter clipping headroom
-      // (~12% to red) is safe.
-      // Lowered 0.78 → 0.45 in v0.8.6. The decode-time boost (AUTO_BOOST_TARGET
-      // 0.92 in the fork) lifts any clean capture, so calibration does NOT need
-      // a hot peak — and aiming for 0.78 drove the gain so high on a quiet-input
-      // machine (Daniel's downstairs Mini: ~14×) that it over-drove the capture
-      // and decodes failed, re-prompting Recalibrate → loop (CLAUDE.md #26).
-      // 0.45 keeps comfortable margin over the noise floor with far less gain.
-      const TARGET_PEAK = 0.45;
-      // Cap measurePeak at 0.95 before division. Without this, any
-      // clipping transient during pass 1 (peak briefly hit 0.95–1.0)
-      // would inflate measurePeak and make the saved gain too low,
-      // producing a pass-2 peak well below the 0.6 target. The 0.95
-      // cap pretends the clipping moment was just "loud, not clipped"
-      // so the math produces a saved gain that actually lands pass 2
-      // near the target. Combined with the fskPeak-reset-on-knob-adjust
-      // logic above, this eliminates the "pass 2 reads lower than I
-      // dialed in pass 1" UX surprise.
-      const cappedMeasurePeak = Math.min(0.95, measurePeak);
-      const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
-      // Clamp so we don't end up with absurd gain. Upper cap lowered 30 → 12
-      // in v0.8.6: a clean capture only needs to clear the noise floor (the
-      // decode-time boost does the rest), so there's no reason to let calibration
-      // drive into the over-drive zone — the failure mode that loops Recalibrate.
-      const newGain = Math.max(0.5, Math.min(12, rawNewGain));
+      // Pass-2 gain = normalize the observed peak to TARGET_PEAK (0.45) and
+      // clamp to [0.5, 12]. Pure + tested in calibration-math.js. Aiming for
+      // 0.45 (not a hot peak) + the 12× cap keep calibration from over-driving
+      // a quiet-input machine into the Recalibrate loop (CLAUDE.md #26) — the
+      // decode-time boost (AUTO_BOOST_TARGET 0.92 in the fork) lifts the rest.
+      const newGain = computeCalibratedGain(currentGain, measurePeak);
 
       setCalibratedGain(calibrationDeviceId, newGain, calibrationDeviceLabel);
 
