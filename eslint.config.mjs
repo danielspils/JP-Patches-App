@@ -88,6 +88,7 @@ export default [
         planDecodeFailureResponse:'readonly',
         planImportReroute:        'readonly',
         describeUnsupportedImport:'readonly',
+        describeOversizedImport:  'readonly',
         summarizeCaptureAudio:    'readonly',
         FAILURE_DEFAULTS:         'readonly',
 
