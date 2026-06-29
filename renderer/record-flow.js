@@ -143,6 +143,49 @@
     return { title: UNSUPPORTED_TITLE, body };
   }
 
+  // Upper size ceilings, by import type. A real JX-3P tape dump is tiny:
+  // the longest sparse sequence is ~33 s, which at 48 kHz / 16-bit / mono
+  // is ~3 MB (stereo 44.1k still under 12 MB). 100 MB leaves enormous head-
+  // room for hi-res or padded captures while still rejecting the common
+  // accident — a movie or multi-GB audio file dragged in by mistake, which
+  // would otherwise be slurped into memory and handed to jx3p before the
+  // decode guard ever runs. JSON payloads (patch/sequence/library exports +
+  // community downloads) are smaller still — a full library is a few MB at
+  // most — so a 25 MB ceiling guards JSON.parse from a pathological blob.
+  const MAX_WAV_BYTES = 100 * 1024 * 1024;
+  const MAX_JSON_BYTES = 25 * 1024 * 1024;
+  const OVERSIZED_TITLE = 'This file is too large';
+
+  /**
+   * Decide whether a to-be-imported file exceeds the sane size ceiling for
+   * its type, BEFORE it's read into memory and handed to the decoder. The
+   * ceiling is type-aware (WAV vs JSON) since a tape-dump WAV and a JSON
+   * export have very different plausible sizes. Returns `{ title, body }`
+   * for the rejection modal, or null if the size is acceptable (including
+   * when `sizeBytes` is unknown/non-numeric — never block on a missing
+   * measurement; the type + decode guards still apply downstream).
+   *
+   * @param {number} sizeBytes  File.size in bytes (0 and non-numbers pass)
+   * @param {string} filePath   Path/name — only its extension is read
+   * @returns {{ title: string, body: string } | null}
+   */
+  function describeOversizedImport(sizeBytes, filePath) {
+    if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+      return null;
+    }
+    const lower = String(filePath || '').toLowerCase();
+    const isJson = lower.endsWith('.json');
+    const limit = isJson ? MAX_JSON_BYTES : MAX_WAV_BYTES;
+    if (sizeBytes <= limit) return null;
+    const mb = (n) => Math.round(n / (1024 * 1024));
+    const body =
+      `That file is ${mb(sizeBytes)} MB. A JX-3P tape dump${isJson ? ' export' : ''} ` +
+      `is only a few MB — files over ${mb(limit)} MB are rejected so the app ` +
+      `doesn't stall loading something that can't be a real dump. ` +
+      `Double-check you picked the right file.`;
+    return { title: OVERSIZED_TITLE, body };
+  }
+
   /**
    * Summarize a capture stream's ACTUAL audio-processing state, for the
    * captureLog telemetry. The FSK decoder needs all of Chromium's voice DSP
@@ -180,6 +223,7 @@
 
   return {
     chooseCaptureGain, planDecodeFailureResponse, planImportReroute,
-    describeUnsupportedImport, summarizeCaptureAudio, FAILURE_DEFAULTS,
+    describeUnsupportedImport, describeOversizedImport, summarizeCaptureAudio,
+    FAILURE_DEFAULTS,
   };
 });

@@ -4717,6 +4717,9 @@ function buildWavUploadZone(kind, opts) {
     // give the same type-aware rejection as the drop path.
     const unsupported = describeUnsupportedImport(filePath);
     if (unsupported) { showImportError(unsupported.body, unsupported.title); input.value = ''; return; }
+    // Size guard before read (record-flow.js, tested) — same as the drop path.
+    const oversized = describeOversizedImport(file.size, filePath);
+    if (oversized) { showImportError(oversized.body, oversized.title); input.value = ''; return; }
     if (kind === 'sequences') {
       handleSequenceDropImport(filePath);
     } else {
@@ -11040,6 +11043,13 @@ function setupPatchListDropZone() {
     const unsupported = describeUnsupportedImport(filePath);
     if (unsupported) {
       showImportError(unsupported.body, unsupported.title);
+      return;
+    }
+    // Size guard BEFORE the file is read into memory (record-flow.js,
+    // tested) — a movie misnamed .wav would otherwise stall the decoder.
+    const oversized = describeOversizedImport(file.size, filePath);
+    if (oversized) {
+      showImportError(oversized.body, oversized.title);
       return;
     }
     routeWavDrop(filePath);
