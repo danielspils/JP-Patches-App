@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('api', {
   loadPatches:  ()     => ipcRenderer.invoke('load-patches'),
   loadLibrary:  ()     => ipcRenderer.invoke('load-library'),
   saveLibrary:  (data) => ipcRenderer.invoke('save-library', data),
+  // Synchronous save — renderer flush-on-quit only (beforeunload can't
+  // await an async invoke before teardown). Blocks until the write lands.
+  saveLibrarySync: (data) => ipcRenderer.sendSync('save-library-sync', data),
   loadPanelSvg: ()     => ipcRenderer.invoke('load-panel-svg'),
   tapeSave:            ()        => ipcRenderer.invoke('tape-save'),
   tapeLoad:            (data)    => ipcRenderer.invoke('tape-load', data),
