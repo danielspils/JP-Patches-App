@@ -209,9 +209,10 @@ test('computeCalibratedGain — caps measurePeak at 0.95 to avoid clipping infla
   approx(computeCalibratedGain(5, 1.0, 0.6), 5 * 0.6 / 0.95, 1e-9);
 });
 
-test('computeCalibratedGain — clamps result to 0.5×–30×', () => {
-  // Tiny peak → astronomically high gain; should clamp to 30
-  approx(computeCalibratedGain(10, 0.01, 0.6), 30, 1e-9);
+test('computeCalibratedGain — clamps result to 0.5×–12× (v0.8.6 over-hot-loop guard)', () => {
+  // Tiny peak → astronomically high gain; should clamp to 12 (the cap that
+  // stops the over-hot Recalibrate loop on quiet-input machines).
+  approx(computeCalibratedGain(10, 0.01, 0.6), 12, 1e-9);
   // Loud peak with small target × low gain → tiny gain; should clamp to 0.5
   approx(computeCalibratedGain(0.1, 0.95, 0.6), 0.5, 1e-9);
 });
@@ -226,5 +227,5 @@ test('computeCalibratedGain — defaults TARGET_PEAK to 0.45 when missing', () =
 test('computeCalibratedGain — guards against zero peak (clamps to 0.001)', () => {
   // Doesn't crash on division by zero
   const result = computeCalibratedGain(5, 0, 0.6);
-  assert.equal(result, 30, 'zero peak should clamp to max gain (30)');
+  assert.equal(result, 12, 'zero peak should clamp to max gain (12)');
 });
