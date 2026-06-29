@@ -4,7 +4,7 @@ title: Community Sequences
 permalink: /sequences/
 ---
 
-## THE USER LENDING LIBRARY
+## THE USER LENDING LIBRARY: SEQUENCES
 
 JX-3P owners lending out their sequencer work. Each file carries the sequence
 plus its paired patch — so it plays back with the sound the creator intended.

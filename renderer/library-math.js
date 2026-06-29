@@ -215,6 +215,83 @@
       .slice(0, n);
   }
 
+  // ── Bank-to-package fingerprint matching (Phase 3A) ───────────────────
+  //
+  // Recognize a round-trip: when banks imported from the JX-3P
+  // fingerprint-match an existing library package, the caller reuses that
+  // package's name instead of a generic dated one. "banks" here is the
+  // jx3p shape — a two-element array [ [16 patches], [16 patches] ] (C, D).
+
+  /**
+   * Count how many of the 32 C/D slots share a parameter fingerprint
+   * between two bank sets. Order-stable via paramsFingerprint; a null
+   * fingerprint (missing/invalid slot) never counts as a match.
+   *
+   * @param {Array<Array<Object>>} banksA
+   * @param {Array<Array<Object>>} banksB
+   * @returns {{matched: number, total: number, perSlot: boolean[][]}}
+   */
+  function countBankFingerprintMatches(banksA, banksB) {
+    const perSlot = [[], []];
+    let matched = 0;
+    let total = 0;
+    for (let bankIdx = 0; bankIdx < 2; bankIdx++) {
+      const arrA = (banksA && banksA[bankIdx]) || [];
+      const arrB = (banksB && banksB[bankIdx]) || [];
+      for (let s = 0; s < 16; s++) {
+        total++;
+        const fa = paramsFingerprint(arrA[s]);
+        const ok = fa !== null && fa === paramsFingerprint(arrB[s]);
+        perSlot[bankIdx][s] = ok;
+        if (ok) matched++;
+      }
+    }
+    return { matched, total, perSlot };
+  }
+
+  /**
+   * Find the library package whose banks best match the given active
+   * banks by fingerprint. Ties resolve to the earliest (top-of-list,
+   * highest-priority) package. Returns null when nothing matches at all.
+   *
+   * @param {Array<Array<Object>>} activeBanks
+   * @param {Array<{banks?: Array}>} packages  library.packages
+   * @returns {{index: number, matched: number, total: number, perSlot: boolean[][]} | null}
+   */
+  function bestPackageMatch(activeBanks, packages) {
+    if (!Array.isArray(packages)) return null;
+    let best = null;
+    for (let i = 0; i < packages.length; i++) {
+      const pkg = packages[i];
+      if (!pkg || !Array.isArray(pkg.banks)) continue;
+      const r = countBankFingerprintMatches(activeBanks, pkg.banks);
+      if (r.matched > 0 && (!best || r.matched > best.matched)) {
+        best = { index: i, matched: r.matched, total: r.total, perSlot: r.perSlot };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Decide the suggested name for an imported bank set given its best
+   * package match. The package name is reused verbatim on a full (32/32)
+   * match, or tagged "(edited)" when at least `threshold` of slots match.
+   * Below the threshold returns null and the caller uses a generic name.
+   *
+   * @param {string} pkgName     Matched package's display name
+   * @param {number} matched     Matching slot count
+   * @param {number} total       Slots compared (typically 32)
+   * @param {number} [threshold] Fraction (0..1) of slots required to read
+   *                             as an edited round-trip. Default 0.5.
+   * @returns {{name: string, edited: boolean} | null}
+   */
+  function suggestBankName(pkgName, matched, total, threshold = 0.5) {
+    if (!pkgName || !(total > 0)) return null;
+    if (matched >= total) return { name: pkgName, edited: false };
+    if (matched / total >= threshold) return { name: pkgName + ' (edited)', edited: true };
+    return null;
+  }
+
   return {
     paramsFingerprint,
     computeReorderIdx,
@@ -223,5 +300,8 @@
     remapIndexAfterInsertion,
     remapIndexAfterReorder,
     latestLendingEntries,
+    countBankFingerprintMatches,
+    bestPackageMatch,
+    suggestBankName,
   };
 });

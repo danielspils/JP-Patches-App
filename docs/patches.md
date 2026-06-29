@@ -4,7 +4,7 @@ title: Community Patches
 permalink: /patches/
 ---
 
-## THE USER LENDING LIBRARY
+## THE USER LENDING LIBRARY: PATCHES
 
 JX-3P owners lending out their C/D banks. Every file below loads straight into
 [JP Patches](/) — and from there, straight onto a real JX-3P over the

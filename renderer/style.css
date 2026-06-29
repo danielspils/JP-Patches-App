@@ -2192,37 +2192,10 @@ body.seq-dragging-pitch * {
   align-items: baseline;
   gap: 12px;
 }
-.record-jx-device-preferred {
-  font-size: 11px;
-  font-style: italic;
-  color: #c39a3a;
-}
-.record-jx-device-preferred[hidden] { display: none; }
-
-/* Picker wrap: <select> with the actual-rate readout overlaid inside
-   it, right-justified just clear of the native chevron. pointer-events:
-   none on the readout so the picker stays fully clickable. Background
-   matches the picker so a long device name clips cleanly behind the
-   readout rather than bleeding through. Visible only on mismatch —
-   same amber as the header advisory above, no flash (the header is
-   the alert, this is the data point). */
+/* Picker wrap for the input-device <select>. */
 .record-jx-device-picker-wrap {
   position: relative;
 }
-.record-jx-device-actual {
-  position: absolute;
-  right: 28px;                       /* clear of the native chevron */
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 11px;
-  font-style: italic;
-  color: #c39a3a;
-  background: #0e0e0e;               /* matches .record-jx-device bg */
-  padding: 0 6px 0 8px;
-  pointer-events: none;
-  white-space: nowrap;
-}
-.record-jx-device-actual[hidden] { display: none; }
 
 /* ───────────────────────────────────────────────────────────────────────
    Button-name hint pill
