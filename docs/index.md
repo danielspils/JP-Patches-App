@@ -23,6 +23,7 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 * build custom patch banks w/ drag & drop reorder
 * create, edit, and play sequences
 * edit patches with a fully functional onscreen PG-200
+* trade [patches](https://jx-3p.com/patches/) & [sequences](https://jx-3p.com/sequences/) with other users
 * other features I'm forgetting ...
 
 <div class="gallery">
