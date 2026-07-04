@@ -1,13 +1,11 @@
-# v0.8.6 — Calibration guardrails
+# v0.8.6 — Windows round-trip
 
-Two fixes so a saved calibration can't trap you in a recalibrate loop:
+JP Patches now runs on **Windows** and does the full tape-dump round-trip with the JX-3P — send *and* receive both patches and sequences, custom names intact. Verified on real hardware. The window also auto-fits smaller screens. (The PC build is still a beta.)
 
-- **Calibration now aims lower and is capped**, so it can't over-drive your input gain (the cause of captures that wouldn't decode no matter how many times you recalibrated).
-- When a capture won't decode, the recovery prompt now offers **"Reset to auto-decode"** — one click to clear a device's saved gain and fall back to the auto-decode default, instead of recalibrating into the same hole.
+On both platforms: when a capture comes in too faint to read, the recovery now offers **Calibrate** to boost the input and try again.
 
 ## Install
 
-Auto-update from v0.8.5 should bring this up automatically. Otherwise: DMG
-below, drag to Applications. Signed + notarized.
+Auto-update from v0.8.5 brings this up automatically. Otherwise: DMG below, drag to Applications. Signed + notarized.
 
-**System requirement**: macOS 12+ on Apple Silicon (arm64).
+**System requirement**: macOS 12+ on Apple Silicon (arm64). PC beta: Windows 10 (64-bit) or later.
