@@ -156,6 +156,13 @@
   async function maybePlayTapeDumpSound(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
+    // Windows: the tape-dump MONITOR (a 2nd audio stream, routed via setSinkId
+    // while the cable send plays in parallel) truncated real JP→JX transfers —
+    // bank D dropped mid-send (Daniel, 2026-07-04). Windows audio routing
+    // (device pick + parallel setSinkId streams) isn't reliable enough yet, and
+    // this is an off-by-default cosmetic monitor, so it's gated off on Windows
+    // until the routing is hardened. macOS is unaffected.
+    if (IS_WIN) return null;
     try {
       if (typeof navigator === 'undefined'
           || !navigator.mediaDevices
@@ -239,6 +246,7 @@
   async function startTapeDumpMonitor(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
+    if (IS_WIN) return null;   // see maybePlayTapeDumpSound: monitor off on Windows (parallel stream corrupts transfers)
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
