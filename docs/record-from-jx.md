@@ -1,10 +1,10 @@
 # Record from JX-3P — shipped feature reference
 
-In-app live capture of JX-3P tape dumps via the Mac's audio input. Avoids the legacy "record in Logic / Audacity → drag the .wav into JP Patches" workflow — the user clicks a button, presses Save on the JX, the app records, decodes, and applies. Two-pass auto-calibration sets the right input gain on first use of any device and remembers it forever after.
+In-app live capture of JX-3P tape dumps via the Mac's audio input — the user clicks a button, presses Save on the JX, and the app records, trims, decodes, and applies. Replaces the legacy "record in Logic/Audacity → drag the .wav in" workflow.
 
-This doc is the **shipped-feature reference**. It's the place to land when reading the code in `renderer/app.js` (search for `showRecordFromJxModal`) and wondering *why* the modal is structured this way.
+This is the **shipped-feature reference** — where to land when reading `showRecordFromJxModal` in `renderer/app.js`. Originally shipped v0.5.11 (May 2026); the capture/decode model has changed substantially since, and this doc reflects the **current** behavior (v0.8.5).
 
-Shipped in v0.5.11 (May 23–24, 2026). Builds on top of the patch-save WAV decode path that already existed (`tape-save-from-path` IPC → `jx3p wav-to-json`).
+> **Current model (v0.8.2 auto-calibration + v0.8.5 native-rate):** auto-decode is the **default** — a never-calibrated device just captures at `DEFAULT_CAPTURE_GAIN` (2.0×) and the decode-time boost (`AUTO_BOOST_TARGET` 0.92 in the jx3p fork) finds the level, so most users never calibrate. **Two-pass manual calibration is only a fallback now.** Capture happens at the device's **native sample rate** (no forced 44.1k — see the Capture trap in CLAUDE.md). For decode-failure debugging, see [`record-troubleshooting.md`](record-troubleshooting.md).
 
 ## User flow
 
@@ -13,57 +13,45 @@ User clicks **Save** on the Tone or Sequencer column of the Tape Memory dropdown
 - **From file** — pick a `.wav` on disk (legacy path, unchanged).
 - **Record from JX-3P** — opens the live record modal described below.
 
-### First-time use on a device (two-pass calibration)
+### Default: auto-decode (no calibration)
 
-Triggered when `library.record.calibratedGain[deviceId]` has no entry for the currently-selected input device.
+The path for a device with no saved gain (`library.record.calibratedGain[deviceId]` empty) — i.e. almost always. The gain decision is pure in `chooseCaptureGain` (`record-flow.js`).
 
-1. Modal opens titled **STEP 1 of 2: CALIBRATE VOLUME**.
-   - Boxed instruction: *"Press Tone → Save on the JX-3P now and we'll calibrate the volume."*
-   - JX-3P key-sequence diagram (see UI components below) shows the Tape Memory + key 14/Save + Tone pill.
-   - Live LEVEL meter + INPUT GAIN slider visible.
-   - DUMP PROGRESS bar visible (red gradient).
-   - Stop button hidden — calibration is fully hands-free.
-   - WHAT THE JX-3P SENDS timeline hidden (would misleadingly imply data is being captured).
-2. User presses Save on the JX-3P.
-3. App captures the entire dump while tracking FSK peak amplitude. Auto-stop fires when cumulative signal time crosses the expected dump duration (33 s for tones, 21 s for sequences) OR when ≥5 s of confirmed FSK has been seen followed by ≥1 s of silence (real end-of-dump trailer).
-4. App computes `targetGain = currentGain × 0.6 / measuredPeak`, clamps to 0.5×–30×, persists per-device.
-5. Modal closes, **"Calibration done"** confirm dialog opens: *"Input level calibrated for [device] — gain set to N×, saved for future imports. Click below to open the recorder again for the real capture. Press Save on the JX-3P when the next modal opens."*
-6. User clicks **Continue to capture** → STEP 2 of 2 modal opens.
-7. User presses Save on JX again. App captures the real dump at the calibrated gain.
-8. User clicks **■ Stop** when the JX finishes transmitting.
-9. Decode → apply to active C/D banks (tones) or open save-sequence modal (sequences).
+1. Modal **"Import C/D banks from JX-3P"** (or "…sequence…") opens — gain slider hidden; captures at `DEFAULT_CAPTURE_GAIN` (2.0×).
+2. User presses Save on the JX. The app captures, auto-stops at end-of-dump, trims, decodes.
+3. Decode → apply to active C/D banks (tones) or open the save-sequence modal (sequences). The decode-time boost makes a 2.0× capture decode without any level tuning.
 
-### Subsequent use on the same device (single-pass)
+A clipping capture auto-steps the gain down (halve + re-record, capped at 2 — `planDecodeFailureResponse`). Auto-stop fires when cumulative FSK signal time crosses the expected dump duration (`EXPECTED_SIGNAL_MS`: 33 s tones / 30 s sequences) OR end-of-dump silence is detected.
 
-Triggered when `library.record.calibratedGain[deviceId]` has an entry.
+### Fallback: manual two-pass calibration
 
-1. Modal opens titled **STEP 2 of 2: DATA DUMP FROM JX-3P** (the STEP-2 framing is intentional — it reinforces that calibration was a one-time prereq).
-2. Gain slider pre-set to the saved value; slider section hidden by default since the user shouldn't need to touch it.
-3. WHAT THE JX-3P SENDS segmented timeline visible.
-4. Stop button enabled.
-5. User presses Save on JX → recording → user clicks Stop → decode → apply.
+Reached only by choosing **Calibrate** from a decode-failure recovery (below), or when the device already has a saved gain.
 
-### Failure recovery
+1. **Pass 1 — "Calibrate volume"**: gain slider + level meter visible, no Stop button. User dials **INPUT GAIN** to the meter's **yellow target** and presses Save; the app measures the FSK peak (`fskPeak`, tracked only after a silence→signal transition).
+2. App computes the saved gain via `computeCalibratedGain` (`calibration-math.js`): `newGain = currentGain × 0.45 / measuredPeak`, clamped to **[0.5×, 12×]**, persisted per-device. (Target 0.45 + cap 12 are the v0.8.6 guardrails that stop the over-hot Recalibrate loop — see CLAUDE.md.)
+3. **Pass 2 — capture** re-opens at the saved gain; user presses Save again → capture → decode → apply.
 
-If a capture decodes to **all-default empty patches** (heuristic: every slot has `vca_level === 0` — real patches are virtually never silent), the app fires a **Recalibrate prompt**:
+### Decode-failure recovery (simplified in v0.8.5 / Phase 3B)
 
-- Modal: *"This recording didn't decode cleanly. Want to recalibrate the input gain and try again? Your active C/D banks will not be modified."*
-- **Recalibrate** button clears the device's saved gain entry and re-opens the record modal in two-pass calibration mode.
-- **Cancel** closes; no state changes.
+If a capture decodes to all-default/empty (`isDecodeAllDefault` — every slot `vca_level === 0`), a recovery modal **"Recording didn't decode cleanly"** offers:
 
-This catches the class of failures where the user's setup changed (different cable, different interface, mic vs line) and the previously-calibrated gain no longer applies.
+- **Try again** (primary) — re-capture with the same settings; most failures are one-off.
+- **Calibrate** — clears any saved gain, then opens manual two-pass calibration. (A Cancel out of calibration falls back to the 2.0× auto default.)
+
+The old saved-gain branching ("Reset to auto-decode" vs "Recalibrate") was removed in 3B — the v0.8.6 guardrails + the native-rate fix made the over-hot loop it guarded against impossible. The silent clipping step-down and the "no audio detected" check remain.
 
 ## State machine
 
 ```
-INIT → device calibration exists?
-     ├─ no  → CALIBRATING → CALIBRATED_CONFIRM → CAPTURING → DECODE
-     └─ yes →                                    CAPTURING → DECODE
-                                                              │
-                                                              └─ all-default? → RECALIBRATE_PROMPT → (user choice) → INIT or close
+INIT → saved gain for this device?
+     ├─ no  → AUTO CAPTURE (2.0×) → DECODE
+     └─ yes → CAPTURE (saved gain) → DECODE
+                                       │
+                                       └─ all-default? → RECOVERY (Try again / Calibrate)
+                                                              └─ Calibrate → CALIBRATE pass 1 → CAPTURE pass 2 → DECODE
 ```
 
-The two passes are **separate modal instances** in code, not one modal with internal state transitions. This was a deliberate refactor (see v0.5.11 commit history): keeping both passes in one modal led to startRecording's statusText reset stomping the "Calibration done" message, and Save-button confusion in the calibration step. Two clean modal lifecycles + a confirm dialog between them is simpler and bug-free.
+When manual calibration IS reached, its two passes are **separate modal instances** in code (not one modal with internal transitions) — keeping them separate avoids `startRecording`'s statusText reset stomping the inter-pass message and the Save-button confusion that the single-modal version had.
 
 ## Persistence shape
 
@@ -86,7 +74,7 @@ The two passes are **separate modal instances** in code, not one modal with inte
 
 The `"default"` literal is a fallback key for the default device when `deviceId` is empty or absent — this happens during the early-modal-open window before getUserMedia has been called.
 
-Migration: users upgrading from v0.5.10 or earlier have no `record.calibratedGain` at all. First record post-upgrade enters two-pass calibration automatically. No banner; the title bar's "STEP 1 of 2: CALIBRATE VOLUME" plus the explanatory body copy makes the change self-evident.
+Migration: users with no `record.calibratedGain` simply use auto-decode (2.0×) — no calibration step, no banner. Existing saved gains keep working as the single-pass capture gain.
 
 ## Audio pipeline
 
@@ -102,7 +90,9 @@ getUserMedia → MediaStreamSource → GainNode → AnalyserNode → ScriptProce
 
 ## Trim algorithm
 
-The JX-3P emits a persistent idle tone *before* and *after* the actual FSK dump. When the user presses Save, the idle tone briefly pauses, then the pilot tone (real FSK) starts. That **silence→signal transition** is our trim anchor.
+> **v0.8.5:** the PRIMARY trim is now **`findFskStartByFreq`** (`record-trim.js`) — it finds the dump start by its bit-0 (short-cycle) **frequency** signature, which is amplitude-independent and so works at any gain. The amplitude/silence-based trim described below (`computeFskTrim`) is the **fallback** when no FSK frequency signature is found. The amplitude trim's failure mode — a loud idle tone with no silence gap, wrecking the demodulator's `long_width` calibration — was the systemic intermittent decode bug fixed by the frequency trim (see `record-troubleshooting.md`).
+
+The JX-3P emits a persistent idle tone *before* and *after* the actual FSK dump. When the user presses Save, the idle tone briefly pauses, then the pilot tone (real FSK) starts. That **silence→signal transition** is the amplitude trim's anchor.
 
 ```js
 // renderer/app.js, inside stopRecording's pass-2 / capture branch
@@ -128,13 +118,13 @@ The live LEVEL meter shows the **raw amplitude post-gain**, including idle tone.
 if (fskStartMs && peak > fskPeak) fskPeak = peak;
 ```
 
-Calibration formula:
+Calibration formula (`computeCalibratedGain` in `calibration-math.js` — the single source; app.js calls it):
 
 ```js
-targetGain = currentGain × 0.6 / measuredPeak
+newGain = currentGain × TARGET_PEAK / measuredPeak   // TARGET_PEAK = 0.45
 ```
 
-`0.6` is mid-target-zone (the LEVEL meter has a shaded band 30%–95%; 60% sits comfortably in the middle). Clamping to 0.5×–30× covers the slider's full range while preventing absurd values from edge-case measurements.
+`0.45` keeps the captured peak comfortably above the noise floor without over-driving (the decode-time boost lifts the rest). Clamped to **[0.5×, 12×]** — the 12× cap (v0.8.6) stops calibration from over-driving a quiet-input machine into the Recalibrate loop. (Both were higher pre-v0.8.6: target 0.78, cap 30.)
 
 If `fskPeak` is 0 at stop time (silence→signal never fired, common with very quiet inputs at unity gain), we fall back to the full-buffer max amplitude. The full buffer includes pre-FSK idle tone, which is typically similar in amplitude to the FSK transmission on a JX — close enough to give a usable calibration even in the fallback case.
 
@@ -146,7 +136,7 @@ Both calibration and capture modals use the same structure, with sections appear
 
 ```
 ┌─────────────────────────────────────┐
-│ STEP N of 2: TITLE                  │  (.record-jx-step-title)
+│ Import C/D banks… / Calibrate volume│  (.record-jx-step-title)
 ├─────────────────────────────────────┤
 │ ┌─────────────────────────────────┐ │
 │ │ Press Save on the JX-3P now…    │ │  (.record-jx-instr-box)
@@ -221,11 +211,14 @@ Tracked separately in `docs/future-features.md`:
 
 | Function | Purpose |
 |---|---|
-| `showRecordFromJxModal` | Main modal entry point. ~600 lines covering both calibration and capture branches. |
-| `configureForCurrentDevice` | Decides calibration vs capture mode on modal open + device-picker change. |
+| `showRecordFromJxModal` | Main modal entry point — both calibration and capture branches. |
+| `configureForCurrentDevice` | Decides auto-capture vs calibration mode on modal open + device-picker change. |
+| `chooseCaptureGain` (`record-flow.js`) | Pure: auto-default (2.0×) vs saved-gain decision. |
+| `findFskStartByFreq` / `computeFskTrim` (`record-trim.js`) | Primary (frequency) + fallback (amplitude) dump-start trim. |
+| `computeCalibratedGain` (`calibration-math.js`) | Pure calibration math (target 0.45, cap 12) — app.js calls it. |
 | `buildJxKeyDiagram` | Reusable JX-3P key-sequence visual. Used by Record + Send modals. |
 | `isDecodeAllDefault` | Heuristic detecting an all-empty-patches decode (every `vca_level === 0`). |
-| `showRecalibratePrompt` | Modal offering re-calibration after a failed decode. |
-| `applyToneCapture` / `applySequencerCapture` | Wire the captured WAV through decode + apply, with `isDecodeAllDefault` check. |
+| `showRecalibratePrompt` / `planDecodeFailureResponse` | Decode-failure recovery modal (Try again / Calibrate) + its pure no-signal/clipping/retry planner. |
+| `applyToneCapture` / `applySequencerCapture` | Wire the captured WAV through decode + apply, with the `isDecodeAllDefault` guard. |
 | `ensureRecordCalibrationShape` / `getCalibratedGain` / `setCalibratedGain` / `clearCalibratedGain` | `library.json` persistence helpers. |
 | `record-to-wav` IPC handler (`main.js`) | Writes the in-memory PCM buffer to a temp WAV with RIFF header. |

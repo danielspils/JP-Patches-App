@@ -178,21 +178,23 @@
    * the saved gain so the next capture's peak lands at TARGET regardless
    * of where the user dialed during pass 1. Both inputs are defensively
    * clamped: measurePeak ≤ 0.95 to avoid clipping transients dragging
-   * the saved gain too low; result clamped to [0.5, 30] for the slider's
-   * usable range.
+   * the saved gain too low; result clamped to [0.5, 12] (v0.8.6 cap).
    *
    * @param {number} currentGain Software gain in effect during pass 1
    * @param {number} measurePeak Observed FSK peak in [0, 1]
    * @param {number} [TARGET_PEAK=0.45] Desired peak for pass 2; defaults
    *   to 0.45 (lowered from 0.78 in v0.8.6 — the decode-time boost lifts quiet
    *   captures, so a hot target only risks over-driving the gain) if not positive
-   * @returns {number} New gain to save, clamped to [0.5, 30]
+   * @returns {number} New gain to save, clamped to [0.5, 12]
    */
   const computeCalibratedGain = (currentGain, measurePeak, TARGET_PEAK) => {
     if (typeof TARGET_PEAK !== 'number' || TARGET_PEAK <= 0) TARGET_PEAK = 0.45;
     const cappedMeasurePeak = Math.min(0.95, Math.max(0.001, measurePeak));
     const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
-    return Math.max(0.5, Math.min(30, rawNewGain));
+    // Upper cap 12× (v0.8.6): a clean capture only needs to clear the noise
+    // floor — the decode-time boost does the rest — so calibration must not
+    // drive into the over-drive zone that loops Recalibrate (CLAUDE.md #26).
+    return Math.max(0.5, Math.min(12, rawNewGain));
   };
 
   return {

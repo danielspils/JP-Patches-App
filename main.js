@@ -582,6 +582,21 @@ ipcMain.handle('save-library', (_e, data) => {
     return { ok: false, error: err.message };
   }
 });
+// Synchronous twin of save-library, used ONLY by the renderer's
+// flush-on-quit path. Electron does not await async work (an invoke)
+// started inside a `beforeunload` handler — the process tears the
+// renderer down first — so a debounced save still pending at quit would
+// be silently dropped. sendSync blocks the renderer until this write
+// returns, guaranteeing the last edit lands before the window closes.
+// The write itself is already synchronous, so this adds no new I/O risk.
+ipcMain.on('save-library-sync', (e, data) => {
+  try {
+    fs.writeFileSync(getLibraryPath(), JSON.stringify(data, null, 2), 'utf8');
+    e.returnValue = { ok: true };
+  } catch (err) {
+    e.returnValue = { ok: false, error: err.message };
+  }
+});
 ipcMain.handle('load-panel-svg', () => {
   try {
     return fs.readFileSync(PANEL_SVG_PATH, 'utf8');

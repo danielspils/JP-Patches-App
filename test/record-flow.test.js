@@ -9,7 +9,7 @@ const test   = require('node:test');
 const assert = require('node:assert/strict');
 const {
   chooseCaptureGain, planDecodeFailureResponse, planImportReroute, describeUnsupportedImport,
-  summarizeCaptureAudio,
+  describeOversizedImport, summarizeCaptureAudio,
 } = require('../renderer/record-flow.js');
 
 // ── chooseCaptureGain ──────────────────────────────────────────────────
@@ -153,6 +153,43 @@ test('unsupported — unknown extension / none still rejects with the header + g
     assert.equal(r.title, 'This is not a WAV or JSON');
     assert.equal(r.body, 'Convert it to a WAV or JSON file and try again!');
   }
+});
+
+// ── describeOversizedImport (size ceiling, bug A) ──────────────────────
+
+const MB = 1024 * 1024;
+
+test('oversized — normal-sized files pass (null), both types', () => {
+  assert.equal(describeOversizedImport(3 * MB, '/x/dump.wav'), null);   // typical dump
+  assert.equal(describeOversizedImport(99 * MB, '/x/big.wav'), null);   // just under WAV cap
+  assert.equal(describeOversizedImport(2 * MB, '/x/lib.json'), null);   // typical library
+  assert.equal(describeOversizedImport(24 * MB, '/x/lib.json'), null);  // just under JSON cap
+});
+
+test('oversized — WAV over 100 MB rejects with the header + a size hint', () => {
+  const r = describeOversizedImport(250 * MB, '/x/movie.wav');
+  assert.equal(r.title, 'This file is too large');
+  assert.match(r.body, /250 MB/);
+  assert.match(r.body, /100 MB/);
+});
+
+test('oversized — JSON cap is tighter (25 MB) than WAV', () => {
+  // 40 MB passes as a WAV but is rejected as JSON.
+  assert.equal(describeOversizedImport(40 * MB, '/x/a.wav'), null);
+  const j = describeOversizedImport(40 * MB, '/x/a.json');
+  assert.ok(j, '40 MB .json should be rejected');
+  assert.match(j.body, /export/);   // JSON copy says "tape dump export"
+});
+
+test('oversized — unknown/zero/negative size never blocks (decode guard still applies)', () => {
+  for (const s of [0, -1, NaN, Infinity, undefined, null, '5000000']) {
+    assert.equal(describeOversizedImport(s, '/x/dump.wav'), null,
+      `size ${String(s)} must not block on a missing/invalid measurement`);
+  }
+});
+
+test('oversized — extension match is case-insensitive (.JSON gets the JSON cap)', () => {
+  assert.ok(describeOversizedImport(40 * MB, '/x/A.JSON'), '.JSON should use the 25 MB JSON cap');
 });
 
 // ── summarizeCaptureAudio (capture-stream DSP telemetry, pitfall #26) ───

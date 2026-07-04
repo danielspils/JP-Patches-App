@@ -2171,21 +2171,7 @@ body.seq-dragging-pitch * {
 }
 .record-jx-device-notice[hidden] { display: none; }
 
-/* Sample-rate-mismatch warning row.
-   The "INPUT DEVICE:" section header places the section label on the
-   left and a right-justified advisory ("JP Patches prefers 44.1kHz")
-   on the right. On the happy path (device IS at 44.1) the advisory
-   stays hidden — no nagging. When the device is at any other rate,
-   we reveal the advisory AND apply the .flashing pulse animation —
-   the flash IS the warning signal.
-
-   History: started as a Roland-red full-width notice predicting
-   "certain failure," then real-world testing showed modern interfaces
-   survive 48→44.1 resampling cleanly more often than not. Iterated
-   through several layouts (below-picker, inline-right-of-label,
-   two-element above+inside-picker) before landing on this minimal
-   flash-only design. Amber `#c39a3a` matches the design-system
-   "approaching limit" token used elsewhere for advisory notices. */
+/* INPUT DEVICE section header (label row above the picker). */
 .record-jx-device-header {
   display: flex;
   justify-content: space-between;

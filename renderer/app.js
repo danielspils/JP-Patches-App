@@ -1681,6 +1681,10 @@ function labelFromPath(path) {
   return basename.replace(/\.(wav|json)$/i, '') || null;
 }
 let saveTimer = null;
+// True while a debounced library write is scheduled but not yet flushed.
+// Lets flushLibrarySave() (the quit handler) skip a redundant synchronous
+// write when nothing is actually pending. See saveLibraryDebounced.
+let savePending = false;
 // Write button: when armed, the next patch-list click writes the currently
 // shown patch params into that slot (save-as / clone). Esc cancels.
 let writePending = false;
@@ -4717,6 +4721,9 @@ function buildWavUploadZone(kind, opts) {
     // give the same type-aware rejection as the drop path.
     const unsupported = describeUnsupportedImport(filePath);
     if (unsupported) { showImportError(unsupported.body, unsupported.title); input.value = ''; return; }
+    // Size guard before read (record-flow.js, tested) — same as the drop path.
+    const oversized = describeOversizedImport(file.size, filePath);
+    if (oversized) { showImportError(oversized.body, oversized.title); input.value = ''; return; }
     if (kind === 'sequences') {
       handleSequenceDropImport(filePath);
     } else {
@@ -6165,20 +6172,26 @@ function cancelListEdit(nm, inp) {
   nm.style.display  = '';
 }
 
+// Fold active C/D bank state into the library object just before a write
+// (2026-05-25). The legacy ~/Desktop/patches.json path is read-only at boot;
+// without this, patches.banks would silently revert to the seed on every
+// restart, leaving cleanParams pointing at the LAST library load — which then
+// shows all 32 slots as "modified" because current (seed) ≠ clean (last
+// library load). Storing active state on every mutation flushes that mismatch
+// and gives the user cross-session edit memory as a bonus. Shared by the
+// debounced and the flush-on-quit save paths.
+function snapshotActiveStateIntoLibrary() {
+  if (patches && Array.isArray(patches.banks)) {
+    library.activePatches = patches.banks;
+  }
+}
+
 function saveLibraryDebounced() {
   clearTimeout(saveTimer);
+  savePending = true;
   saveTimer = setTimeout(() => {
-    // Persist active C/D banks alongside the library (2026-05-25). The
-    // legacy ~/Desktop/patches.json path is read-only at boot; without
-    // this, patches.banks would silently revert to the seed on every
-    // restart, leaving cleanParams pointing at the LAST library load —
-    // which then shows all 32 slots as "modified" because current (seed)
-    // ≠ clean (last library load). Storing active state on every
-    // mutation flushes that mismatch and gives the user cross-session
-    // edit memory as a bonus.
-    if (patches && Array.isArray(patches.banks)) {
-      library.activePatches = patches.banks;
-    }
+    savePending = false;
+    snapshotActiveStateIntoLibrary();
     // Check the IPC result so disk-write failures (full disk, permission
     // denied, sandbox issue) surface as a visible error instead of silent
     // data loss. Before this guard, the user would have no idea their last
@@ -6199,6 +6212,30 @@ function saveLibraryDebounced() {
       .catch((err) => announceSaveError(err && err.message || 'IPC rejection'));
   }, 500);
 }
+
+// Flush a still-pending debounced save before the window tears down (Cmd+Q,
+// window close, reload). A debounced write scheduled <500 ms before quit would
+// otherwise be lost — the renderer dies with its setTimeout unfired — and a
+// rename/reorder/active-state change would silently revert on next launch.
+// Electron does NOT await async work begun in a beforeunload handler, so an
+// async invoke would race the teardown; saveLibrarySync (sendSync) blocks the
+// renderer until main finishes the write, which is the only reliable flush.
+function flushLibrarySave() {
+  if (!savePending) return;
+  clearTimeout(saveTimer);
+  savePending = false;
+  snapshotActiveStateIntoLibrary();
+  try {
+    const res = window.api.saveLibrarySync(library);
+    if (!res || res.ok === false) {
+      console.error('Flush-on-quit library save failed:', (res && res.error) || 'unknown error');
+    }
+  } catch (err) {
+    // Last-ditch: nothing more we can do as the window closes, but log it.
+    console.error('Flush-on-quit library save threw:', err && err.message || err);
+  }
+}
+window.addEventListener('beforeunload', flushLibrarySave);
 
 // ═══════════════════════════════════════════════════════════════
 // Reorder: within-bank (drag-and-drop) and cross-bank (same-slot swap)
@@ -8873,36 +8910,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
         return;
       }
       const currentGain = sliderToGain(parseInt(gainSlider.value, 10));
-      // TARGET_PEAK = 0.78 puts pass-2 capture peak mid-amber (the "hot
-      // but OK" zone, between 0.76 and 0.88). Bumped from 0.60 (mid-green)
-      // on Daniel's 2026-05-24 observation that send-to-JX naturally hits
-      // amber but capture-from-JX was landing in green — visual asymmetry
-      // and SNR was lower than necessary. JX FSK has stable amplitude
-      // (no transient peaks like music) so the tighter clipping headroom
-      // (~12% to red) is safe.
-      // Lowered 0.78 → 0.45 in v0.8.6. The decode-time boost (AUTO_BOOST_TARGET
-      // 0.92 in the fork) lifts any clean capture, so calibration does NOT need
-      // a hot peak — and aiming for 0.78 drove the gain so high on a quiet-input
-      // machine (Daniel's downstairs Mini: ~14×) that it over-drove the capture
-      // and decodes failed, re-prompting Recalibrate → loop (CLAUDE.md #26).
-      // 0.45 keeps comfortable margin over the noise floor with far less gain.
-      const TARGET_PEAK = 0.45;
-      // Cap measurePeak at 0.95 before division. Without this, any
-      // clipping transient during pass 1 (peak briefly hit 0.95–1.0)
-      // would inflate measurePeak and make the saved gain too low,
-      // producing a pass-2 peak well below the 0.6 target. The 0.95
-      // cap pretends the clipping moment was just "loud, not clipped"
-      // so the math produces a saved gain that actually lands pass 2
-      // near the target. Combined with the fskPeak-reset-on-knob-adjust
-      // logic above, this eliminates the "pass 2 reads lower than I
-      // dialed in pass 1" UX surprise.
-      const cappedMeasurePeak = Math.min(0.95, measurePeak);
-      const rawNewGain  = currentGain * TARGET_PEAK / cappedMeasurePeak;
-      // Clamp so we don't end up with absurd gain. Upper cap lowered 30 → 12
-      // in v0.8.6: a clean capture only needs to clear the noise floor (the
-      // decode-time boost does the rest), so there's no reason to let calibration
-      // drive into the over-drive zone — the failure mode that loops Recalibrate.
-      const newGain = Math.max(0.5, Math.min(12, rawNewGain));
+      // Pass-2 gain = normalize the observed peak to TARGET_PEAK (0.45) and
+      // clamp to [0.5, 12]. Pure + tested in calibration-math.js. Aiming for
+      // 0.45 (not a hot peak) + the 12× cap keep calibration from over-driving
+      // a quiet-input machine into the Recalibrate loop (CLAUDE.md #26) — the
+      // decode-time boost (AUTO_BOOST_TARGET 0.92 in the fork) lifts the rest.
+      const newGain = computeCalibratedGain(currentGain, measurePeak);
 
       setCalibratedGain(calibrationDeviceId, newGain, calibrationDeviceLabel);
 
@@ -11064,6 +11077,13 @@ function setupPatchListDropZone() {
     const unsupported = describeUnsupportedImport(filePath);
     if (unsupported) {
       showImportError(unsupported.body, unsupported.title);
+      return;
+    }
+    // Size guard BEFORE the file is read into memory (record-flow.js,
+    // tested) — a movie misnamed .wav would otherwise stall the decoder.
+    const oversized = describeOversizedImport(file.size, filePath);
+    if (oversized) {
+      showImportError(oversized.body, oversized.title);
       return;
     }
     routeWavDrop(filePath);
