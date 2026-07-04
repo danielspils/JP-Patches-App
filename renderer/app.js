@@ -7342,9 +7342,19 @@ function showSendToJxFlow(opts) {
 
     primaryBtn.disabled = true;
     saveBtn.disabled = true;
-    statusText.textContent = 'Encoding…';
+    statusText.textContent = 'Generating tape audio…';
 
+    // The FIRST encode of a session builds the jx3p Python environment
+    // (numpy/scipy) and can take ~30s; later ones are a few seconds. With the
+    // buttons disabled, a static status reads as a freeze — so if the encode
+    // is still running after a beat, escalate the copy to reassure the user
+    // it's working, not hung. (The real first-run-cost fix is bundling uv's
+    // wheel cache in the packaged build — a Section 8 packaging task.)
+    const slowNote = setTimeout(() => {
+      if (!cancelled) statusText.textContent = 'Generating tape audio… (first run sets up — this can take a moment)';
+    }, 2500);
     const result = await window.api[encodeApi](exportData);
+    clearTimeout(slowNote);
     if (cancelled) return;
     if (!result || !result.ok) {
       // Encoder errors (Python tracebacks, schema validation dumps) can be
