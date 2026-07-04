@@ -6914,7 +6914,15 @@ function showSendToJxFlow(opts) {
     if (saved) {
       const dev = outputDevices.find((d) => d.deviceId === saved);
       if (!dev) return { state: 'missing', savedLabel: library.cableOutputDeviceLabel || 'your saved device' };
-      return { state: isBuiltInSpeakerOutput(dev.label) ? 'speakers' : 'ok' };
+      // The user EXPLICITLY chose this device as their tape-dump routing, so
+      // trust it — don't re-run the built-in-speaker label heuristic on a
+      // deliberate choice. On Windows a USB cable's OUTPUT is labeled
+      // "Speakers (KT USB Audio)" / "Headphones (…)", which WIN_SPEAKER_RE
+      // matches, so the heuristic flagged a correctly-selected cable as
+      // "speakers" and blocked the send (Daniel, 2026-07-04). The speaker-risk
+      // heuristic still runs on the NO-save branch below, where it belongs
+      // (nudging a first-time user away from the system-default speakers).
+      return { state: 'ok' };
     }
     // No save — evaluate system default for the speakers risk.
     const def  = outputDevices.find((d) => d.deviceId === 'default') || outputDevices[0];
