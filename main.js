@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -86,12 +86,32 @@ function slugForWav(name, defaultBase) {
   return `${base || defaultBase}.wav`;
 }
 
-// Read the user's last-chosen zoom factor from library.json. Clamped to
-// [0.5, 2.0]; falls back to 1.0 (Actual Size) if unset or out of range.
+// Auto-fit zoom for the display the app will open on. The panel is designed
+// for a 1140×710 CONTENT area; add a little for window chrome (title bar +
+// borders) and compare against the display's usable work area (which already
+// excludes the taskbar/dock and is reported in logical/DIP pixels, so OS
+// display-scaling — e.g. Windows 150% on a 1920×1080 laptop → 1280×720 logical
+// — is accounted for). If the window can't comfortably fit at 100%, start at
+// 75% so nothing clips (the bottom Save/Load row was getting cut off on
+// smaller Windows laptops). Falls back to 1.0 if the screen can't be read.
+function autoZoomForScreen() {
+  try {
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    if (width < BASE_WIDTH + 40 || height < BASE_HEIGHT + 50) return 0.75;
+  } catch { /* screen unavailable — assume it fits */ }
+  return 1.0;
+}
+
+// Resolve the startup zoom. A user's EXPLICIT choice (saved via the View menu)
+// always wins. Only when there's no saved preference do we auto-fit to the
+// screen — so a small-screen user lands at 75% on first launch without
+// touching the menu, but anyone who has set a zoom keeps it. Clamped [0.5,2.0].
 function readZoomPref() {
   const lib = readJsonOrNull(getLibraryPath());
-  const z = lib && typeof lib.zoomFactor === 'number' ? lib.zoomFactor : 1.0;
-  return z >= 0.5 && z <= 2.0 ? z : 1.0;
+  if (lib && typeof lib.zoomFactor === 'number' && lib.zoomFactor >= 0.5 && lib.zoomFactor <= 2.0) {
+    return lib.zoomFactor;
+  }
+  return autoZoomForScreen();
 }
 
 // Apply a zoom factor: scale both renderer content AND the window itself,
@@ -238,6 +258,12 @@ function createWindow() {
   const w = Math.round(BASE_WIDTH  * zoom);
   const h = Math.round(BASE_HEIGHT * zoom);
   const win = new BrowserWindow({
+    // useContentSize: width/height refer to the CONTENT (web) area, not the
+    // outer frame. Without it, Windows' title bar + borders are added ON TOP
+    // of 710, pushing the bottom Save/Load row off-screen on shorter displays
+    // (the "cut off at the bottom" bug). macOS was unaffected but this is
+    // correct on both — it matches applyZoomToWindow's setContentSize().
+    useContentSize: true,
     width:  w,
     height: h,
     minWidth:  w,
