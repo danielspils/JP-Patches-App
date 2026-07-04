@@ -2252,6 +2252,25 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
     });
   };
 
+  // Shared Calibrate action — clears any stale saved gain (so a Cancel out of
+  // calibration falls back to the auto-decode default, not a bad gain) and
+  // reopens the recorder in forced-calibration mode. Used by BOTH the
+  // low-signal and bad-decode branches: on a quiet input (common on Windows,
+  // where line levels run lower than the Mac rigs JP was tuned on) a "no
+  // signal" verdict is usually just too little gain, and calibration's
+  // measure-then-boost pass is exactly the fix.
+  const startCalibration = () => {
+    if (deviceId) clearCalibratedGain(deviceId);
+    showRecordFromJxModal({
+      kind,
+      forceCalibrate: true,
+      onCaptured: async (tempWavPath, deviceInfo) => {
+        if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
+        else                     await applyToneCapture(tempWavPath, deviceInfo);
+      },
+    });
+  };
+
   if (isLowSignal) {
     // (a) — no signal detected.
     // Key 11 = Sequencer Save, key 14 = Tone Save in JX-3P Tape Memory mode.
@@ -2259,17 +2278,24 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
     showConfirmModal({
       title: 'No audio detected',
       body:
-        `The capture from${labelText} was silent — JP didn't see any audio ` +
-        'come through the cable.\n\n' +
-        `Quick checks:\n` +
+        `The capture from${labelText} came in too faint for JP to detect a ` +
+        'signal.\n\n' +
+        'If the JX-3P **was** dumping and the cable is right, your input is ' +
+        'simply quiet — **Calibrate** boosts the gain to match it (common on ' +
+        'Windows, where input levels run lower). Otherwise, check:\n' +
         `• On the JX-3P, press **Tape Memory**, then key **${saveKey}** (Save).\n` +
-        `• Is your cable plugged into the JX **Tape Memory Save** jack ` +
-        `(not Load)?\n` +
-        `• In *Audio MIDI Setup*, is your audio interface selected as the ` +
-        `default input?\n\n` +
-        'Once you\'ve fixed it, try again.',
+        `• Cable in the JX **Tape Memory Save** jack (not Load)?\n` +
+        '• The right input device selected above?',
+      // Try again first (a one-off miss), Calibrate as the real fix for a
+      // genuinely quiet input — the branch used to dead-end on "Try again"
+      // only, which stranded quiet-input users (no way to reach the gain
+      // boost). Mirrors the bad-decode branch below.
       confirmLabel: 'Try again',
+      confirmStyle: 'confirm',
       onConfirm: reopenWithoutRecalibrating,
+      tertiaryLabel: 'Calibrate',
+      tertiaryStyle: 'alt',
+      onTertiary: startCalibration,
     });
     return;
   }
@@ -2278,10 +2304,6 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
   const emptyDesc  = isSeq ? 'an empty sequence (no pages decoded)' : 'empty patches';
   const safetyText = isSeq ? 'Your existing sequences will not be modified.'
                            : 'Your active C/D banks will not be modified.';
-  const reapply = async (tempWavPath, deviceInfo) => {
-    if (kind === 'sequence') await applySequencerCapture(tempWavPath, deviceInfo);
-    else                     await applyToneCapture(tempWavPath, deviceInfo);
-  };
   showConfirmModal({
     title: 'Recording didn\'t decode cleanly',
     body:
@@ -2305,10 +2327,7 @@ function showRecalibratePrompt({ kind, deviceId, deviceLabel, capturePeak, captu
     // into this single path.
     tertiaryLabel: 'Calibrate',
     tertiaryStyle: 'alt',
-    onTertiary: () => {
-      if (deviceId) clearCalibratedGain(deviceId);
-      showRecordFromJxModal({ kind, forceCalibrate: true, onCaptured: reapply });
-    },
+    onTertiary: startCalibration,
   });
 }
 
