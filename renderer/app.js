@@ -6592,13 +6592,16 @@ async function applyToneCapture(tempWavPath, deviceInfo) {
   // Count populated patches (non-zero VCA Level across both banks).
   let populatedPatches = 0;
   try {
+    // jx3p returns `banks` as an ARRAY of two bank arrays ([[16],[16]]), NOT a
+    // {C,D} object. The old code read banks['C']/banks['D'] and so counted 0
+    // for EVERY WAV capture on every platform — a telemetry-only bug, but it
+    // masked genuine import successes during the Windows-port debugging (a
+    // clean decode logged populatedPatches:0 and looked like a failure).
     const banks = result.data && result.data.banks;
-    if (banks) {
-      for (const bk of ['C', 'D']) {
-        const arr = banks[bk];
-        if (Array.isArray(arr)) {
-          populatedPatches += arr.filter((p) => p && p.vca_level && p.vca_level !== 0).length;
-        }
+    const bankArrays = Array.isArray(banks) ? banks : (banks ? [banks.C, banks.D] : []);
+    for (const arr of bankArrays) {
+      if (Array.isArray(arr)) {
+        populatedPatches += arr.filter((p) => p && p.vca_level && p.vca_level !== 0).length;
       }
     }
   } catch {}
