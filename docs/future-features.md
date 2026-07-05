@@ -85,4 +85,6 @@ When JP Patches gets a real user manual (README, in-app help, or `USER_MANUAL.md
 
 - **Property-based testing on the pure-math modules.** `fast-check` random inputs asserting invariants (`gainToSlider(sliderToGain(x)) ≈ x`, `computeFskTrim` trimStart ≥ 0, `paramsFingerprint` order-independence). Catches edge cases hand-written tests miss. Do if a math bug ever escapes — not pre-emptively.
 
+- **Discoverable "What does my tape dump sound like?" affordance** (Daniel, 2026-07-05). Tape Dump Sounds is off by default, so the "What does my tape dump sound like?" line is invisible until a user has already found and enabled the feature — a discovery dead-end. Fix: keep the line **always present but greyed out** when the feature is off, and show a **"Turn this feature on"** sub-link beneath the greyed version that opens the gear/settings menu with the Tape Dump Sounds toggle, so a user can discover *and* enable it in one path. Small UI change; do after the current capture fixes land.
+
 - **(Add new items here as they come up.)**
