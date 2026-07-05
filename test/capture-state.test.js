@@ -297,3 +297,53 @@ test('updateCaptureState — events.elapsedTotal = now - recordStartMs', () => {
   }));
   assert.equal(out.events.elapsedTotal, 4000);
 });
+
+// ── Frequency gate (tick.fskLive) — the idle-buzz / quiet-dump fix ──────────
+// When the caller supplies fskLive, it REPLACES the amplitude signal test.
+// These verify both directions: a loud buzz with no FSK is NOT signal, and a
+// quiet dump WITH FSK is. Omitting fskLive must leave the amplitude path
+// byte-identical (the ~20 tests above never pass it and still pass).
+
+test('updateCaptureState — fskLive gate: loud idle buzz (high peak, fskLive false) is NOT signal', () => {
+  // The core idle-buzz bug: at high gain the buzz peak (0.9) clears any
+  // amplitude floor, but fskLive:false ⇒ no premature start / no false signal.
+  let s = makeInitialCaptureState();
+  s = { ...s, lastTickMs: 1000 };
+  const out = updateCaptureState(s, tick({ peak: 0.9, now: 1100, fskLive: false }));
+  assert.equal(out.state.firstSignalMs, null);
+  assert.equal(out.state.totalSignalMs, 0);
+  assert.equal(out.state.fskStartMs, null);
+  assert.equal(out.events.fskJustStarted, false);
+  // ...and it correctly reads as "not transmitting" for end-of-dump math
+  assert.equal(out.state.consecBelowSignalMs, 100);
+});
+
+test('updateCaptureState — fskLive gate: quiet dump (low peak, fskLive true) IS signal, fskJustStarted fires at once', () => {
+  // The low-gain fix: peak 0.02 is below every amplitude floor, but fskLive
+  // true ⇒ real signal, and the frequency gate needs no 500 ms prior silence.
+  let s = makeInitialCaptureState();
+  s = { ...s, lastTickMs: 1000 };
+  const out = updateCaptureState(s, tick({ peak: 0.02, now: 1100, fskLive: true }));
+  assert.equal(out.state.firstSignalMs, 1100);
+  assert.equal(out.state.totalSignalMs, 100);
+  assert.equal(out.state.fskStartMs, 1100);
+  assert.equal(out.events.fskJustStarted, true);
+  assert.equal(out.state.activeMs, 100);
+});
+
+test('updateCaptureState — fskLive gate: end-of-dump via fskLive false triggers silence-after-signal even under a loud idle tone', () => {
+  // After the dump, the JX idle tone can be loud (peak 0.9). Amplitude alone
+  // would keep counting it as signal; fskLive:false ends the capture cleanly.
+  let s = makeInitialCaptureState();
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 950, lastTickMs: 9000 };
+  const out = updateCaptureState(s, tick({ peak: 0.9, now: 9100, fskLive: false }));
+  assert.equal(out.events.autoStop, 'silence-after-signal');
+});
+
+test('updateCaptureState — no fskLive field ⇒ amplitude path unchanged', () => {
+  let s = makeInitialCaptureState();
+  s = { ...s, lastTickMs: 1000 };
+  const out = updateCaptureState(s, tick({ peak: 0.5, now: 1100 }));  // fskLive omitted
+  assert.equal(out.state.firstSignalMs, 1100);
+  assert.equal(out.state.totalSignalMs, 100);
+});

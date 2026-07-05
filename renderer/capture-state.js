@@ -187,6 +187,13 @@
    * @property {number} expectedSignalMs Ms budget for this dump kind
    *                                     (auto-stop math; tone ~60000,
    *                                     sequence ~30000)
+   * @property {boolean} [fskLive]       Optional frequency-based gate: true
+   *                                     when bit-0 FSK cycles are present in
+   *                                     the recent capture window (from
+   *                                     record-trim.js's fskPresentInWindow).
+   *                                     When supplied it replaces the amplitude
+   *                                     signal test; when omitted the machine
+   *                                     falls back to peak-vs-threshold.
    */
 
   /**
@@ -210,7 +217,7 @@
    * @returns {{state: CaptureState, events: CaptureEvents}}
    */
   function updateCaptureState(prev, tick) {
-    const { peak, now, silenceThreshold, signalThreshold, recordStartMs, expectedSignalMs } = tick;
+    const { peak, now, silenceThreshold, signalThreshold, recordStartMs, expectedSignalMs, fskLive } = tick;
     const dtMs = prev.lastTickMs !== null ? (now - prev.lastTickMs) : 0;
 
     const runningPeak      = peak > prev.runningPeak ? peak : prev.runningPeak;
@@ -223,27 +230,44 @@
     let consecBelowSignalMs = prev.consecBelowSignalMs || 0;   // || 0 for prev states from before this counter existed
     let fskJustStarted     = false;
 
-    // consecBelowSignalMs: accumulates whenever we're NOT actively
-    // transmitting signal (peak below signalThreshold). Looser than
-    // consecSilenceMs — counts the JX's post-dump idle tone even if
-    // it's loud enough to land above silenceThreshold. The end-of-
-    // dump auto-stop reads this so we don't have to wait for true
-    // silence, which the JX may never produce post-dump on some
-    // hardware/gain combos (bug observed 2026-05-26: 25 s real dump,
-    // modal stayed open 58 s while consecSilenceMs never reached 1 s).
-    if (peak < signalThreshold) consecBelowSignalMs += dtMs;
-    else                        consecBelowSignalMs = 0;
+    // ── Signal gate: frequency (preferred) or amplitude (fallback) ──────
+    // When the caller supplies `fskLive` (true/false), it REPLACES the
+    // amplitude threshold as the "is real FSK transmitting right now?" test.
+    // The live loop computes it from the raw PCM via record-trim.js's
+    // fskPresentInWindow — bit-0 cycle presence, amplitude-independent. This
+    // is the fix for the JX's idle buzz: at the gain needed to hear a quiet
+    // dump the buzz crosses signalThreshold (amplitude) but carries no bit-0
+    // cycles (frequency), so the gate rejects it → no premature start; and a
+    // quiet dump is still caught because the detector doesn't depend on level.
+    // When fskLive is undefined (the unit tests + any legacy caller), the
+    // three lines below collapse to the ORIGINAL amplitude behavior verbatim.
+    const freqGated      = fskLive === true || fskLive === false;
+    const signalNow      = freqGated ? fskLive  : (peak > signalThreshold);
+    const silenceNow     = freqGated ? !fskLive : (peak < silenceThreshold);
+    const belowSignalNow = freqGated ? !fskLive : (peak < signalThreshold);
 
-    if (peak < silenceThreshold) {
+    // consecBelowSignalMs: accumulates whenever we're NOT actively
+    // transmitting signal. Looser than consecSilenceMs — in the amplitude
+    // path it counts the JX's post-dump idle tone even if it's loud enough
+    // to land above silenceThreshold. The end-of-dump auto-stop reads this
+    // so we don't have to wait for true silence, which the JX may never
+    // produce post-dump on some hardware/gain combos (bug observed
+    // 2026-05-26: 25 s real dump, modal stayed open 58 s while
+    // consecSilenceMs never reached 1 s).
+    if (belowSignalNow) consecBelowSignalMs += dtMs;
+    else                consecBelowSignalMs = 0;
+
+    if (silenceNow) {
       // Sustained-silence accumulation; signal-side resets the streak.
       consecSilenceMs += dtMs;
     } else {
-      if (peak > signalThreshold) {
+      if (signalNow) {
         totalSignalMs += dtMs;
         if (firstSignalMs === null) firstSignalMs = now;
-        // Detect the silence→signal "Save press" pattern. Requires
-        // ≥ 500 ms of prior silence to filter brief idle dips.
-        if (fskStartMs === null && consecSilenceMs >= 500) {
+        // Detect the silence→signal "Save press" pattern. The amplitude
+        // path needs ≥500 ms of prior silence to filter brief idle dips;
+        // the frequency gate already excludes idle, so fskLive alone qualifies.
+        if (fskStartMs === null && (freqGated || consecSilenceMs >= 500)) {
           fskStartMs = now;
           fskJustStarted = true;
         }

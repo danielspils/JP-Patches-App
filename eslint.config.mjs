@@ -80,6 +80,9 @@ export default [
         // Globals exposed by renderer/record-trim.js
         computeFskTrim:         'readonly',
         findFskStartByFreq:     'readonly',
+        fskPresentInWindow:     'readonly',
+        fskShortCycleRate:      'readonly',
+        FSK_LIVE_WIN_SEC:       'readonly',
         classifyWindows:        'readonly',
         floatToInt16WithPeak:   'readonly',
 
