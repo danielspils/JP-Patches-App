@@ -345,10 +345,11 @@
         lastFreqRate = (typeof fskShortCycleRate === 'function') ? fskShortCycleRate(tail, sr) : 0;
         const nextLive = fskPresentInWindow(tail, sr);
         if (nextLive !== fskLive) {
-          // Transition log — the ONLY place idle-vs-dump short-cycle rates
-          // surface for hardware threshold tuning. Idle should never flip
-          // this ON; a real dump should flip it ON at a rate ≫ the floor.
-          console.debug(`[fsk-live] ${nextLive ? 'ON ' : 'OFF'} rate=${lastFreqRate.toFixed(1)}/s gain=${graph.gainNode.gain.value}`);
+          // Transition log (console.log so it shows without Verbose) — surfaces
+          // idle-vs-dump short-cycle rates AND the elapsed time of each ON/OFF
+          // edge, so an inter-bank gap (C→D) reads directly as the OFF→ON span.
+          const tSec = ((now - recordStartMs) / 1000).toFixed(1);
+          console.log(`[fsk-live] ${nextLive ? 'ON ' : 'OFF'} t=${tSec}s rate=${lastFreqRate.toFixed(1)}/s gain=${graph.gainNode.gain.value}`);
           fskLive = nextLive;
         }
       }
