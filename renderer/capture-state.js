@@ -46,10 +46,14 @@
   // below the FSK gate's threshold, so it reads as "no FSK"), then bank D. At
   // 1000 ms — and even 3500 ms — this fired DURING the divider and truncated
   // the capture to bank C only (16 patches; bank D all-default, one repeated
-  // name). Measured divider ≈ 4.5 s (Daniel, 2026-07-05 hardware), so 6000 ms
-  // rides through it with margin while still ending promptly on the real
-  // post-dump silence. Dump-timeout / safety-timeout remain the backstops.
-  const END_OF_DUMP_SILENCE_MS = 6000;
+  // name). Measured divider ≈ 4.5 s (Daniel, 2026-07-05 hardware) — and it's a
+  // JX FIRMWARE constant (same on every unit; only the dump LEVEL varies per
+  // rig). The live gate's OFF span runs ~0.5 s longer than the divider (the
+  // 0.5 s detection window must fill/clear), so a 4.5 s divider reads as ~5 s
+  // of no-FSK. 7000 ms clears that with ~2 s margin while still ending promptly
+  // on the real post-dump silence. A longer window only adds trailing wait; it
+  // can't truncate — dump-timeout / safety-timeout remain the backstops.
+  const END_OF_DUMP_SILENCE_MS = 7000;
 
   // ── Threshold scaling ─────────────────────────────────────────────
   //
