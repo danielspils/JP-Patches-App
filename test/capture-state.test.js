@@ -6,6 +6,7 @@ const {
   liveThresholdsFor,
   makeInitialCaptureState,
   updateCaptureState,
+  END_OF_DUMP_SILENCE_MS,
 } = require('../renderer/capture-state.js');
 
 // readAnalyserPeak is browser-only (requires AnalyserNode); not unit-
@@ -182,7 +183,7 @@ test('updateCaptureState — silence-after-signal auto-stop after 5s signal + 1s
   // tone won't block end-of-dump detection. Setup: 5s signal seen,
   // 1.1s of consec ticks below signal, then one more sub-signal tick.
   let s = makeInitialCaptureState();
-  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 1100, lastTickMs: 9000 };
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: END_OF_DUMP_SILENCE_MS + 100, lastTickMs: 9000 };
   const out = updateCaptureState(s, tick({ peak: 0.01, now: 9100 }));
   assert.equal(out.events.autoStop, 'silence-after-signal');
 });
@@ -195,12 +196,12 @@ test('updateCaptureState — silence-after-signal fires even when peak is BELOW 
   // past dump end. New trigger uses consecBelowSignalMs so 0.25
   // counts as "no longer transmitting" and the trigger fires.
   let s = makeInitialCaptureState();
-  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 990, lastTickMs: 9000 };
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: END_OF_DUMP_SILENCE_MS - 10, lastTickMs: 9000 };
   const out = updateCaptureState(s, tick({
     peak: 0.25, now: 9100,
     silenceThreshold: 0.18, signalThreshold: 0.375,
   }));
-  // dt = 100ms → consecBelowSignalMs goes 990 → 1090 → trigger fires
+  // dt = 100ms → consecBelowSignalMs crosses END_OF_DUMP_SILENCE_MS → trigger fires
   assert.equal(out.events.autoStop, 'silence-after-signal');
 });
 
@@ -279,7 +280,7 @@ test('updateCaptureState — auto-stop priority: silence-after-signal beats othe
   let s = makeInitialCaptureState();
   s = { ...s,
         totalSignalMs:       31000,  // ≥ expectedSignalMs (total-signal would fire)
-        consecBelowSignalMs: 1100,   // ≥ 1000 (silence-after-signal SHOULD win)
+        consecBelowSignalMs: END_OF_DUMP_SILENCE_MS + 100,  // silence-after-signal SHOULD win
         firstSignalMs:       1000,   // signalElapsed will be ≥ DUMP_TIMEOUT
         lastTickMs:          31900,
       };
@@ -335,7 +336,7 @@ test('updateCaptureState — fskLive gate: end-of-dump via fskLive false trigger
   // After the dump, the JX idle tone can be loud (peak 0.9). Amplitude alone
   // would keep counting it as signal; fskLive:false ends the capture cleanly.
   let s = makeInitialCaptureState();
-  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: 950, lastTickMs: 9000 };
+  s = { ...s, totalSignalMs: 6000, consecBelowSignalMs: END_OF_DUMP_SILENCE_MS - 50, lastTickMs: 9000 };
   const out = updateCaptureState(s, tick({ peak: 0.9, now: 9100, fskLive: false }));
   assert.equal(out.events.autoStop, 'silence-after-signal');
 });

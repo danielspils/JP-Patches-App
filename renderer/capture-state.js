@@ -40,6 +40,15 @@
 (function () {
   'use strict';
 
+  // How long the signal gate must stay OFF (no FSK) before the end-of-dump
+  // auto-stop fires. MUST exceed the JX's inter-bank pause: a tone dump sends
+  // bank C, goes quiet, then bank D — and with the frequency gate that quiet
+  // gap reads as "no FSK." At the old 1000 ms this fired IN the C→D gap and
+  // truncated the capture to bank C only (16 patches, bank D all-default).
+  // Raised to ride through the gap; the dump-timeout / safety-timeout remain
+  // the backstops for a runaway capture. TUNE with the [fsk-live] gap span.
+  const END_OF_DUMP_SILENCE_MS = 3500;
+
   // ── Threshold scaling ─────────────────────────────────────────────
   //
   // The analyser sees POST-gain audio (sourceNode → gainNode →
@@ -297,7 +306,7 @@
     // consecSilenceMs) so a quiet-but-not-truly-silent JX post-dump
     // idle tone — observed on Daniel's KT USB Audio at 15× gain on
     // 2026-05-26 — doesn't block this trigger from ever firing.
-    if (totalSignalMs >= 5000 && consecBelowSignalMs >= 1000)           autoStop = 'silence-after-signal';
+    if (totalSignalMs >= 5000 && consecBelowSignalMs >= END_OF_DUMP_SILENCE_MS) autoStop = 'silence-after-signal';
     else if (firstSignalMs !== null && signalElapsed >= DUMP_TIMEOUT_MS) autoStop = 'dump-timeout';
     else if (totalSignalMs >= expectedSignalMs)                         autoStop = 'total-signal';
     // safety-timeout: gated on firstSignalMs so a user who opens the
@@ -325,6 +334,7 @@
     window.readAnalyserPeak        = readAnalyserPeak;
     window.makeInitialCaptureState = makeInitialCaptureState;
     window.updateCaptureState      = updateCaptureState;
+    window.END_OF_DUMP_SILENCE_MS  = END_OF_DUMP_SILENCE_MS;
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -332,6 +342,7 @@
       readAnalyserPeak,
       makeInitialCaptureState,
       updateCaptureState,
+      END_OF_DUMP_SILENCE_MS,
     };
   }
 })();

@@ -337,11 +337,14 @@
   // of them. See CLAUDE.md pitfall #12 + the block comment on findFskStartByFreq.
   const FSK_LIVE_WIN_SEC        = 0.5;   // rolling analysis window the caller feeds in
   const FSK_LIVE_MIN_WIN_SEC    = 0.3;   // need ≥ this much audio before judging
-  const FSK_LIVE_SHORT_PER_SEC  = 30;    // short (bit-0) cycles/sec ⇒ FSK data present.
-                                         // Floor sits between idle/pilot (≈0) and a
-                                         // data window (≫30). TUNE ON HARDWARE — the
-                                         // fskShortCycleRate diagnostic below reports
-                                         // the live value for idle vs. dump.
+  const FSK_LIVE_SHORT_PER_SEC  = 120;   // short (bit-0) cycles/sec ⇒ FSK data present.
+                                         // Measured on real HW (2026-07-05, KT USB @ 2×
+                                         // gain): the boosted idle buzz produces sustained
+                                         // 30–84/s of spurious short cycles, while a real
+                                         // tone dump reads ~296/s — so the floor sits at
+                                         // 120 (well above idle, ~2.5× under the dump).
+                                         // fskShortCycleRate + the [fsk-live] log report
+                                         // the live value for further tuning.
 
   /**
    * Short (bit-0) cycles per SECOND in a window, amplitude-normalized. The
