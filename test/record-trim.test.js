@@ -2,7 +2,7 @@
 
 const test   = require('node:test');
 const assert = require('node:assert/strict');
-const { computeFskTrim, findFskStartByFreq, classifyWindows, computeTrimThresholds, floatToInt16WithPeak } = require('../renderer/record-trim.js');
+const { computeFskTrim, findFskStartByFreq, fskPresentInWindow, fskShortCycleRate, classifyWindows, computeTrimThresholds, floatToInt16WithPeak } = require('../renderer/record-trim.js');
 
 // Helpers for the frequency-detector tests: synthesize tones whose
 // half-period lands in (3675 Hz → ~6 samples = "short"/bit-0) or out of
@@ -314,4 +314,60 @@ test('floatToInt16WithPeak — output is little-endian (RIFF/WAVE convention)', 
   const bytes = new Uint8Array(r.pcm);
   assert.equal(bytes[0], 0xFF);
   assert.equal(bytes[1], 0x3F);
+});
+
+// ── LIVE frequency-aware presence (fskShortCycleRate / fskPresentInWindow) ──
+// The 3675 Hz tone's half-period ≈ 6 samples → inside the bit-0 "short"
+// crossing band → reads as FSK data. The 882 Hz tone's half-period ≈ 25
+// samples → outside the band → reads as idle/pilot. This is exactly how the
+// live gate distinguishes a real dump from the JX's constant idle buzz.
+const SHORT_FSK_HZ = 3675;   // ~bit-0 rate: half-period in the [4,12)-sample band
+const IDLE_TONE_HZ = 882;    // idle buzz / pilot: half-period well above the band
+
+test('fskShortCycleRate — bit-0-band tone yields a high short-cycle rate', () => {
+  const rate = fskShortCycleRate(tone(SHORT_FSK_HZ, 0.5, 0.6), SR);
+  assert.ok(rate > 100, `expected ≫ threshold, got ${rate}`);
+});
+
+test('fskShortCycleRate — idle/pilot tone yields ~zero short cycles', () => {
+  const rate = fskShortCycleRate(tone(IDLE_TONE_HZ, 0.5, 0.6), SR);
+  assert.ok(rate < 30, `idle tone should stay under the floor, got ${rate}`);
+});
+
+test('fskShortCycleRate — silent buffer is 0 (no divide-by-peak blowup)', () => {
+  assert.equal(fskShortCycleRate(new Float32Array(SR * 0.5), SR), 0);
+});
+
+test('fskPresentInWindow — true for a real FSK-band window', () => {
+  assert.equal(fskPresentInWindow(tone(SHORT_FSK_HZ, 0.5, 0.6), SR), true);
+});
+
+test('fskPresentInWindow — false for the idle buzz / pilot tone', () => {
+  assert.equal(fskPresentInWindow(tone(IDLE_TONE_HZ, 0.5, 0.6), SR), false);
+});
+
+test('fskPresentInWindow — amplitude-INDEPENDENT: catches a very quiet dump', () => {
+  // 0.02 peak (below any amplitude signal floor) still detected — the detector
+  // boosts by the window peak before counting. This is the low-gain fix.
+  assert.equal(fskPresentInWindow(tone(SHORT_FSK_HZ, 0.5, 0.02), SR), true);
+});
+
+test('fskPresentInWindow — a quiet idle buzz stays rejected even after boost', () => {
+  // The boost lifts a 0.02 idle tone to ~0.92 too, but it's still low-frequency
+  // → no short cycles → correctly NOT flagged as a dump (no premature start).
+  assert.equal(fskPresentInWindow(tone(IDLE_TONE_HZ, 0.5, 0.02), SR), false);
+});
+
+test('fskPresentInWindow — window shorter than 0.3s returns false (too little to judge)', () => {
+  assert.equal(fskPresentInWindow(tone(SHORT_FSK_HZ, 0.2, 0.6), SR), false);
+});
+
+test('fskPresentInWindow — 48k sample rate: bit-0 band scales with rate', () => {
+  // At 48k the bit-0 half-period is ~6.5 samples; the rate-scaled bounds keep
+  // the same tone in-band, so detection is sample-rate-agnostic (pitfall #27).
+  const SR48 = 48000;
+  const n = Math.floor(0.5 * SR48);
+  const t = new Float32Array(n);
+  for (let i = 0; i < n; i++) t[i] = 0.6 * Math.sin(2 * Math.PI * SHORT_FSK_HZ * i / SR48);
+  assert.equal(fskPresentInWindow(t, SR48), true);
 });

@@ -197,6 +197,28 @@
     return { sourceNode, gainNode, analyserNode, processorNode, muteGain, captured };
   }
 
+  // Copy the last `maxSamples` PCM samples out of the live `captured`
+  // chunk array (each chunk a Float32Array from one onaudioprocess tick)
+  // into a single contiguous Float32Array. Walks backwards from the end so
+  // it touches only the few tail chunks it needs, not the whole recording.
+  // Used by the raf loop to feed a rolling window to the live FSK detector.
+  function gatherCapturedTail(chunks, maxSamples) {
+    let need = maxSamples;
+    const parts = [];
+    for (let i = chunks.length - 1; i >= 0 && need > 0; i--) {
+      const c = chunks[i];
+      if (c.length <= need) { parts.push(c); need -= c.length; }
+      else { parts.push(c.subarray(c.length - need)); need = 0; }
+    }
+    parts.reverse();
+    let total = 0;
+    for (const p of parts) total += p.length;
+    const out = new Float32Array(total);
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.length; }
+    return out;
+  }
+
   /**
    * @typedef {Object} CaptureSession
    * @property {AudioContext} audioContext
@@ -286,6 +308,21 @@
     let stopped = false;
     let autoStopFired = false;
 
+    // Live frequency-aware FSK gate. Every FREQ_CHECK_INTERVAL_MS we run the
+    // bit-0 detector (record-trim.js's fskPresentInWindow) over the last
+    // ~0.5 s of raw PCM and feed the boolean into updateCaptureState, where it
+    // replaces the amplitude signal test. This is what lets the state machine
+    // tell a real dump from the JX's idle buzz regardless of gain (see the
+    // signal-gate comment in capture-state.js). Throttled because FSK presence
+    // changes on a ~100 ms scale, not per raf frame, and the window scan is
+    // cheap but not free. fskShortCycleRate is kept for the transition log so
+    // the threshold can be tuned on real hardware.
+    const FREQ_CHECK_INTERVAL_MS = 120;
+    const freqWinSec = (typeof window !== 'undefined' && window.FSK_LIVE_WIN_SEC) || 0.5;
+    let fskLive = false;
+    let lastFreqCheckMs = 0;
+    let lastFreqRate = 0;
+
     const tick = () => {
       if (stopped) return;
       // Modal can pause ticking (e.g. state === 'processing' during
@@ -299,6 +336,24 @@
       const peak = readAnalyserPeak(graph.analyserNode, analyserBuf);
       const thresholds = liveThresholdsFor(graph.gainNode.gain.value);
       const now = Date.now();
+
+      // Throttled frequency gate over the rolling PCM tail.
+      if (typeof fskPresentInWindow === 'function' && now - lastFreqCheckMs >= FREQ_CHECK_INTERVAL_MS) {
+        lastFreqCheckMs = now;
+        const sr   = audioContext.sampleRate;
+        const tail = gatherCapturedTail(graph.captured, Math.floor(freqWinSec * sr));
+        lastFreqRate = (typeof fskShortCycleRate === 'function') ? fskShortCycleRate(tail, sr) : 0;
+        const nextLive = fskPresentInWindow(tail, sr);
+        if (nextLive !== fskLive) {
+          // Transition log (console.log so it shows without Verbose) — surfaces
+          // idle-vs-dump short-cycle rates AND the elapsed time of each ON/OFF
+          // edge, so an inter-bank gap (C→D) reads directly as the OFF→ON span.
+          const tSec = ((now - recordStartMs) / 1000).toFixed(1);
+          console.log(`[fsk-live] ${nextLive ? 'ON ' : 'OFF'} t=${tSec}s rate=${lastFreqRate.toFixed(1)}/s gain=${graph.gainNode.gain.value}`);
+          fskLive = nextLive;
+        }
+      }
+
       const { state: nextState, events } = updateCaptureState(captureState, {
         peak,
         now,
@@ -306,10 +361,13 @@
         signalThreshold:  thresholds.signal,
         recordStartMs,
         expectedSignalMs,
+        fskLive,
       });
       captureState = nextState;
-      // Modal projects state + events to DOM.
-      try { onTick({ peak, thresholds, state: captureState, events }); }
+      // Modal projects state + events to DOM. fskLive is surfaced so DOM cues
+      // (the JX→JP arrow pulse) track the SAME frequency gate as detection,
+      // rather than a parallel amplitude test that the idle buzz trips.
+      try { onTick({ peak, thresholds, state: captureState, events, fskLive }); }
       catch (err) { console.error('onTick threw:', err); }
       // Auto-stop fires once: callback runs, raf stops scheduling.
       // Modal is responsible for calling session.stop() (or letting
@@ -347,6 +405,11 @@
       gainNode: graph.gainNode,
       captured: graph.captured,
       getState: () => captureState,
+      // Live FSK-detector diagnostics (hardware threshold tuning): the last
+      // measured short-cycle rate and the current gate state. Poll from the
+      // console during a capture to read idle vs. dump values.
+      getFskLiveRate: () => lastFreqRate,
+      getFskLive:     () => fskLive,
       stop,
     };
   }

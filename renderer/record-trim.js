@@ -324,6 +324,71 @@
     return Math.max(0, firstData * win - backoff);
   }
 
+  // ── LIVE frequency-aware presence detection ──────────────────────────
+  // findFskStartByFreq (above) runs ONCE on the whole buffer at decode time.
+  // These two helpers run the SAME bit-0 crossing detector on a short rolling
+  // window during capture, so the live raf loop can tell "the dump is
+  // transmitting NOW" from the JX's constant idle buzz — which amplitude alone
+  // can't (at the gain needed to hear a quiet dump, the buzz also crosses the
+  // amplitude floor → premature start; at low gain the quiet dump is missed →
+  // "no audio"). The detector is amplitude-INDEPENDENT: it boosts the window
+  // by its own peak, then counts short (bit-0) cycles. The buzz and the pilot
+  // are single low tones (no short cycles even when boosted); FSK data is full
+  // of them. See CLAUDE.md pitfall #12 + the block comment on findFskStartByFreq.
+  const FSK_LIVE_WIN_SEC        = 0.5;   // rolling analysis window the caller feeds in
+  const FSK_LIVE_MIN_WIN_SEC    = 0.3;   // need ≥ this much audio before judging
+  const FSK_LIVE_SHORT_PER_SEC  = 120;   // short (bit-0) cycles/sec ⇒ FSK data present.
+                                         // Measured on real HW (2026-07-05, KT USB @ 2×
+                                         // gain): the boosted idle buzz produces sustained
+                                         // 30–84/s of spurious short cycles, while a real
+                                         // tone dump reads ~296/s — so the floor sits at
+                                         // 120 (well above idle, ~2.5× under the dump).
+                                         // fskShortCycleRate + the [fsk-live] log report
+                                         // the live value for further tuning.
+
+  /**
+   * Short (bit-0) cycles per SECOND in a window, amplitude-normalized. The
+   * raw discriminator behind {@link fskPresentInWindow}; exposed on its own so
+   * the live loop can log idle-vs-dump values to tune FSK_LIVE_SHORT_PER_SEC.
+   *
+   * @param {Float32Array | number[]} samples A recent capture window in [-1, 1]
+   * @param {number} sampleRate Hz
+   * @returns {number} Short-cycle rate (cycles/sec); 0 if silent/empty
+   */
+  function fskShortCycleRate(samples, sampleRate) {
+    const n = samples.length;
+    if (!n || !sampleRate) return 0;
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const a = samples[i] < 0 ? -samples[i] : samples[i];
+      if (a > peak) peak = a;
+    }
+    if (peak === 0) return 0;
+    const scale     = peak < FREQ_BOOST_TARGET ? FREQ_BOOST_TARGET / peak : 1;
+    const rateScale = sampleRate / 44100;   // bit-0 bounds are @44.1k references
+    const shortCount = countShortCycles(
+      samples, 0, n, scale,
+      SHORT_MIN_SAMPLES * rateScale,
+      SHORT_MAX_SAMPLES * rateScale,
+    );
+    return shortCount / (n / sampleRate);
+  }
+
+  /**
+   * Is real FSK data transmitting in this window? True when the short-cycle
+   * rate clears FSK_LIVE_SHORT_PER_SEC. Returns false for windows shorter than
+   * FSK_LIVE_MIN_WIN_SEC (not enough audio to judge yet). Amplitude-independent
+   * — works at any capture gain, and rejects the idle buzz + pilot tone.
+   *
+   * @param {Float32Array | number[]} samples A recent capture window in [-1, 1]
+   * @param {number} sampleRate Hz
+   * @returns {boolean}
+   */
+  function fskPresentInWindow(samples, sampleRate) {
+    if (!sampleRate || samples.length < FSK_LIVE_MIN_WIN_SEC * sampleRate) return false;
+    return fskShortCycleRate(samples, sampleRate) >= FSK_LIVE_SHORT_PER_SEC;
+  }
+
   // Convert a Float32 sample buffer to signed-16-bit PCM bytes while
   // simultaneously measuring the peak amplitude in one pass. The two
   // operations were fused inline in stopRecording for a small perf
@@ -379,6 +444,9 @@
   if (typeof window !== 'undefined') {
     window.computeFskTrim         = computeFskTrim;
     window.findFskStartByFreq     = findFskStartByFreq;
+    window.fskPresentInWindow     = fskPresentInWindow;
+    window.fskShortCycleRate      = fskShortCycleRate;
+    window.FSK_LIVE_WIN_SEC       = FSK_LIVE_WIN_SEC;
     window.classifyWindows        = classifyWindows;
     window.computeTrimThresholds  = computeTrimThresholds;
     window.floatToInt16WithPeak   = floatToInt16WithPeak;
@@ -388,6 +456,8 @@
     module.exports = {
       computeFskTrim,
       findFskStartByFreq,
+      fskPresentInWindow,
+      fskShortCycleRate,
       classifyWindows,
       computeTrimThresholds,
       floatToInt16WithPeak,

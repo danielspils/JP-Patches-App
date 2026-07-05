@@ -8697,7 +8697,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
       recordStartMs,
       expectedSignalMs: EXPECTED_SIGNAL_MS,
       isRecording: () => state === 'recording',
-      onTick: ({ peak, thresholds, state: cs, events }) => {
+      onTick: ({ peak, thresholds, state: cs, events, fskLive }) => {
         // Mirror two values to modal-scope so stopRecording's existing
         // reads still work: fskPeak for the calibration math,
         // runningPeak for the capturePeak handoff to onCaptured.
@@ -8707,8 +8707,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
         // SVG vertical level meter (panel-style 7-segment ladder).
         vmeter.setPeak(peak);
 
-        // Arrow .pulsing animation — falling-edge debounced.
-        if (peak > thresholds.silence) {
+        // Arrow .pulsing animation — falling-edge debounced. Driven by the
+        // frequency gate (fskLive) so it pulses on REAL FSK, not the JX idle
+        // buzz — matching the actual capture. Falls back to the amplitude test
+        // if fskLive isn't supplied (defensive; the live path always passes it).
+        const arrowActive = (fskLive === true || fskLive === false)
+          ? fskLive
+          : (peak > thresholds.silence);
+        if (arrowActive) {
           if (!calArrow.classList.contains('pulsing')) calArrow.classList.add('pulsing');
           arrowBelowSilenceTicks = 0;
         } else {
