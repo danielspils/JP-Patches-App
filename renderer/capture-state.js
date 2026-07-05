@@ -41,13 +41,15 @@
   'use strict';
 
   // How long the signal gate must stay OFF (no FSK) before the end-of-dump
-  // auto-stop fires. MUST exceed the JX's inter-bank pause: a tone dump sends
-  // bank C, goes quiet, then bank D — and with the frequency gate that quiet
-  // gap reads as "no FSK." At the old 1000 ms this fired IN the C→D gap and
-  // truncated the capture to bank C only (16 patches, bank D all-default).
-  // Raised to ride through the gap; the dump-timeout / safety-timeout remain
-  // the backstops for a runaway capture. TUNE with the [fsk-live] gap span.
-  const END_OF_DUMP_SILENCE_MS = 3500;
+  // auto-stop fires. MUST exceed the JX's inter-bank DIVIDER: a tone dump sends
+  // bank C, then a ~4.5 s divider tone (a low square wave, ~92 short-cycles/s —
+  // below the FSK gate's threshold, so it reads as "no FSK"), then bank D. At
+  // 1000 ms — and even 3500 ms — this fired DURING the divider and truncated
+  // the capture to bank C only (16 patches; bank D all-default, one repeated
+  // name). Measured divider ≈ 4.5 s (Daniel, 2026-07-05 hardware), so 6000 ms
+  // rides through it with margin while still ending promptly on the real
+  // post-dump silence. Dump-timeout / safety-timeout remain the backstops.
+  const END_OF_DUMP_SILENCE_MS = 6000;
 
   // ── Threshold scaling ─────────────────────────────────────────────
   //
