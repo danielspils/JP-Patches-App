@@ -4,12 +4,73 @@ const test   = require('node:test');
 const assert = require('node:assert/strict');
 const {
   selectTapeDumpSpeaker,
+  selectSoundOutputDevice,
   isBuiltInSpeakerOutput,
   MAC_SPEAKER_LABEL_RE,
 } = require('../renderer/transmission-sounds.js');
 
 // Convenience builder for an audiooutput device entry.
 const out = (label, deviceId = 'id-' + label) => ({ kind: 'audiooutput', label, deviceId });
+// …with a groupId (the "same physical device" key Chromium assigns).
+const outg = (label, deviceId, groupId) => ({ kind: 'audiooutput', label, deviceId, groupId });
+
+// ── selectSoundOutputDevice: cable-exclusion by groupId (the Windows model) ──
+// Real hardware layout from Daniel's PC (2026-07-04): the KT cable appears 3×
+// under one groupId; the built-in Realtek is a distinct group.
+const WIN_OUTPUTS = () => ([
+  outg('Default - Speakers (KT USB Audio) (31b2:2024)',        'default',        'ktgroup'),
+  outg('Communications - Speakers (KT USB Audio) (31b2:2024)', 'communications', 'ktgroup'),
+  outg('Speakers (2- Realtek(R) Audio)',                       'realtek-id',     'rtkgroup'),
+  outg('Speakers (KT USB Audio) (31b2:2024)',                  'kt-raw-id',      'ktgroup'),
+]);
+
+test('selectSoundOutputDevice — Windows: excludes ALL cable aliases by groupId, picks the Realtek built-in', () => {
+  const picked = selectSoundOutputDevice(WIN_OUTPUTS(), 'kt-raw-id', { allowUnrecognizedFallback: true });
+  assert.ok(picked, 'a non-cable output should be found');
+  assert.equal(picked.deviceId, 'realtek-id');
+});
+
+test('selectSoundOutputDevice — group exclusion holds even when the configured cable id is an ALIAS', () => {
+  // Cable configured as the "default" alias — every sibling (same groupId) must still be excluded.
+  const picked = selectSoundOutputDevice(WIN_OUTPUTS(), 'default', { allowUnrecognizedFallback: true });
+  assert.equal(picked.deviceId, 'realtek-id');
+});
+
+test('selectSoundOutputDevice — skips the "Default -"/"Communications -" role aliases (never the default sink)', () => {
+  // Only KT (as default+comm aliases) + a raw KT + Realtek. The Realtek raw is the only concrete non-cable.
+  const picked = selectSoundOutputDevice(WIN_OUTPUTS(), 'kt-raw-id', { allowUnrecognizedFallback: true });
+  assert.equal(picked.deviceId, 'realtek-id');   // not the "default"/"communications" alias
+});
+
+test('selectSoundOutputDevice — fallback ON: an UNRECOGNIZED built-in name still returns (never the cable)', () => {
+  const devices = [
+    outg('Speakers (KT USB Audio)',  'kt', 'ktgroup'),
+    outg('Speakers (Conexant SmartAudio HD)', 'conexant', 'cxgroup'), // not in any allowlist
+  ];
+  const picked = selectSoundOutputDevice(devices, 'kt', { allowUnrecognizedFallback: true });
+  assert.equal(picked.deviceId, 'conexant');
+});
+
+test('selectSoundOutputDevice — fallback OFF (macOS default): unrecognized name → null (strict allowlist)', () => {
+  const devices = [
+    outg('Speakers (KT USB Audio)',  'kt', 'ktgroup'),
+    outg('Speakers (Conexant SmartAudio HD)', 'conexant', 'cxgroup'),
+  ];
+  assert.equal(selectSoundOutputDevice(devices, 'kt'), null);
+});
+
+test('selectSoundOutputDevice — a recognized built-in is PREFERRED over the raw-fallback order', () => {
+  // Uses a Mac speaker label because the allowlist active under `node --test`
+  // is the macOS one (IS_WIN is false there). "MacBook Pro Speakers" is
+  // recognized; the HDMI display is eligible-but-not-a-speaker and appears
+  // FIRST — the recognized one must still win.
+  const devices = [
+    outg('Some HDMI Display', 'hdmi', 'hdmigroup'),
+    outg('MacBook Pro Speakers', 'mbp-id', 'mbpgroup'),
+  ];
+  const picked = selectSoundOutputDevice(devices, null, { allowUnrecognizedFallback: true });
+  assert.equal(picked.deviceId, 'mbp-id');
+});
 
 const CABLE = out('KT USB Audio (31b2:2024)', 'cable-id');
 

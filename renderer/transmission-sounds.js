@@ -61,15 +61,17 @@
   const MAC_SPEAKER_RE =
     /^(MacBook( Pro| Air)?|iMac|Mac mini|Mac Studio|Studio Display) Speakers( \(Built-in\))?$/;
 
-  // Looser allowlist for Windows output-device labels, which are far less
-  // consistent than macOS's (vendor/driver-dependent). Matches the common
-  // built-in/onboard output names. Unanchored + case-insensitive on purpose.
-  // ⚠ OPEN ITEM: the exact Windows labels need tuning against the real test
-  // laptop once it's available — these are best-guess patterns. The cable
-  // exclusion (deviceId !== cableDeviceId) in selectTapeDumpSpeaker remains
-  // the real safety net regardless of how loose this regex is.
+  // Windows built-in-output allowlist, tuned against a real test laptop
+  // (2026-07-04). CRITICAL: it must match the onboard speakers but NEVER a USB
+  // audio cable — and Windows names BOTH generically, e.g. built-in "Speakers
+  // (2- Realtek(R) Audio)" vs the KT cable "Speakers (KT USB Audio)". So we
+  // match the built-in *vendor/driver* keywords (Realtek / High Definition
+  // Audio / Internal / Built-in) and deliberately DROP the bare "Speakers"/
+  // "Headphones" words, which the USB cable also carries. Matching the cable
+  // here is what let the tape-dump monitor grab the cable and truncate a
+  // JP→JX send (bank D dropped); the vendor-keyword match is what prevents it.
   const WIN_SPEAKER_RE =
-    /(Speakers|Headphones|Realtek|High Definition Audio|Internal Speaker|Built-in)/i;
+    /(Realtek|High Definition Audio|Internal Speaker|Built-in)/i;
 
   // The active allowlist for THIS platform, published under the historical
   // MAC_SPEAKER_LABEL_RE name so every downstream reader (selectTapeDumpSpeaker,
@@ -89,19 +91,70 @@
    * @returns {{kind: string, label: string, deviceId: string} | null}
    *   The first eligible audiooutput, or null if none.
    */
-  function selectTapeDumpSpeaker(devices, cableDeviceId) {
+  /**
+   * Pick the output device to play APP SOUNDS through (tape-dump monitor,
+   * button clicks, sequencer preview) — the ONE rule: never the transfer cable.
+   *
+   * Rather than try to RECOGNIZE the built-in speakers by name (a losing game —
+   * Realtek / Conexant / Cirrus / Intel / "High Definition Audio" / countless
+   * OEM variants), we EXCLUDE the cable the user configured and take what's
+   * left. The cable is excluded by its whole physical device: Windows lists one
+   * device up to 3× (Default / Communications / raw) with different deviceIds
+   * but the SAME groupId, so groupId is the reliable "same device" key (exact
+   * deviceId + base-label are fallbacks). OS role-alias entries are skipped so
+   * we always target a concrete device, never the ambiguous default sink (which
+   * during a send IS the cable).
+   *
+   * The name allowlist is kept as a PREFERENCE: if a recognized built-in
+   * speaker is present it wins. `allowUnrecognizedFallback` (Windows) then
+   * takes the first non-cable output when nothing is recognized — better a
+   * real speaker than silence. macOS leaves it off (short, stable speaker list;
+   * strict allowlist avoids routing to random externals).
+   *
+   * @param {Array} devices  enumerateDevices() output
+   * @param {string|null|undefined} cableDeviceId  the configured transfer device
+   * @param {{allowUnrecognizedFallback?: boolean}} [opts]
+   * @returns {{kind,label,deviceId,groupId}|null}
+   */
+  function selectSoundOutputDevice(devices, cableDeviceId, opts) {
     if (!Array.isArray(devices)) return null;
-    for (const d of devices) {
-      if (!d || d.kind !== 'audiooutput') continue;
-      // A device with no usable id can't be targeted with setSinkId, and a
-      // null id would also spuriously "equal" a null cableDeviceId — skip.
-      if (!d.deviceId) continue;
-      if (typeof d.label !== 'string' || !MAC_SPEAKER_LABEL_RE.test(d.label)) continue;
-      // Guard 2: never the cable, no matter what its label says.
-      if (d.deviceId === cableDeviceId) continue;
-      return d;
-    }
-    return null;
+    const allowFallback = !!(opts && opts.allowUnrecognizedFallback);
+
+    // Resolve the cable's physical identity so ALL its aliases are excluded.
+    // groupId is the reliable "same physical device" key (Chromium tags every
+    // alias of one device with it); exact deviceId is the other. We deliberately
+    // do NOT match by label — two DISTINCT devices can share a label (e.g. a
+    // cable a user renamed "Speakers"), and label-matching would wrongly
+    // exclude the real speaker too.
+    const cableDev = cableDeviceId
+      ? devices.find((d) => d && d.deviceId === cableDeviceId)
+      : null;
+    const cableGroup = cableDev && cableDev.groupId ? cableDev.groupId : null;
+    const isCable = (d) =>
+      (cableDeviceId && d.deviceId === cableDeviceId) ||
+      (cableGroup && d.groupId && d.groupId === cableGroup);
+
+    // Eligible = a concrete (non-role-alias) audiooutput that isn't the cable.
+    const eligible = (d) => {
+      if (!d || d.kind !== 'audiooutput' || !d.deviceId) return false;
+      if (d.deviceId === 'default' || d.deviceId === 'communications') return false;
+      if (/^(Default|Communications) - /.test(d.label || '')) return false;
+      return !isCable(d);
+    };
+
+    // Prefer a recognized built-in speaker.
+    const recognized = devices.find((d) => eligible(d)
+      && typeof d.label === 'string' && MAC_SPEAKER_LABEL_RE.test(d.label));
+    if (recognized) return recognized;
+
+    // Fallback (Windows): any non-cable output beats a silent monitor.
+    return allowFallback ? (devices.find((d) => eligible(d)) || null) : null;
+  }
+
+  // Back-compat wrapper: the tape-dump monitor's speaker pick. Windows gets the
+  // unrecognized-name fallback; macOS stays strict.
+  function selectTapeDumpSpeaker(devices, cableDeviceId) {
+    return selectSoundOutputDevice(devices, cableDeviceId, { allowUnrecognizedFallback: IS_WIN });
   }
 
   /**
@@ -156,13 +209,6 @@
   async function maybePlayTapeDumpSound(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
-    // Windows: the tape-dump MONITOR (a 2nd audio stream, routed via setSinkId
-    // while the cable send plays in parallel) truncated real JP→JX transfers —
-    // bank D dropped mid-send (Daniel, 2026-07-04). Windows audio routing
-    // (device pick + parallel setSinkId streams) isn't reliable enough yet, and
-    // this is an off-by-default cosmetic monitor, so it's gated off on Windows
-    // until the routing is hardened. macOS is unaffected.
-    if (IS_WIN) return null;
     try {
       if (typeof navigator === 'undefined'
           || !navigator.mediaDevices
@@ -246,7 +292,6 @@
   async function startTapeDumpMonitor(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
-    if (IS_WIN) return null;   // see maybePlayTapeDumpSound: monitor off on Windows (parallel stream corrupts transfers)
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
@@ -312,6 +357,7 @@
   // Module API — window globals for app.js (loaded after this file).
   if (typeof window !== 'undefined') {
     window.selectTapeDumpSpeaker   = selectTapeDumpSpeaker;
+    window.selectSoundOutputDevice = selectSoundOutputDevice;
     window.isBuiltInSpeakerOutput  = isBuiltInSpeakerOutput;
     window.maybePlayTapeDumpSound  = maybePlayTapeDumpSound;
     window.setTapeDumpSoundMuted   = setTapeDumpSoundMuted;
@@ -324,6 +370,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       selectTapeDumpSpeaker,
+      selectSoundOutputDevice,
       isBuiltInSpeakerOutput,
       maybePlayTapeDumpSound,
       setTapeDumpSoundMuted,
