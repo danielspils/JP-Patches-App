@@ -292,6 +292,15 @@
   async function startTapeDumpMonitor(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
+    // Windows: the RECORD-side monitor plays the LIVE capture input out the
+    // speakers WHILE recording — a mic→speaker→mic path that feeds back into
+    // the capture on Windows, so the FSK detector sees "signal" the instant the
+    // Record window opens (progress fires before the JX even dumps; the real
+    // dump is then missed). The SEND-side monitor (maybePlayTapeDumpSound) is
+    // safe — it plays a fixed WAV, not the live input — so it stays enabled.
+    // Gate ONLY the live record monitor off on Windows until we can guarantee
+    // no capture feedback there. macOS is unaffected.  (Daniel, 2026-07-05.)
+    if (IS_WIN) return null;
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
