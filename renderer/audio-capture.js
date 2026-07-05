@@ -363,8 +363,10 @@
         fskLive,
       });
       captureState = nextState;
-      // Modal projects state + events to DOM.
-      try { onTick({ peak, thresholds, state: captureState, events }); }
+      // Modal projects state + events to DOM. fskLive is surfaced so DOM cues
+      // (the JX→JP arrow pulse) track the SAME frequency gate as detection,
+      // rather than a parallel amplitude test that the idle buzz trips.
+      try { onTick({ peak, thresholds, state: captureState, events, fskLive }); }
       catch (err) { console.error('onTick threw:', err); }
       // Auto-stop fires once: callback runs, raf stops scheduling.
       // Modal is responsible for calling session.stop() (or letting
