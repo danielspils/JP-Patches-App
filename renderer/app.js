@@ -8838,18 +8838,21 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           fskOffMs = fskLive ? 0 : fskOffMs + dtP;
 
           const hasDivider = segs.some((s) => s.kind === 'divider');
-          // Divider = a SUSTAINED no-FSK gap after data started (tone dumps only).
-          // The ~400 ms debounce keeps a brief in-bank rate dip from false-firing
-          // the jump to the divider (real Bank C data sits well above threshold).
-          if (hasDivider && !dividerLit && fskOffMs > 400) dividerLit = true;
+          // Divider = a no-FSK gap after data started (tone dumps only). Small
+          // 150 ms debounce only — the 0.5 s detection WINDOW already smooths
+          // over any in-bank rate dip (Bank C is dense, well above threshold),
+          // so a big guard just delayed the divider lighting. Keeps it near the
+          // ~0.5 s window-lag that the INIT→Bank C transition has (reads synced).
+          if (hasDivider && !dividerLit && fskOffMs > 150) dividerLit = true;
           // Bank D = FSK returns after the divider.
           if (dividerLit && !bankDLit && fskLive) bankDLit = true;
 
           // Optimistic Processing: the final data section is done and FSK has been
           // quiet a beat — light Processing now (auto-stop's 7 s silence window
-          // would otherwise lag it). Idempotent.
+          // would otherwise lag it). 600 ms is enough to confirm the dump ended
+          // (dense final-bank data has no gaps that long) without a visible lag.
           const finalDataReached = hasDivider ? bankDLit : true;
-          if (finalDataReached && fskOffMs > 1500) {
+          if (finalDataReached && fskOffMs > 600) {
             activateProcessingSeg();
           } else {
             const firstDataKind = (segs.find((s) => !s.pilot && s.kind !== 'processing') || {}).kind;
