@@ -8849,10 +8849,11 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
 
           // Optimistic Processing: the final data section is done and FSK has been
           // quiet a beat — light Processing now (auto-stop's 7 s silence window
-          // would otherwise lag it). 600 ms is enough to confirm the dump ended
-          // (dense final-bank data has no gaps that long) without a visible lag.
+          // would otherwise lag it). 300 ms is enough to confirm the dump ended
+          // (dense final-bank data has no gaps that long) while keeping the
+          // Processing light close to the real end.
           const finalDataReached = hasDivider ? bankDLit : true;
-          if (finalDataReached && fskOffMs > 600) {
+          if (finalDataReached && fskOffMs > 300) {
             activateProcessingSeg();
           } else {
             const firstDataKind = (segs.find((s) => !s.pilot && s.kind !== 'processing') || {}).kind;
