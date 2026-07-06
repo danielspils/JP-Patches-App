@@ -8784,8 +8784,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
         // Driven by cumulative FSK signal time. Skip while in 'processing'
         // state — onTick is gated on state==='recording' so a late raf
         // tick after stopRecording fires can't reset our seg state.
-        if (cs.activeMs > 0 && state === 'recording') {
-          const elapsedSec = cs.activeMs / 1000;
+        if (cs.firstSignalMs != null && state === 'recording') {
           // Exclude the trailing 'processing' segment from both the
           // accumulator AND the totalEstSec denominator so the tx-side
           // indicator reaches the end of Bank D / Sequence at the right
@@ -8793,6 +8792,15 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           // than capping at ~86% with Processing included in the math.
           const txSegs = segs.filter((s) => s.kind !== 'processing');
           const txTotalEstSec = txSegs.reduce((sum, s) => sum + s.estSec, 0);
+          // Cursor pace: WALL-CLOCK since the dump's first data, seeded with the
+          // LEADING pilot(s) (already elapsed by the time the gate first trips on
+          // data). Wall-clock — not activeMs — carries the cursor smoothly
+          // THROUGH the mid-dump divider pilot, which is all-1s (no FSK): activeMs
+          // stalls there, freezing the cursor in Bank C and ending it short.
+          // (Fix-2 timeline resync, 2026-07-05.)
+          let leadPilotSec = 0;
+          for (const s of txSegs) { if (!s.pilot) break; leadPilotSec += s.estSec; }
+          const elapsedSec = leadPilotSec + (Date.now() - cs.firstSignalMs) / 1000;
 
           if (elapsedSec >= txTotalEstSec) {
             // Optimistic Processing: activeMs has hit (or passed) the
@@ -9556,6 +9564,11 @@ function renderSequenceVisualizer() {
   }
   const seq = library.sequences && library.sequences[selSequence];
   if (!seq) { container.hidden = true; return; }
+  // Pre-warm the preview audio pipeline so the first note played in the editor
+  // isn't swallowed while the AudioContext spins up (noticeable on slower PCs).
+  // Idempotent + silent-fail; fires within the user's click that opened the
+  // editor, so the context can leave the browser's default 'suspended' state.
+  if (typeof warmUp === 'function') warmUp();
 
   const PAGES           = 8;
   const STEPS_PER_PAGE  = 16;
