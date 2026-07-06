@@ -194,6 +194,39 @@ let tapeDumpSoundsEnabled = false;
 // the slider at ~5% of travel — just above silent, can't blast on first use.
 let tapeDumpVolume = 0.0025;
 
+// ── App-sound output routing (Task #21) ────────────────────────────────────
+// Button/switch clicks + the sequencer-editor preview share ONE output device,
+// resolved here so the KT data cable is never used for app audio. Priority:
+//   1. the user's explicit in-app device, when it's a real output (not the cable)
+//   2. (Windows only) an auto-picked built-in speaker via the shared cable-
+//      exclusion picker — so a fresh Windows user, whose system default is
+//      usually the KT cable, still hears app sounds without configuring anything
+//   3. system default ('') — preserves Mac's "unset → system speakers" behavior
+// Cached (setSinkId/enumerateDevices are async); refreshed at startup, on an
+// in-app-device change, and on OS devicechange. Best-effort: device LABELS need
+// mic permission (granted after the first capture), so the Windows auto-pick may
+// not resolve until then — the explicit pick (1) needs no labels and always works.
+const IS_WIN_APPSOUND = /win/i.test(navigator.platform || navigator.userAgent || '');
+let appSoundSink = '';   // resolved output deviceId; '' = system default
+async function refreshAppSoundSink() {
+  const picked = (library && library.appSoundDeviceId) || '';
+  const cable  = (library && library.cableOutputDeviceId) || null;
+  let sink = '';
+  if (picked && picked !== cable) {
+    sink = picked;                                   // explicit, non-cable choice
+  } else if (IS_WIN_APPSOUND && typeof selectSoundOutputDevice === 'function'
+             && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const dev = selectSoundOutputDevice(devices, cable, { allowUnrecognizedFallback: true });
+      sink = (dev && dev.deviceId) || '';           // a real, non-cable speaker
+    } catch { /* labels/permission not ready — leave system default */ }
+  }
+  appSoundSink = sink;
+  if (typeof setPreviewSink === 'function') setPreviewSink(sink);
+  return sink;
+}
+
 // Cache one Audio element per sound (created lazily). Resetting currentTime
 // before each play lets rapid presses retrigger the sound.
 //
@@ -213,8 +246,9 @@ function makeSoundPlayer(src, volume) {
         audio = new Audio(src);
         audio.volume = volume;
       }
-      // Apply sinkId on-demand: only if changed since last play.
-      const want = library && library.appSoundDeviceId;
+      // Apply sinkId on-demand: only if changed since last play. Uses the
+      // resolved app-sound device (cable-excluded) — see refreshAppSoundSink.
+      const want = appSoundSink;
       if (want !== lastAppliedSink && typeof audio.setSinkId === 'function') {
         lastAppliedSink = want;
         audio.setSinkId(want || '').catch(() => {});  // '' = default sink
@@ -8817,14 +8851,25 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     captured     = captureSession.captured;
 
     // Tape Dump Sounds (View > Tape dump sounds; off by default) — monitor the
-    // incoming dump out the Mac's built-in speakers so the user HEARS it come
-    // in. Fully isolated + silent-fail; built-in-speaker routing is forced so
-    // it can never feed back into the JX. Uses the shared persisted volume.
+    // incoming dump out the built-in speakers so the user HEARS it come in.
+    // Fully isolated + silent-fail; a real speaker is force-routed via setSinkId
+    // so it can never play back out the cable. Pass the configured cable id so
+    // its WHOLE physical device (all aliases, by groupId) is excluded from the
+    // speaker pick — robust even on a Windows box whose speakers aren't labelled
+    // Realtek/Built-in (label allowlist alone would miss those). (Task #21.)
     if (tapeDumpSoundsEnabled && typeof startTapeDumpMonitor === 'function') {
       startTapeDumpMonitor({
         audioContext: captureSession.audioContext,
         sourceNode:   captureSession.gainNode,
-        cableDeviceId: null,                 // allowlist already excludes the KT (not a built-in speaker)
+        // Route to the SAME resolved app-sound device as button sounds + the
+        // sequencer preview — the user's explicit "In-app audio" pick (any
+        // speaker name) or the cable-excluded auto-pick. Falls back to the
+        // built-in-speaker picker only if nothing is resolved.
+        preferredSinkId: appSoundSink,
+        // Fallback exclusion for that picker: the device we're recording FROM
+        // (any cable/interface, not just the KT), then the configured cable.
+        cableDeviceId: (library.record && library.record.preferredInputDeviceId)
+                       || library.cableOutputDeviceId || null,
         enabled:      true,
         muted:        tapeDumpMuted,         // inherit current modal mute state
         volume:       tapeDumpVolume,        // inherit current modal volume (persisted)
@@ -11665,6 +11710,17 @@ async function init() {
   if (typeof window.api.setButtonSoundsInitial === 'function') {
     window.api.setButtonSoundsInitial(buttonSoundsEnabled);
   }
+
+  // Resolve the app-sound output device AT STARTUP (button sounds + sequencer
+  // preview), cable-excluded — see refreshAppSoundSink. Previously the preview
+  // sink was only set from the Audio Settings on-change handler, so a fresh
+  // launch used the system default — silent on Windows where that's the KT
+  // cable. Also re-resolve when the OS device list changes (dock/undock, cable
+  // plug). (Task #21 / Windows.)
+  refreshAppSoundSink();
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+    navigator.mediaDevices.addEventListener('devicechange', refreshAppSoundSink);
+  }
   if (typeof window.api.onButtonSoundsChanged === 'function') {
     window.api.onButtonSoundsChanged((enabled) => {
       buttonSoundsEnabled = !!enabled;
@@ -11920,9 +11976,9 @@ function showAudioSettingsModal() {
       library.appSoundDeviceId    = id;
       library.appSoundDeviceLabel = label;
       saveLibraryDebounced();
-      if (typeof setPreviewSink === 'function') setPreviewSink(id);
-      // makeSoundPlayer audio elements pick up the change lazily on
-      // their next play call.
+      // Re-resolve the shared app-sound sink (cable-excluded) → updates the
+      // preview immediately + the cached sink button sounds read on next play.
+      refreshAppSoundSink();
     }
   );
 

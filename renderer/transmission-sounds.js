@@ -283,7 +283,11 @@
    * @param {Object} opts
    * @param {AudioContext} opts.audioContext  the capture session's context
    * @param {AudioNode}    opts.sourceNode    node to tap (the gain node)
-   * @param {string|null}  opts.cableDeviceId belt-and-suspenders exclusion
+   * @param {string}       [opts.preferredSinkId] resolved shared app-sound
+   *   output device (user's explicit pick or cable-excluded auto-pick). Used
+   *   directly when non-empty; else the built-in-speaker picker runs.
+   * @param {string|null}  opts.cableDeviceId device to EXCLUDE from the picker
+   *   fallback (the capture input / configured cable) — any interface, by group
    * @param {boolean}      opts.enabled
    * @param {boolean}      [opts.muted=false]
    * @param {number}       [opts.volume=0.0025]
@@ -292,24 +296,38 @@
   async function startTapeDumpMonitor(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
-    // Windows: the RECORD-side monitor plays the LIVE capture input out the
-    // speakers WHILE recording — a mic→speaker→mic path that feeds back into
-    // the capture on Windows, so the FSK detector sees "signal" the instant the
-    // Record window opens (progress fires before the JX even dumps; the real
-    // dump is then missed). The SEND-side monitor (maybePlayTapeDumpSound) is
-    // safe — it plays a fixed WAV, not the live input — so it stays enabled.
-    // Gate ONLY the live record monitor off on Windows until we can guarantee
-    // no capture feedback there. macOS is unaffected.  (Daniel, 2026-07-05.)
-    if (IS_WIN) return null;
+    // The RECORD-side monitor plays the LIVE capture input out a speaker while
+    // recording. It was gated off on Windows (2026-07-05) over a feared feedback
+    // loop, but the actual path was the monitor being routed OUT the KT cable
+    // itself (label collision) → back into the JX. Two fixes now close that:
+    //   1. Cable-exclusion by groupId/id (selectSoundOutputDevice + the caller
+    //      passing the real cableDeviceId) → the monitor can never pick the KT.
+    //   2. The KT is a direct LINE cable, not a mic, so built-in-speaker audio
+    //      can't acoustically re-enter the exact-device capture; and Fix 2's
+    //      frequency gate keys on the bit-0 FSK, not stray level.
+    // If no eligible non-cable speaker is found the monitor silently no-ops
+    // (returns null below), so the worst case on any platform is "no monitor,"
+    // never feedback. Re-enabled on Windows; verify on hardware.  (Task #21.)
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
       if (typeof navigator === 'undefined'
           || !navigator.mediaDevices
           || typeof navigator.mediaDevices.enumerateDevices !== 'function') return null;
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const speaker = selectTapeDumpSpeaker(devices, o.cableDeviceId);
-      if (!speaker) return null;                          // no eligible speaker → silent skip
+      // Prefer the shared app-sound device (the user's explicit "In-app audio"
+      // pick, or the cable-excluded auto-pick resolved by the caller) so the
+      // monitor matches every other app sound and honours a speaker named
+      // anything. Fall back to the built-in-speaker picker (cable-excluded by
+      // whatever device we're recording from) only when nothing is resolved.
+      let sinkId = (typeof o.preferredSinkId === 'string' && o.preferredSinkId)
+        ? o.preferredSinkId
+        : null;
+      if (!sinkId) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const speaker = selectTapeDumpSpeaker(devices, o.cableDeviceId);
+        if (!speaker) return null;                        // no eligible speaker → silent skip
+        sinkId = speaker.deviceId;
+      }
 
       let vol   = (typeof o.volume === 'number' ? o.volume : 0.0025);
       let muted = !!o.muted;
@@ -328,7 +346,7 @@
         try { o.sourceNode.disconnect(monGain); } catch {}
         return null;
       }
-      await a.setSinkId(speaker.deviceId);                // throws → caught → cleaned up below
+      await a.setSinkId(sinkId);                          // throws → caught → cleaned up below
       await a.play();
 
       const apply = () => { monGain.gain.value = muted ? 0 : vol; };
