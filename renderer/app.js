@@ -208,6 +208,7 @@ let tapeDumpVolume = 0.0025;
 // not resolve until then — the explicit pick (1) needs no labels and always works.
 const IS_WIN_APPSOUND = /win/i.test(navigator.platform || navigator.userAgent || '');
 let appSoundSink = '';   // resolved output deviceId; '' = system default
+let uiCtx = null;        // shared Web Audio context for low-latency UI click sounds (see makeSoundPlayer)
 async function refreshAppSoundSink() {
   const picked = (library && library.appSoundDeviceId) || '';
   const cable  = (library && library.cableOutputDeviceId) || null;
@@ -224,39 +225,75 @@ async function refreshAppSoundSink() {
   }
   appSoundSink = sink;
   if (typeof setPreviewSink === 'function') setPreviewSink(sink);
+  if (uiCtx && typeof uiCtx.setSinkId === 'function') uiCtx.setSinkId(sink || '').catch(() => {});
   return sink;
 }
 
-// Cache one Audio element per sound (created lazily). Resetting currentTime
-// before each play lets rapid presses retrigger the sound.
-//
-// v0.7.0: applies setSinkId(library.appSoundDeviceId) before play so app
-// sounds route to the user's picked device (independent of macOS system
-// default + the cable picker). Tracks the last-applied sinkId so we only
-// re-call setSinkId when the user picks a different device — setSinkId
-// is an async device handshake and shouldn't fire on every click. Silent-
-// fail on rejection (device gone, etc.) — degrades to default routing.
+// Shared Web Audio context for UI click sounds. Created lazily; the sink is
+// re-applied by refreshAppSoundSink so clicks follow the app-sound device.
+function getUiCtx() {
+  if (uiCtx) return uiCtx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try { uiCtx = new AC(); } catch { uiCtx = null; return null; }
+  if (appSoundSink && typeof uiCtx.setSinkId === 'function') uiCtx.setSinkId(appSoundSink).catch(() => {});
+  return uiCtx;
+}
+
+// UI click-sound player. PREFERS Web Audio: decode the tiny clip into an
+// AudioBuffer once, then fire a fresh BufferSource per click — near-zero
+// latency. HTML <audio>.play() lagged noticeably on slow PCs (create/decode +
+// the setSinkId-routed element's own latency). FALLS BACK to a pre-warmed HTML
+// <audio> element when Web Audio or the local decode isn't available, so there
+// is never a regression. Both honour appSoundSink (v0.7.0 device routing).
+// Local files load via XHR — fetch() is blocked under Electron's file://.
 function makeSoundPlayer(src, volume) {
-  let audio = null;
-  let lastAppliedSink = undefined;
-  return () => {
-    if (!buttonSoundsEnabled) return;
+  // Pre-warmed HTML fallback element.
+  const audio = new Audio(src);
+  audio.volume = volume;
+  let lastAppliedSink;
+  const htmlPlay = () => {
     try {
-      if (!audio) {
-        audio = new Audio(src);
-        audio.volume = volume;
-      }
-      // Apply sinkId on-demand: only if changed since last play. Uses the
-      // resolved app-sound device (cable-excluded) — see refreshAppSoundSink.
-      const want = appSoundSink;
-      if (want !== lastAppliedSink && typeof audio.setSinkId === 'function') {
-        lastAppliedSink = want;
-        audio.setSinkId(want || '').catch(() => {});  // '' = default sink
+      if (appSoundSink !== lastAppliedSink && typeof audio.setSinkId === 'function') {
+        lastAppliedSink = appSoundSink;
+        audio.setSinkId(appSoundSink || '').catch(() => {});
       }
       audio.currentTime = 0;
       const p = audio.play();
       if (p && typeof p.catch === 'function') p.catch(() => {});
-    } catch (_) { /* audio unavailable — silent no-op */ }
+    } catch (_) { /* silent no-op */ }
+  };
+
+  // Decode into an AudioBuffer for the low-latency path (best-effort).
+  let buffer = null;
+  const ctx = getUiCtx();
+  if (ctx && typeof ctx.decodeAudioData === 'function') {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', src, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = () => {
+        try { ctx.decodeAudioData(xhr.response, (b) => { buffer = b; }, () => {}); } catch (_) { /* keep HTML fallback */ }
+      };
+      xhr.send();
+    } catch (_) { /* keep HTML fallback */ }
+  }
+
+  return () => {
+    if (!buttonSoundsEnabled) return;
+    if (buffer && uiCtx) {
+      try {
+        if (uiCtx.state === 'suspended') uiCtx.resume().catch(() => {});
+        const g = uiCtx.createGain();
+        g.gain.value = volume;
+        const s = uiCtx.createBufferSource();
+        s.buffer = buffer;
+        s.connect(g).connect(uiCtx.destination);
+        s.start();
+        return;
+      } catch (_) { /* fall through to HTML */ }
+    }
+    htmlPlay();
   };
 }
 
