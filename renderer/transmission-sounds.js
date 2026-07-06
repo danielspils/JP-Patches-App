@@ -283,7 +283,11 @@
    * @param {Object} opts
    * @param {AudioContext} opts.audioContext  the capture session's context
    * @param {AudioNode}    opts.sourceNode    node to tap (the gain node)
-   * @param {string|null}  opts.cableDeviceId belt-and-suspenders exclusion
+   * @param {string}       [opts.preferredSinkId] resolved shared app-sound
+   *   output device (user's explicit pick or cable-excluded auto-pick). Used
+   *   directly when non-empty; else the built-in-speaker picker runs.
+   * @param {string|null}  opts.cableDeviceId device to EXCLUDE from the picker
+   *   fallback (the capture input / configured cable) — any interface, by group
    * @param {boolean}      opts.enabled
    * @param {boolean}      [opts.muted=false]
    * @param {number}       [opts.volume=0.0025]
@@ -310,9 +314,20 @@
       if (typeof navigator === 'undefined'
           || !navigator.mediaDevices
           || typeof navigator.mediaDevices.enumerateDevices !== 'function') return null;
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const speaker = selectTapeDumpSpeaker(devices, o.cableDeviceId);
-      if (!speaker) return null;                          // no eligible speaker → silent skip
+      // Prefer the shared app-sound device (the user's explicit "In-app audio"
+      // pick, or the cable-excluded auto-pick resolved by the caller) so the
+      // monitor matches every other app sound and honours a speaker named
+      // anything. Fall back to the built-in-speaker picker (cable-excluded by
+      // whatever device we're recording from) only when nothing is resolved.
+      let sinkId = (typeof o.preferredSinkId === 'string' && o.preferredSinkId)
+        ? o.preferredSinkId
+        : null;
+      if (!sinkId) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const speaker = selectTapeDumpSpeaker(devices, o.cableDeviceId);
+        if (!speaker) return null;                        // no eligible speaker → silent skip
+        sinkId = speaker.deviceId;
+      }
 
       let vol   = (typeof o.volume === 'number' ? o.volume : 0.0025);
       let muted = !!o.muted;
@@ -331,7 +346,7 @@
         try { o.sourceNode.disconnect(monGain); } catch {}
         return null;
       }
-      await a.setSinkId(speaker.deviceId);                // throws → caught → cleaned up below
+      await a.setSinkId(sinkId);                          // throws → caught → cleaned up below
       await a.play();
 
       const apply = () => { monGain.gain.value = muted ? 0 : vol; };

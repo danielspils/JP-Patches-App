@@ -8861,7 +8861,15 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
       startTapeDumpMonitor({
         audioContext: captureSession.audioContext,
         sourceNode:   captureSession.gainNode,
-        cableDeviceId: library.cableOutputDeviceId || null,   // exclude the KT by id/group
+        // Route to the SAME resolved app-sound device as button sounds + the
+        // sequencer preview — the user's explicit "In-app audio" pick (any
+        // speaker name) or the cable-excluded auto-pick. Falls back to the
+        // built-in-speaker picker only if nothing is resolved.
+        preferredSinkId: appSoundSink,
+        // Fallback exclusion for that picker: the device we're recording FROM
+        // (any cable/interface, not just the KT), then the configured cable.
+        cableDeviceId: (library.record && library.record.preferredInputDeviceId)
+                       || library.cableOutputDeviceId || null,
         enabled:      true,
         muted:        tapeDumpMuted,         // inherit current modal mute state
         volume:       tapeDumpVolume,        // inherit current modal volume (persisted)
