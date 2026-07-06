@@ -131,6 +131,7 @@ export default [
 
         // Globals exposed by renderer/transmission-sounds.js
         selectTapeDumpSpeaker:      'readonly',
+        selectSoundOutputDevice:    'readonly',
         isBuiltInSpeakerOutput:     'readonly',
         maybePlayTapeDumpSound:     'readonly',
         setTapeDumpSoundMuted:      'readonly',
