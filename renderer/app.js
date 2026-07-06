@@ -7949,14 +7949,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   // counter sits to the right of that label, visually tied to the
   // segmented bar it describes.
   const { timelineSection, timelineHeader, timeline, segs, indicator } = buildRecordTimelineSection(kind);
-  // Record flow shows progress by LIGHTING each section as it's reached, not a
-  // moving cursor: the cursor's continuous position drifts against the JX's
-  // variable dump timing (fixed per-section estimates) and reads as "running
-  // ahead," whereas the discrete section highlighting is anchored to detection
-  // and reads as accurate. Hide the cursor here — the shared builder keeps it
-  // for the SEND timeline, which IS driven by real <audio>.currentTime.
-  // (Daniel, 2026-07-05.)
-  indicator.style.display = 'none';
 
   const statusText = document.createElement('div');
   statusText.className = 'record-jx-status';
@@ -8210,6 +8202,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   let captureSession = null;
   let audioContext = null;          // mirror of session.audioContext; read at WAV-write time for the sampleRate header
   let gainNode     = null;          // mirror of session.gainNode; slider listener writes .gain.value here
+  // Gate-anchored timeline phase tracking — lights each section at the ACTUAL
+  // dump transition (fskLive flips), not on time estimates. Reset in startRecording.
+  let dividerLit = false;           // tone dump: the mid-dump all-1s divider pilot reached
+  let bankDLit   = false;           // tone dump: FSK returned after the divider (Bank D)
+  let fskOffMs   = 0;               // consecutive ms with no FSK detected (debounces transitions)
+  let phaseLastTickMs = null;       // wall-clock of previous phase tick (for the fskOffMs dt)
   // (tapeDumpMonitor + tapeDumpMuted are declared earlier, above the tdsCtrl
   // block that closes over them — see the Tape Dump Sounds state block.)
   let captured     = [];            // mirror of session.captured (the live PCM buffer); concatenated by stopRecording
@@ -8713,7 +8711,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
 
     // Pre-tick state owned by the modal (these aren't part of the
     // captureState — they drive DOM-only concerns).
-    const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
     // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
     // the arrow flips off on brief silence dips inside sustained FSK.
     // Rising edge instant (responsive); falling edge requires N
@@ -8788,51 +8785,39 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           calProgressBar.style.width = `${events.progressPct}%`;
         }
 
-        // Timeline-segment indicator (the "WHAT THE JX-3P SENDS" bar).
-        // Driven by cumulative FSK signal time. Skip while in 'processing'
-        // state — onTick is gated on state==='recording' so a late raf
-        // tick after stopRecording fires can't reset our seg state.
+        // Timeline sections light up at the ACTUAL dump transitions, anchored to
+        // the frequency gate (fskLive) — not to time estimates — so each section
+        // lights exactly when that part of the dump plays. fskLive is TRUE during
+        // data (Bank C / D / Sequence) and FALSE during the all-1s pilots, so a
+        // sustained off after the first data marks the divider, and FSK returning
+        // marks Bank D. Runs only once real data is detected; before that the
+        // 'init' pilot section stays lit (set at record start). The old moving
+        // cursor was removed — the discrete sections read as accurate, while the
+        // cursor exposed the per-section estimate drift. (Daniel, 2026-07-05.)
         if (cs.firstSignalMs != null && state === 'recording') {
-          // Exclude the trailing 'processing' segment from both the
-          // accumulator AND the totalEstSec denominator so the tx-side
-          // indicator reaches the end of Bank D / Sequence at the right
-          // visual position (start of the Processing segment), rather
-          // than capping at ~86% with Processing included in the math.
-          const txSegs = segs.filter((s) => s.kind !== 'processing');
-          const txTotalEstSec = txSegs.reduce((sum, s) => sum + s.estSec, 0);
-          // Cursor pace: WALL-CLOCK since the dump's first data, seeded with the
-          // LEADING pilot(s) (already elapsed by the time the gate first trips on
-          // data). Wall-clock — not activeMs — carries the cursor smoothly
-          // THROUGH the mid-dump divider pilot, which is all-1s (no FSK): activeMs
-          // stalls there, freezing the cursor in Bank C and ending it short.
-          // (Fix-2 timeline resync, 2026-07-05.)
-          let leadPilotSec = 0;
-          for (const s of txSegs) { if (!s.pilot) break; leadPilotSec += s.estSec; }
-          const elapsedSec = leadPilotSec + (Date.now() - cs.firstSignalMs) / 1000;
+          const nowMs = Date.now();
+          const dtP = phaseLastTickMs != null ? nowMs - phaseLastTickMs : 0;
+          phaseLastTickMs = nowMs;
+          fskOffMs = fskLive ? 0 : fskOffMs + dtP;
 
-          if (elapsedSec >= txTotalEstSec) {
-            // Optimistic Processing: activeMs has hit (or passed) the
-            // expected tx total, so the JX is presumably done dumping.
-            // Light up Processing now rather than waiting for auto-stop
-            // to fire — on hardware where post-dump audio stays above
-            // signalThreshold, auto-stop can lag 10+ s behind the actual
-            // JX-done moment. Idempotent; safe to call every tick once
-            // we're past the threshold.
+          const hasDivider = segs.some((s) => s.kind === 'divider');
+          // Divider = a SUSTAINED no-FSK gap after data started (tone dumps only).
+          // The ~400 ms debounce keeps a brief in-bank rate dip from false-firing
+          // the jump to the divider (real Bank C data sits well above threshold).
+          if (hasDivider && !dividerLit && fskOffMs > 400) dividerLit = true;
+          // Bank D = FSK returns after the divider.
+          if (dividerLit && !bankDLit && fskLive) bankDLit = true;
+
+          // Optimistic Processing: the final data section is done and FSK has been
+          // quiet a beat — light Processing now (auto-stop's 7 s silence window
+          // would otherwise lag it). Idempotent.
+          const finalDataReached = hasDivider ? bankDLit : true;
+          if (finalDataReached && fskOffMs > 1500) {
             activateProcessingSeg();
           } else {
-            // Normal advance through the tx-side segments.
-            let acc = 0, activeIdx = txSegs.length - 1;
-            for (let i = 0; i < txSegs.length; i++) {
-              acc += txSegs[i].estSec;
-              if (elapsedSec < acc) { activeIdx = i; break; }
-            }
-            segs.forEach((s) => {
-              const isActive = s === txSegs[activeIdx];
-              s.el.classList.toggle('active', isActive);
-            });
-            const txPortionPct = (txTotalEstSec / totalEstSec) * 100;
-            const pct = Math.min(txPortionPct, (elapsedSec / txTotalEstSec) * txPortionPct);
-            indicator.style.left = `${pct}%`;
+            const firstDataKind = (segs.find((s) => !s.pilot && s.kind !== 'processing') || {}).kind;
+            const activeKind = bankDLit ? 'bank-d' : dividerLit ? 'divider' : firstDataKind;
+            segs.forEach((s) => s.el.classList.toggle('active', s.kind === activeKind));
           }
         }
 
@@ -8904,9 +8889,10 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     statusText.textContent = 'Waiting…';
     // Begin with the leading pilot ('init') section lit. The JX opens every dump
     // with it, but the frequency gate can't see it (all-1s tone), so it can't be
-    // lit from detection — light it up-front through the wait. The tick's section
-    // highlighting takes over (and moves off it) once Bank C / Sequence data is
-    // detected. (Daniel, 2026-07-05.)
+    // lit from detection — light it up-front through the wait. The tick's
+    // gate-anchored lighting takes over (and moves off it) once Bank C / Sequence
+    // data is detected. (Daniel, 2026-07-05.)
+    dividerLit = false; bankDLit = false; fskOffMs = 0; phaseLastTickMs = null;
     { const initSeg = segs.find((s) => s.kind === 'init'); if (initSeg) initSeg.el.classList.add('active'); }
     elapsedTimer = setInterval(() => {
       // Don't clobber a live warning message (any of the 4 ladder states)

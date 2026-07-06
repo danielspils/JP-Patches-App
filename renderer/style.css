@@ -1868,7 +1868,14 @@ body.seq-dragging-pitch * {
 }
 .send-jx-seg.active .send-jx-seg-label  { color: #f7f1e6; }
 
+/* Timeline progress is shown by LIGHTING each section as it's reached, not by a
+   moving cursor. The white cursor is hidden on every timeline (record + send):
+   its continuous position exposed per-section timing drift and read as "running
+   ahead," while the discrete section highlighting reads as accurate. The element
+   + its JS position math are kept (harmless no-ops) to avoid touching the send/
+   record flows. (Daniel, 2026-07-05.) */
 .send-jx-indicator {
+  display: none;
   position: absolute;
   top: -2px;
   bottom: -2px;
@@ -1879,7 +1886,6 @@ body.seq-dragging-pitch * {
   transition: left 0.12s linear;
   box-shadow: 0 0 4px rgba(247, 241, 230, 0.6);
 }
-.send-jx-timeline.complete .send-jx-indicator { display: none; }
 /* ───────────────────────────────────────────────────────────────────────
    Modal buttons — brand-aligned design system (2026-05-24)
    See docs/design-system.md §4.1 (Modal layout) for the broader context.
