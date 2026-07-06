@@ -7949,6 +7949,14 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   // counter sits to the right of that label, visually tied to the
   // segmented bar it describes.
   const { timelineSection, timelineHeader, timeline, segs, indicator } = buildRecordTimelineSection(kind);
+  // Record flow shows progress by LIGHTING each section as it's reached, not a
+  // moving cursor: the cursor's continuous position drifts against the JX's
+  // variable dump timing (fixed per-section estimates) and reads as "running
+  // ahead," whereas the discrete section highlighting is anchored to detection
+  // and reads as accurate. Hide the cursor here — the shared builder keeps it
+  // for the SEND timeline, which IS driven by real <audio>.currentTime.
+  // (Daniel, 2026-07-05.)
+  indicator.style.display = 'none';
 
   const statusText = document.createElement('div');
   statusText.className = 'record-jx-status';
@@ -8894,6 +8902,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // the "Recording — Ns elapsed" form.
     timerStartMs = null;
     statusText.textContent = 'Waiting…';
+    // Begin with the leading pilot ('init') section lit. The JX opens every dump
+    // with it, but the frequency gate can't see it (all-1s tone), so it can't be
+    // lit from detection — light it up-front through the wait. The tick's section
+    // highlighting takes over (and moves off it) once Bank C / Sequence data is
+    // detected. (Daniel, 2026-07-05.)
+    { const initSeg = segs.find((s) => s.kind === 'init'); if (initSeg) initSeg.el.classList.add('active'); }
     elapsedTimer = setInterval(() => {
       // Don't clobber a live warning message (any of the 4 ladder states)
       // by overwriting it with the elapsed-time tick.
