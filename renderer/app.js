@@ -208,6 +208,7 @@ let tapeDumpVolume = 0.0025;
 // not resolve until then — the explicit pick (1) needs no labels and always works.
 const IS_WIN_APPSOUND = /win/i.test(navigator.platform || navigator.userAgent || '');
 let appSoundSink = '';   // resolved output deviceId; '' = system default
+let uiCtx = null;        // shared Web Audio context for low-latency UI click sounds (see makeSoundPlayer)
 async function refreshAppSoundSink() {
   const picked = (library && library.appSoundDeviceId) || '';
   const cable  = (library && library.cableOutputDeviceId) || null;
@@ -224,39 +225,75 @@ async function refreshAppSoundSink() {
   }
   appSoundSink = sink;
   if (typeof setPreviewSink === 'function') setPreviewSink(sink);
+  if (uiCtx && typeof uiCtx.setSinkId === 'function') uiCtx.setSinkId(sink || '').catch(() => {});
   return sink;
 }
 
-// Cache one Audio element per sound (created lazily). Resetting currentTime
-// before each play lets rapid presses retrigger the sound.
-//
-// v0.7.0: applies setSinkId(library.appSoundDeviceId) before play so app
-// sounds route to the user's picked device (independent of macOS system
-// default + the cable picker). Tracks the last-applied sinkId so we only
-// re-call setSinkId when the user picks a different device — setSinkId
-// is an async device handshake and shouldn't fire on every click. Silent-
-// fail on rejection (device gone, etc.) — degrades to default routing.
+// Shared Web Audio context for UI click sounds. Created lazily; the sink is
+// re-applied by refreshAppSoundSink so clicks follow the app-sound device.
+function getUiCtx() {
+  if (uiCtx) return uiCtx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try { uiCtx = new AC(); } catch { uiCtx = null; return null; }
+  if (appSoundSink && typeof uiCtx.setSinkId === 'function') uiCtx.setSinkId(appSoundSink).catch(() => {});
+  return uiCtx;
+}
+
+// UI click-sound player. PREFERS Web Audio: decode the tiny clip into an
+// AudioBuffer once, then fire a fresh BufferSource per click — near-zero
+// latency. HTML <audio>.play() lagged noticeably on slow PCs (create/decode +
+// the setSinkId-routed element's own latency). FALLS BACK to a pre-warmed HTML
+// <audio> element when Web Audio or the local decode isn't available, so there
+// is never a regression. Both honour appSoundSink (v0.7.0 device routing).
+// Local files load via XHR — fetch() is blocked under Electron's file://.
 function makeSoundPlayer(src, volume) {
-  let audio = null;
-  let lastAppliedSink = undefined;
-  return () => {
-    if (!buttonSoundsEnabled) return;
+  // Pre-warmed HTML fallback element.
+  const audio = new Audio(src);
+  audio.volume = volume;
+  let lastAppliedSink;
+  const htmlPlay = () => {
     try {
-      if (!audio) {
-        audio = new Audio(src);
-        audio.volume = volume;
-      }
-      // Apply sinkId on-demand: only if changed since last play. Uses the
-      // resolved app-sound device (cable-excluded) — see refreshAppSoundSink.
-      const want = appSoundSink;
-      if (want !== lastAppliedSink && typeof audio.setSinkId === 'function') {
-        lastAppliedSink = want;
-        audio.setSinkId(want || '').catch(() => {});  // '' = default sink
+      if (appSoundSink !== lastAppliedSink && typeof audio.setSinkId === 'function') {
+        lastAppliedSink = appSoundSink;
+        audio.setSinkId(appSoundSink || '').catch(() => {});
       }
       audio.currentTime = 0;
       const p = audio.play();
       if (p && typeof p.catch === 'function') p.catch(() => {});
-    } catch (_) { /* audio unavailable — silent no-op */ }
+    } catch (_) { /* silent no-op */ }
+  };
+
+  // Decode into an AudioBuffer for the low-latency path (best-effort).
+  let buffer = null;
+  const ctx = getUiCtx();
+  if (ctx && typeof ctx.decodeAudioData === 'function') {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', src, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = () => {
+        try { ctx.decodeAudioData(xhr.response, (b) => { buffer = b; }, () => {}); } catch (_) { /* keep HTML fallback */ }
+      };
+      xhr.send();
+    } catch (_) { /* keep HTML fallback */ }
+  }
+
+  return () => {
+    if (!buttonSoundsEnabled) return;
+    if (buffer && uiCtx) {
+      try {
+        if (uiCtx.state === 'suspended') uiCtx.resume().catch(() => {});
+        const g = uiCtx.createGain();
+        g.gain.value = volume;
+        const s = uiCtx.createBufferSource();
+        s.buffer = buffer;
+        s.connect(g).connect(uiCtx.destination);
+        s.start();
+        return;
+      } catch (_) { /* fall through to HTML */ }
+    }
+    htmlPlay();
   };
 }
 
@@ -8202,6 +8239,12 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
   let captureSession = null;
   let audioContext = null;          // mirror of session.audioContext; read at WAV-write time for the sampleRate header
   let gainNode     = null;          // mirror of session.gainNode; slider listener writes .gain.value here
+  // Gate-anchored timeline phase tracking — lights each section at the ACTUAL
+  // dump transition (fskLive flips), not on time estimates. Reset in startRecording.
+  let dividerLit = false;           // tone dump: the mid-dump all-1s divider pilot reached
+  let bankDLit   = false;           // tone dump: FSK returned after the divider (Bank D)
+  let fskOffMs   = 0;               // consecutive ms with no FSK detected (debounces transitions)
+  let phaseLastTickMs = null;       // wall-clock of previous phase tick (for the fskOffMs dt)
   // (tapeDumpMonitor + tapeDumpMuted are declared earlier, above the tdsCtrl
   // block that closes over them — see the Tape Dump Sounds state block.)
   let captured     = [];            // mirror of session.captured (the live PCM buffer); concatenated by stopRecording
@@ -8705,7 +8748,6 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
 
     // Pre-tick state owned by the modal (these aren't part of the
     // captureState — they drive DOM-only concerns).
-    const totalEstSec = segs.reduce((sum, s) => sum + s.estSec, 0);
     // Arrow .pulsing falling-edge debounce (2026-05-24): without this,
     // the arrow flips off on brief silence dips inside sustained FSK.
     // Rising edge instant (responsive); falling edge requires N
@@ -8780,43 +8822,39 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           calProgressBar.style.width = `${events.progressPct}%`;
         }
 
-        // Timeline-segment indicator (the "WHAT THE JX-3P SENDS" bar).
-        // Driven by cumulative FSK signal time. Skip while in 'processing'
-        // state — onTick is gated on state==='recording' so a late raf
-        // tick after stopRecording fires can't reset our seg state.
-        if (cs.activeMs > 0 && state === 'recording') {
-          const elapsedSec = cs.activeMs / 1000;
-          // Exclude the trailing 'processing' segment from both the
-          // accumulator AND the totalEstSec denominator so the tx-side
-          // indicator reaches the end of Bank D / Sequence at the right
-          // visual position (start of the Processing segment), rather
-          // than capping at ~86% with Processing included in the math.
-          const txSegs = segs.filter((s) => s.kind !== 'processing');
-          const txTotalEstSec = txSegs.reduce((sum, s) => sum + s.estSec, 0);
+        // Timeline sections light up at the ACTUAL dump transitions, anchored to
+        // the frequency gate (fskLive) — not to time estimates — so each section
+        // lights exactly when that part of the dump plays. fskLive is TRUE during
+        // data (Bank C / D / Sequence) and FALSE during the all-1s pilots, so a
+        // sustained off after the first data marks the divider, and FSK returning
+        // marks Bank D. Runs only once real data is detected; before that the
+        // 'init' pilot section stays lit (set at record start). The old moving
+        // cursor was removed — the discrete sections read as accurate, while the
+        // cursor exposed the per-section estimate drift. (Daniel, 2026-07-05.)
+        if (cs.firstSignalMs != null && state === 'recording') {
+          const nowMs = Date.now();
+          const dtP = phaseLastTickMs != null ? nowMs - phaseLastTickMs : 0;
+          phaseLastTickMs = nowMs;
+          fskOffMs = fskLive ? 0 : fskOffMs + dtP;
 
-          if (elapsedSec >= txTotalEstSec) {
-            // Optimistic Processing: activeMs has hit (or passed) the
-            // expected tx total, so the JX is presumably done dumping.
-            // Light up Processing now rather than waiting for auto-stop
-            // to fire — on hardware where post-dump audio stays above
-            // signalThreshold, auto-stop can lag 10+ s behind the actual
-            // JX-done moment. Idempotent; safe to call every tick once
-            // we're past the threshold.
+          const hasDivider = segs.some((s) => s.kind === 'divider');
+          // Divider = a SUSTAINED no-FSK gap after data started (tone dumps only).
+          // The ~400 ms debounce keeps a brief in-bank rate dip from false-firing
+          // the jump to the divider (real Bank C data sits well above threshold).
+          if (hasDivider && !dividerLit && fskOffMs > 400) dividerLit = true;
+          // Bank D = FSK returns after the divider.
+          if (dividerLit && !bankDLit && fskLive) bankDLit = true;
+
+          // Optimistic Processing: the final data section is done and FSK has been
+          // quiet a beat — light Processing now (auto-stop's 7 s silence window
+          // would otherwise lag it). Idempotent.
+          const finalDataReached = hasDivider ? bankDLit : true;
+          if (finalDataReached && fskOffMs > 1500) {
             activateProcessingSeg();
           } else {
-            // Normal advance through the tx-side segments.
-            let acc = 0, activeIdx = txSegs.length - 1;
-            for (let i = 0; i < txSegs.length; i++) {
-              acc += txSegs[i].estSec;
-              if (elapsedSec < acc) { activeIdx = i; break; }
-            }
-            segs.forEach((s) => {
-              const isActive = s === txSegs[activeIdx];
-              s.el.classList.toggle('active', isActive);
-            });
-            const txPortionPct = (txTotalEstSec / totalEstSec) * 100;
-            const pct = Math.min(txPortionPct, (elapsedSec / txTotalEstSec) * txPortionPct);
-            indicator.style.left = `${pct}%`;
+            const firstDataKind = (segs.find((s) => !s.pilot && s.kind !== 'processing') || {}).kind;
+            const activeKind = bankDLit ? 'bank-d' : dividerLit ? 'divider' : firstDataKind;
+            segs.forEach((s) => s.el.classList.toggle('active', s.kind === activeKind));
           }
         }
 
@@ -8886,6 +8924,13 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     // the "Recording — Ns elapsed" form.
     timerStartMs = null;
     statusText.textContent = 'Waiting…';
+    // Begin with the leading pilot ('init') section lit. The JX opens every dump
+    // with it, but the frequency gate can't see it (all-1s tone), so it can't be
+    // lit from detection — light it up-front through the wait. The tick's
+    // gate-anchored lighting takes over (and moves off it) once Bank C / Sequence
+    // data is detected. (Daniel, 2026-07-05.)
+    dividerLit = false; bankDLit = false; fskOffMs = 0; phaseLastTickMs = null;
+    { const initSeg = segs.find((s) => s.kind === 'init'); if (initSeg) initSeg.el.classList.add('active'); }
     elapsedTimer = setInterval(() => {
       // Don't clobber a live warning message (any of the 4 ladder states)
       // by overwriting it with the elapsed-time tick.
@@ -9556,6 +9601,11 @@ function renderSequenceVisualizer() {
   }
   const seq = library.sequences && library.sequences[selSequence];
   if (!seq) { container.hidden = true; return; }
+  // Pre-warm the preview audio pipeline so the first note played in the editor
+  // isn't swallowed while the AudioContext spins up (noticeable on slower PCs).
+  // Idempotent + silent-fail; fires within the user's click that opened the
+  // editor, so the context can leave the browser's default 'suspended' state.
+  if (typeof warmUp === 'function') warmUp();
 
   const PAGES           = 8;
   const STEPS_PER_PAGE  = 16;

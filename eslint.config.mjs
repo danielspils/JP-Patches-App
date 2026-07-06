@@ -128,6 +128,7 @@ export default [
         previewNote:                'readonly',
         midiToHz:                   'readonly',
         setPreviewSink:             'readonly',
+        warmUp:                     'readonly',
 
         // Globals exposed by renderer/transmission-sounds.js
         selectTapeDumpSpeaker:      'readonly',

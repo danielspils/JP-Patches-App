@@ -297,17 +297,20 @@
     const o = opts || {};
     if (!o.enabled) return null;
     // The RECORD-side monitor plays the LIVE capture input out a speaker while
-    // recording. It was gated off on Windows (2026-07-05) over a feared feedback
-    // loop, but the actual path was the monitor being routed OUT the KT cable
-    // itself (label collision) → back into the JX. Two fixes now close that:
-    //   1. Cable-exclusion by groupId/id (selectSoundOutputDevice + the caller
-    //      passing the real cableDeviceId) → the monitor can never pick the KT.
-    //   2. The KT is a direct LINE cable, not a mic, so built-in-speaker audio
-    //      can't acoustically re-enter the exact-device capture; and Fix 2's
-    //      frequency gate keys on the bit-0 FSK, not stray level.
-    // If no eligible non-cable speaker is found the monitor silently no-ops
-    // (returns null below), so the worst case on any platform is "no monitor,"
-    // never feedback. Re-enabled on Windows; verify on hardware.  (Task #21.)
+    // recording. Routing is safe now (cable-exclusion by groupId + a line-cable
+    // capture that can't acoustically loop back — Task #21). BUT hardware testing
+    // exposed a DIFFERENT problem: on a thrifty PC (i3), streaming the live
+    // capture out a speaker adds enough main-thread + <audio> load that the
+    // capture's deprecated main-thread ScriptProcessor drops audio samples and
+    // CORRUPTS a random sequence page (both redundant copies) — verified: sounds
+    // ON dropped pages 2 then 6, sounds OFF captured cleanly ×3, and the jx3p CLI
+    // confirmed the pages were absent from the audio, not a decode miss. So the
+    // monitor is a data-integrity risk during capture on slow machines. Re-gate
+    // it OFF on Windows until capture moves to AudioWorklet (off the main thread,
+    // immune to this load — see docs/future-features.md), which brings it back.
+    // macOS (faster, no reports) keeps it. The SEND monitor is unaffected (fixed
+    // WAV, no capture running).  (Daniel, 2026-07-05.)
+    if (IS_WIN) return null;
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;
