@@ -34,4 +34,4 @@ Library and shortcuts:
 - Click the pencil icon in the library to add a custom name to your sequence
 - Reorder your sequence library with drag-and-drop
 
-That's a lot of sequence editor for one post. Go make some music.
+That's a long sequence of sequence editor features. Go make some music!
