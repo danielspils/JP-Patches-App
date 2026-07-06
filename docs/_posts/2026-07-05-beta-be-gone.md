@@ -1,5 +1,5 @@
 ---
-title: "Beta be gone — JP Patches 8.7 for Windows"
+title: "Beta be gone — JP Patches 8.7 for Windows is live!"
 date: 2026-07-05
 excerpt: "I spent much of the weekend with my $100 Windows Wonder, and v8.7 is out — Windows users should be good to go."
 ---
