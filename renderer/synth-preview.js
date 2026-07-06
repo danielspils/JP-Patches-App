@@ -92,6 +92,24 @@
   }
 
   /**
+   * Pre-warm the preview audio pipeline so the FIRST note isn't swallowed.
+   * The AudioContext is otherwise created lazily on the first previewNote, and
+   * its resume() (from the browser's default 'suspended' state) is async — so
+   * on a slow machine the first few notes fire before the graph is 'running'
+   * and are silent. Call this from a USER GESTURE (e.g. opening the sequencer
+   * editor) so the context can leave 'suspended'; by the first real note it's
+   * ready. Idempotent + silent-fail. No-op without Web Audio (Node tests).
+   *
+   * @returns {void}
+   */
+  function warmUp() {
+    try {
+      const ctx = getOrCreateCtx();
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+    } catch { /* Web Audio unavailable — first note will lazy-create as before */ }
+  }
+
+  /**
    * Convert a MIDI pitch number (0-127) to its frequency in Hz.
    * Standard formula: A4 (MIDI 69) = 440 Hz, semitones are
    * equal-tempered with a 2^(1/12) ratio.
@@ -173,5 +191,5 @@
     };
   }
 
-  return { previewNote, midiToHz, setPreviewSink };
+  return { previewNote, midiToHz, setPreviewSink, warmUp };
 });
