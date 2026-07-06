@@ -8843,7 +8843,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           // over any in-bank rate dip (Bank C is dense, well above threshold),
           // so a big guard just delayed the divider lighting. Keeps it near the
           // ~0.5 s window-lag that the INIT→Bank C transition has (reads synced).
-          if (hasDivider && !dividerLit && fskOffMs > 150) dividerLit = true;
+          if (hasDivider && !dividerLit && fskOffMs > 60) dividerLit = true;
           // Bank D = FSK returns after the divider.
           if (dividerLit && !bankDLit && fskLive) bankDLit = true;
 
@@ -8853,7 +8853,7 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
           // (dense final-bank data has no gaps that long) while keeping the
           // Processing light close to the real end.
           const finalDataReached = hasDivider ? bankDLit : true;
-          if (finalDataReached && fskOffMs > 300) {
+          if (finalDataReached && fskOffMs > 120) {
             activateProcessingSeg();
           } else {
             const firstDataKind = (segs.find((s) => !s.pilot && s.kind !== 'processing') || {}).kind;
