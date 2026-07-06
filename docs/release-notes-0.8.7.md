@@ -10,4 +10,4 @@
 
 ## Install
 
-Auto-updates from v0.8.6. **System requirement:** macOS 12+ on Apple Silicon (arm64). PC beta: Windows 10 (64-bit) or later.
+Auto-updates from v0.8.6. **System requirement:** macOS 12+ on Apple Silicon (arm64). Windows 10 (64-bit) or later.
