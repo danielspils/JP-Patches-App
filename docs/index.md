@@ -8,9 +8,9 @@ I've owned the JX-3P since it was released. I bought it at Down Home Guitar in A
 
 I've always wanted a way to easily save patches to my computer. But the JX relies on outdated tape dump technology — think, the hiss, chirp and screech of an ‘80s dial-up modem + audio cassette tape as memory!  I couldn't find a program so I decided to build my own. This was also an excuse to figure out how to "vibe code" — something I knew nothing about until I began in May of 2026.
 
-[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green} [JP Patches for PC (beta)](https://github.com/danielspils/JP-Patches-App/releases/tag/v0.8.7-win-preview){:.btn-blue}
+[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green} [JP Patches for PC](https://github.com/danielspils/JP-Patches-App/releases/tag/v0.8.7-win-preview){:.btn-blue}
 
-Fast forward a month and I have JP Patches, my JX-3P companion app. It works on macOS 12+ on Apple Silicon. There is also a beta PC release that works on Windows 10 and above. It doesn't yet support MIDI — the stock JX-3P MIDI does not support SysEx. I'll wire up support for the [Series Circuits MIDI Upgrade Kit](https://seriescircuits.com/product/jx-3p-midi-upgrade-kit/) in a future release. JP Patches operates through tape dumps using a single cord.
+Fast forward a month and I have JP Patches, my JX-3P companion app. It works on macOS 12+ (w/ an Apple Silicon chip) and Windows 10 and above. It doesn't yet support MIDI — the stock JX-3P MIDI does not support SysEx. I'll wire up support for the [Series Circuits MIDI Upgrade Kit](https://seriescircuits.com/product/jx-3p-midi-upgrade-kit/) in a future release. JP Patches operates through tape dumps using a single cord.
 
 ![JP Patches main panel — PG-200 style knobs and switches on the right, active C/D patch list on the left, Tape Memory controls below](screenshots/jx-hero.png)
 
@@ -55,7 +55,7 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 </div>
 </div>
 
-[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green} [JP Patches for PC (beta)](https://github.com/danielspils/JP-Patches-App/releases/tag/v0.8.7-win-preview){:.btn-blue}
+[JP Patches for macOS](https://github.com/danielspils/JP-Patches-App/releases/latest/download/JP-Patches.dmg){:.btn-green} [JP Patches for PC](https://github.com/danielspils/JP-Patches-App/releases/tag/v0.8.7-win-preview){:.btn-blue}
 
 ## FISHING FOR FEEDBACK
 
