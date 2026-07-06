@@ -292,15 +292,18 @@
   async function startTapeDumpMonitor(opts) {
     const o = opts || {};
     if (!o.enabled) return null;
-    // Windows: the RECORD-side monitor plays the LIVE capture input out the
-    // speakers WHILE recording — a mic→speaker→mic path that feeds back into
-    // the capture on Windows, so the FSK detector sees "signal" the instant the
-    // Record window opens (progress fires before the JX even dumps; the real
-    // dump is then missed). The SEND-side monitor (maybePlayTapeDumpSound) is
-    // safe — it plays a fixed WAV, not the live input — so it stays enabled.
-    // Gate ONLY the live record monitor off on Windows until we can guarantee
-    // no capture feedback there. macOS is unaffected.  (Daniel, 2026-07-05.)
-    if (IS_WIN) return null;
+    // The RECORD-side monitor plays the LIVE capture input out a speaker while
+    // recording. It was gated off on Windows (2026-07-05) over a feared feedback
+    // loop, but the actual path was the monitor being routed OUT the KT cable
+    // itself (label collision) → back into the JX. Two fixes now close that:
+    //   1. Cable-exclusion by groupId/id (selectSoundOutputDevice + the caller
+    //      passing the real cableDeviceId) → the monitor can never pick the KT.
+    //   2. The KT is a direct LINE cable, not a mic, so built-in-speaker audio
+    //      can't acoustically re-enter the exact-device capture; and Fix 2's
+    //      frequency gate keys on the bit-0 FSK, not stray level.
+    // If no eligible non-cable speaker is found the monitor silently no-ops
+    // (returns null below), so the worst case on any platform is "no monitor,"
+    // never feedback. Re-enabled on Windows; verify on hardware.  (Task #21.)
     try {
       const ctx = o.audioContext;
       if (!ctx || !o.sourceNode || typeof ctx.createMediaStreamDestination !== 'function') return null;

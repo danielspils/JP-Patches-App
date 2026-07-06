@@ -8851,14 +8851,17 @@ async function showRecordFromJxModal({ kind, onCaptured, initialGain = null, for
     captured     = captureSession.captured;
 
     // Tape Dump Sounds (View > Tape dump sounds; off by default) — monitor the
-    // incoming dump out the Mac's built-in speakers so the user HEARS it come
-    // in. Fully isolated + silent-fail; built-in-speaker routing is forced so
-    // it can never feed back into the JX. Uses the shared persisted volume.
+    // incoming dump out the built-in speakers so the user HEARS it come in.
+    // Fully isolated + silent-fail; a real speaker is force-routed via setSinkId
+    // so it can never play back out the cable. Pass the configured cable id so
+    // its WHOLE physical device (all aliases, by groupId) is excluded from the
+    // speaker pick — robust even on a Windows box whose speakers aren't labelled
+    // Realtek/Built-in (label allowlist alone would miss those). (Task #21.)
     if (tapeDumpSoundsEnabled && typeof startTapeDumpMonitor === 'function') {
       startTapeDumpMonitor({
         audioContext: captureSession.audioContext,
         sourceNode:   captureSession.gainNode,
-        cableDeviceId: null,                 // allowlist already excludes the KT (not a built-in speaker)
+        cableDeviceId: library.cableOutputDeviceId || null,   // exclude the KT by id/group
         enabled:      true,
         muted:        tapeDumpMuted,         // inherit current modal mute state
         volume:       tapeDumpVolume,        // inherit current modal volume (persisted)
