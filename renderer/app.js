@@ -11665,6 +11665,15 @@ async function init() {
   if (typeof window.api.setButtonSoundsInitial === 'function') {
     window.api.setButtonSoundsInitial(buttonSoundsEnabled);
   }
+
+  // Route the sequencer-editor preview to the saved in-app audio device AT
+  // STARTUP. Previously setPreviewSink only ran from the Audio Settings
+  // on-change handler, so on a fresh launch the preview AudioContext fell back
+  // to the system default sink — silent on Windows, where the default is often
+  // the KT data cable rather than the speakers. Button sounds didn't hit this
+  // (they apply appSoundDeviceId lazily on each play); the preview creates its
+  // context once and needed an explicit initial sink. (Task #21 / Windows.)
+  if (typeof setPreviewSink === 'function') setPreviewSink(library.appSoundDeviceId);
   if (typeof window.api.onButtonSoundsChanged === 'function') {
     window.api.onButtonSoundsChanged((enabled) => {
       buttonSoundsEnabled = !!enabled;
