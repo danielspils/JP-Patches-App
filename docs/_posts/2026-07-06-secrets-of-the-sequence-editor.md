@@ -1,10 +1,9 @@
 ---
 title: "Secrets of the Sequence Editor"
 date: 2026-07-06
+video: vF3I4WD2YYI
 excerpt: "Prior to JP Patches, you had to sacrifice a sequence in order to write a new one. No more."
 ---
-
-<!-- Featured video/image to be added by Daniel -->
 
 Prior to JP Patches, you had to sacrifice a sequence in order to write a new one. No more. Now you can save sequences from your JX-3P → JP Patches and zap them from JP → JX. Within JP Patches, the sequence editor allows you to:
 
