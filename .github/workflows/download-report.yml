@@ -36,12 +36,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Current cumulative totals across ALL releases.
+          # Cumulative totals, counting only releases >= MIN_VER (v0.8.0 — when
+          # the site + lending library went live and JP Patches became public).
+          #
+          # Why the cutoff: v0.5.4-and-earlier is 537 of the raw 648 "downloads"
+          # (~83%). Five superseded releases showing ~70-95 each is crawlers +
+          # dev-testing, not humans. Those bots STILL hit the old assets, so the
+          # filter also keeps phantom deltas out of the daily email — it's not
+          # just a cosmetic total.
+          MIN_VER=800     # v0.8.0  → major*10000 + minor*100 + patch
           gh api --paginate "repos/${{ github.repository }}/releases" \
-            -q '.[] | .assets[] | "\(.name)\t\(.download_count)"' > /tmp/assets.tsv
-          mac_new=$(awk -F'\t' 'tolower($1) ~ /\.dmg$/      {s+=$2} END{print s+0}' /tmp/assets.tsv)
-          mac_upd=$(awk -F'\t' 'tolower($1) ~ /mac.*\.zip$/ {s+=$2} END{print s+0}' /tmp/assets.tsv)
-          pc_new=$( awk -F'\t' 'tolower($1) ~ /\.exe$/      {s+=$2} END{print s+0}' /tmp/assets.tsv)
+            -q '.[] | .tag_name as $t | .assets[] | "\($t)\t\(.name)\t\(.download_count)"' > /tmp/assets.tsv
+          tally() {   # $1 = asset-name regex (matched case-insensitively)
+            awk -F'\t' -v re="$1" -v min="$MIN_VER" '
+              function ver(t,  a) { gsub(/^v/,"",t); sub(/-.*$/,"",t); split(t,a,"."); return a[1]*10000 + a[2]*100 + a[3] }
+              ver($1) >= min && tolower($2) ~ re { s += $3 } END { print s+0 }
+            ' /tmp/assets.tsv
+          }
+          mac_new=$(tally '\.dmg$')
+          mac_upd=$(tally 'mac.*\.zip$')
+          pc_new=$( tally '\.exe$')
 
           # Totals as of the last REPORT (not the last run).
           snap=.github/download-stats.json
@@ -111,7 +125,7 @@ jobs:
               printf '%s\n' "$geo"
             fi
             echo ""
-            echo "All-time totals:"
+            echo "Totals since v0.8.0:"
             echo "  Mac new: ${mac_new}   Mac updates: ${mac_upd}   PC: ${pc_new}"
           } > /tmp/body.txt
 
