@@ -1,0 +1,105 @@
+name: Download report
+
+# Weekly email digest of new downloads, split Mac (new installs vs auto-updates)
+# vs PC. GitHub exposes only a cumulative per-asset counter, so this job stores
+# last week's totals in .github/download-stats.json and reports the delta.
+#
+# One-time setup (Daniel): add two repo secrets under
+# Settings → Secrets and variables → Actions:
+#   MAIL_USERNAME = danielspils@gmail.com
+#   MAIL_PASSWORD = <a Gmail App Password>  (Google Account → Security →
+#                   2-Step Verification → App passwords → "Mail")
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'      # Mondays, 14:00 UTC
+  workflow_dispatch: {}         # allow manual runs (Actions tab → Run workflow)
+
+permissions:
+  contents: write              # to commit the weekly snapshot
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute download deltas
+        id: calc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Current cumulative totals across ALL releases.
+          gh api --paginate "repos/${{ github.repository }}/releases" \
+            -q '.[] | .assets[] | "\(.name)\t\(.download_count)"' > /tmp/assets.tsv
+          mac_new=$(awk -F'\t' 'tolower($1) ~ /\.dmg$/                    {s+=$2} END{print s+0}' /tmp/assets.tsv)
+          mac_upd=$(awk -F'\t' 'tolower($1) ~ /mac.*\.zip$/               {s+=$2} END{print s+0}' /tmp/assets.tsv)
+          pc_new=$( awk -F'\t' 'tolower($1) ~ /\.exe$/                    {s+=$2} END{print s+0}' /tmp/assets.tsv)
+
+          # Previous snapshot (delta = current - previous).
+          snap=.github/download-stats.json
+          if [ -f "$snap" ]; then
+            first=false
+            p_mac_new=$(jq -r '.mac_new // 0' "$snap")
+            p_mac_upd=$(jq -r '.mac_upd // 0' "$snap")
+            p_pc_new=$( jq -r '.pc_new  // 0' "$snap")
+          else
+            first=true
+            p_mac_new=$mac_new; p_mac_upd=$mac_upd; p_pc_new=$pc_new
+          fi
+          d_mac_new=$(( mac_new - p_mac_new ))
+          d_mac_upd=$(( mac_upd - p_mac_upd ))
+          d_pc_new=$((  pc_new  - p_pc_new  ))
+
+          # Persist the new snapshot for next week.
+          mkdir -p .github
+          printf '{"mac_new":%d,"mac_upd":%d,"pc_new":%d,"updated":"%s"}\n' \
+            "$mac_new" "$mac_upd" "$pc_new" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$snap"
+
+          # Build the email body.
+          {
+            echo "JP Patches — weekly download report"
+            echo "($(date -u '+%b %-d, %Y'))"
+            echo ""
+            if [ "$first" = true ]; then
+              echo "First run — baseline established. Weekly deltas start next Monday."
+              echo ""
+            fi
+            echo "New this week:"
+            echo "  Mac — new installs (.dmg):  +${d_mac_new}"
+            echo "  Mac — auto-updates (.zip):  +${d_mac_upd}"
+            echo "  PC  — downloads (.exe):     +${d_pc_new}   (all fresh — no Windows updater yet)"
+            echo ""
+            echo "All-time totals:"
+            echo "  Mac new: ${mac_new}   Mac updates: ${mac_upd}   PC: ${pc_new}"
+          } > /tmp/body.txt
+
+          {
+            echo 'body<<BODY_EOF'
+            cat /tmp/body.txt
+            echo 'BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit weekly snapshot
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/download-stats.json
+          # [skip ci] so the snapshot commit doesn't trigger the Windows / Pages builds.
+          git commit -m "chore: weekly download snapshot [skip ci]" || { echo "no change"; exit 0; }
+          git push
+
+      - name: Email the report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: JP Patches <${{ secrets.MAIL_USERNAME }}>
+          to: danielspils@gmail.com
+          subject: "JP Patches — weekly downloads"
+          body: ${{ steps.calc.outputs.body }}
