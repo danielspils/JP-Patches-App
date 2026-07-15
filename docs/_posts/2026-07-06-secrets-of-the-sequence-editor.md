@@ -23,7 +23,7 @@ When viewing an individual page (the 1–8 buttons):
 - Add a note, rest, or tie by clicking an empty cell and selecting the icon that appears (JP is smart — it only reveals the icons the JX-3P sequencer allows in that position)
 - Adjust tempo by clicking the "50%" indicator in the lower toolbar
 - Click "Create New Sequence" button to start from scratch (button appears when sequence editor is empty)
-- Shift+click a stack of notes to grab the whole chord — then move it as one.
+- Click+drag to select multiple notes in a cell — then move it as one.
 
 Library and shortcuts:
 
