@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('api', {
   // Web Audio-based probes. Returns the device's CURRENT native rate,
   // always fresh, never cached. See main.js for shape and rationale.
   audioInputRates:     ()        => ipcRenderer.invoke('audio-input-rates'),
+  // Anonymous once-a-day active-install ping. Takes NO arguments on purpose:
+  // main states the entire payload (app version + mac|win, nothing else), so
+  // the renderer can't influence what is sent — it only decides WHETHER to
+  // call, via the opt-out pref + once-per-day gate in library.json.
+  // Never rejects: a failed ping is a silent no-op.
+  telemetryPing:       ()        => ipcRenderer.invoke('telemetry-ping'),
   seqTapeEncodeToTemp: (data)    => ipcRenderer.invoke('seq-tape-encode-to-temp', data),
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),

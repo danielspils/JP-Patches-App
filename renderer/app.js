@@ -11722,6 +11722,99 @@ function backfillOriginFields() {
   if (dirty) saveLibraryDebounced();
 }
 
+// ── Anonymous usage ping ────────────────────────────────────────────
+// Policy lives here (the renderer owns library.json); main owns the wire.
+//
+// library.telemetry = { enabled, noticeSeen, lastPing }
+//   enabled    — the user's choice. Default ON, but nothing is sent until
+//                noticeSeen is true, so nobody is ever counted before
+//                they've been told.
+//   noticeSeen — the one-time notice has been shown and answered.
+//   lastPing   — 'YYYY-MM-DD' of the last ping. The whole no-identifier
+//                design rests on this: one ping per install per day means
+//                a day's ping COUNT is the active-install count, so no id
+//                is ever needed to answer "how many people use this?".
+//
+// Why noticeSeen isn't tied to first-run seeding: everyone who already
+// installed JP Patches did so before this existed. Keying on a pref (not
+// on a fresh library.json) means existing users see the notice on their
+// first launch after updating, rather than being silently counted.
+function todayStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;   // local date, not UTC
+}
+
+async function maybeSendUsagePing() {
+  if (!library.telemetry) library.telemetry = {};
+  const t = library.telemetry;
+  if (t.enabled === undefined) t.enabled = true;      // default on (disclosed)
+  if (!t.noticeSeen) return;                          // never ping before the notice
+  if (!t.enabled) return;                             // opted out
+  const today = todayStamp();
+  if (t.lastPing === today) return;                   // already counted today
+  // Stamp BEFORE awaiting: two quick launches shouldn't double-count, and a
+  // failed ping shouldn't retry all day. One attempt per day, win or lose.
+  t.lastPing = today;
+  saveLibraryDebounced();
+  try { await window.api.telemetryPing(); } catch { /* never surface */ }
+}
+
+// The one-time disclosure. Copy is Daniel's — don't reword it without asking.
+// Both buttons are equally weighted on purpose: a dialog that visually pushes
+// you toward "OK" undercuts the honesty it's here to provide.
+function showUsagePingNotice() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'modal usage-ping-modal';
+
+    const h = document.createElement('h2');
+    h.className = 'modal-title';
+    h.textContent = 'I have a favor to ask';
+
+    const p1 = document.createElement('p');
+    p1.className = 'modal-body';
+    p1.textContent = "Once a day I receive a ping when you use JP Patches, including the app version and your country. That's it — no ID, no patches, nothing personal.";
+
+    const p2 = document.createElement('p');
+    p2.className = 'modal-body';
+    p2.textContent = 'It helps me see where JP Patches is popular.';
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const okBtn = document.createElement('button');
+    okBtn.className = 'modal-btn modal-btn-confirm';
+    okBtn.textContent = 'OK';
+    const noBtn = document.createElement('button');
+    noBtn.className = 'modal-btn modal-btn-cancel';
+    noBtn.textContent = 'No thanks';
+
+    // "No thanks" genuinely opts out — it is not a dismiss.
+    const done = (enabled) => {
+      if (!library.telemetry) library.telemetry = {};
+      library.telemetry.enabled = enabled;
+      library.telemetry.noticeSeen = true;
+      saveLibraryDebounced();
+      overlay.remove();
+      resolve(enabled);
+    };
+    okBtn.addEventListener('click', () => done(true));
+    noBtn.addEventListener('click', () => done(false));
+
+    actions.appendChild(okBtn);
+    actions.appendChild(noBtn);
+    modal.appendChild(h);
+    modal.appendChild(p1);
+    modal.appendChild(p2);
+    modal.appendChild(actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    okBtn.focus();
+  });
+}
+
 async function init() {
   patches = await window.api.loadPatches();
   library = await window.api.loadLibrary();
@@ -11876,6 +11969,14 @@ async function init() {
   requestAnimationFrame(() => {
     document.body.classList.add('controls-armed');
   });
+
+  // Anonymous usage ping, last so it can never delay or break startup.
+  // First launch after updating shows the notice; nothing is sent until
+  // it's been answered. Deliberately not awaited into anything above it.
+  if (!library.telemetry || !library.telemetry.noticeSeen) {
+    await showUsagePingNotice();
+  }
+  maybeSendUsagePing();
 }
 
 // v0.7.0 — gear icon in the panel's red header strip (top-right). Opens
@@ -11930,7 +12031,10 @@ function showAudioSettingsModal() {
 
   const title = document.createElement('h2');
   title.className = 'modal-title';
-  title.textContent = 'Audio settings';
+  // 'Settings', not 'Audio settings': the gear is now the single settings
+  // home (the usage-ping toggle lives here too), and the privacy note in
+  // the README/site tells users to "Opt out in Settings".
+  title.textContent = 'Settings';
 
   // Row builders.
   const mkLabelBlock = (header, subtext) => {
@@ -12022,6 +12126,20 @@ function showAudioSettingsModal() {
     }
   );
 
+  // Copy is Daniel's — don't reword without asking. Toggling ON mid-day
+  // pings on the next launch, not instantly: lastPing already holds today
+  // only if we actually pinged, so an opt-in still gets counted tomorrow.
+  const pingRow = mkToggleRow(
+    'Send anonymous usage ping',
+    'once a day: version and country only. Nothing else — no ID, no patches, no personal data. This helps me see where JP Patches is popular.',
+    !(library.telemetry && library.telemetry.enabled === false),
+    (on) => {
+      if (!library.telemetry) library.telemetry = {};
+      library.telemetry.enabled = on;
+      saveLibraryDebounced();
+    }
+  );
+
   const inAppRow = mkSelectRow(
     'In-app audio',
     'where you hear tape dump, button, switch, and sequence editor sounds',
@@ -12071,6 +12189,8 @@ function showAudioSettingsModal() {
   modal.appendChild(inAppRow);
   modal.appendChild(cableRow);
   modal.appendChild(recordRow);
+  // Privacy, below the audio block — the only non-audio row here.
+  modal.appendChild(pingRow);
 
   // v0.7.1: collapsible "How routing works" disclosure. Power users
   // who want to understand the 4 distinct audio paths can expand it;

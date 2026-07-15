@@ -145,6 +145,12 @@ npm run dist:unsigned   # produces dist/JP Patches-0.1.0-arm64.dmg
 
 `npm run dist` (without `:unsigned`) produces a signed + notarized DMG. It requires an Apple Developer ID certificate in your keychain plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` in a `.env` file (see `.env.example`).
 
+## Privacy
+
+JP Patches sends one anonymous ping per day — app version and country, derived from your IP by the server and never stored. No identifier, no patch data, nothing that could identify you. Opt out in Settings. The code is in [`relay/worker.js`](relay/worker.js) if you'd like to check.
+
+Why? It helps me see where JP Patches is popular. It's the Scoobie Snack I enjoy for writing and releasing this free app. Thanks!
+
 ## License
 
 [MIT](LICENSE) © 2026 Daniel Spils

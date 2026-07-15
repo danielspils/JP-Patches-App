@@ -443,6 +443,49 @@ const LENDING_RELAY_URL = 'https://lend.jx-3p.com/lend';
 const LENDING_FETCH_TIMEOUT_MS = 10000;
 const LENDING_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;  // payloads are ~15-35KB; 5MB = generous ceiling
 
+// ── Anonymous active-install ping ───────────────────────────────────
+// Same relay, same reasoning as the lending handlers: network lives
+// main-side so the renderer stays network-free.
+//
+// What leaves this machine: the app version and 'mac'|'win'. Nothing
+// else. No identifier is sent, and none exists — there is deliberately
+// no way to link two pings to the same install. The country in the
+// report is resolved by Cloudflare at the edge from the connection
+// itself; the app never sees, sends, or stores an IP.
+//
+// The renderer owns the policy (opted in? already pinged today?) since
+// it holds library.json; this handler is the dumb pipe. Fire-and-forget:
+// the result is discarded and a failure is never surfaced — a person's
+// synth app must not care that an analytics endpoint was down.
+const PING_URL = 'https://lend.jx-3p.com/ping';
+const PING_TIMEOUT_MS = 5000;
+
+ipcMain.handle('telemetry-ping', async () => {
+  // Main states the whole payload itself — version and platform both come
+  // from here, so the renderer cannot influence what is sent. It only gets
+  // to decide WHETHER to call (opt-out + the once-a-day gate).
+  const version = app.getVersion();
+  if (!/^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/.test(version)) return { ok: false };
+  const platform = process.platform === 'win32' ? 'win'
+                 : process.platform === 'darwin' ? 'mac' : null;
+  if (!platform) return { ok: false };   // unsupported platform → never ping
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+  try {
+    await fetch(PING_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ platform, version }),
+      signal: ctrl.signal,
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false };   // offline, blocked, endpoint down — all fine
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 async function lendingFetch(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), LENDING_FETCH_TIMEOUT_MS);
