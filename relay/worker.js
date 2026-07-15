@@ -372,5 +372,5 @@ function isNonEmptyString(v) {
 // author, so keep them boring. (Markdown injection here is low-stakes —
 // the issue is only ever read by the curator — but no reason to allow it.)
 function clean(v) {
-  return String(v).replace(/[ -]/g, ' ').slice(0, 300).trim();
+  return String(v).replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 300).trim();
 }
