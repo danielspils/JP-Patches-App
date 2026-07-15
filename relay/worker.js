@@ -148,7 +148,7 @@ const DL_TTL_SECONDS = 90 * 24 * 3600;
 // Obvious crawlers/prefetchers shouldn't count as humans downloading.
 const DL_BOT_RE = /bot|crawl|spider|slurp|curl|wget|python-requests|headless|preview|monitor|scan|fetch/i;
 
-async function handleDownload(request, env, platform) {
+async function handleDownload(request, env, ctx, platform) {
   const target = platform === 'mac' ? DL_MAC_URL : await latestWinExeUrl(env);
   const ua = request.headers.get('user-agent') || '';
   if (!DL_BOT_RE.test(ua)) {
@@ -158,8 +158,48 @@ async function handleDownload(request, env, platform) {
     // Non-atomic increment — same trade-off as hearts, fine at this scale.
     const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
     await env.HEARTS.put(key, String(next), { expirationTtl: DL_TTL_SECONDS });
+    // Mirror to GoatCounter. waitUntil so a slow/down GoatCounter can never
+    // delay the user's redirect to their download.
+    if (ctx) ctx.waitUntil(pingGoatCounter(env, platform, country));
   }
   return Response.redirect(target, 302);
+}
+
+// Mirror each download into the GoatCounter dashboard, so downloads sit beside
+// the site's pageviews and get a graph over time — which the daily email can't
+// give. KV above stays the source of truth for the email; this is an additive,
+// best-effort second write and its failure is never surfaced.
+//
+// Privacy: we do NOT send the visitor's IP. Cloudflare already resolved the
+// country for us, and GoatCounter's `location` field takes an ISO code
+// directly, so the IP never leaves Cloudflare. `no_sessions` also stops
+// GoatCounter from deriving a session hash. Path/country is all it learns.
+const GC_ENDPOINT = 'https://jx-3p.goatcounter.com/api/v0/count';
+
+async function pingGoatCounter(env, platform, country) {
+  return pingGoatCounterPath(
+    env,
+    `download-${platform}`,
+    `Download — ${platform === 'mac' ? 'Mac' : 'PC'}`,
+    country,
+  );
+}
+
+async function pingGoatCounterPath(env, path, title, country) {
+  if (!env.GOATCOUNTER_TOKEN) return;   // unconfigured → silently skip
+  try {
+    await fetch(GC_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'authorization': `Bearer ${env.GOATCOUNTER_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        no_sessions: true,
+        hits: [{ path, title, event: true, location: country === 'XX' ? '' : country }],
+      }),
+    });
+  } catch { /* best-effort: a download must never fail over analytics */ }
 }
 
 // The Windows asset URL is version-pinned per release, so resolve the newest
@@ -210,8 +250,84 @@ async function handleDownloadStats(url, env) {
   return json({ ok: true, since: since || null, totals, byCountry });
 }
 
+// ── Active-install ping ─────────────────────────────────────────────
+// POST /ping { platform, version } — the app checks in at most once per
+// calendar day (the app enforces that via telemetry.lastPing in
+// library.json; this Worker doesn't and can't verify it).
+//
+// The privacy design, and why it needs no identifier:
+//   - the app sends NO id, and none is derived here. There is deliberately
+//     no way to link two pings to the same install.
+//   - because each install pings at most once a day, a day's ping COUNT is
+//     itself the active-install count. That's the whole trick — the number
+//     we want falls out of counting, so identity is never needed.
+//   - country comes from Cloudflare (request.cf.country). The IP is used by
+//     Cloudflare's edge to resolve it and is never read, logged or stored
+//     by this Worker.
+//
+// Consequences to stay honest about: two installs behind one NAT still
+// count as two (they're separate pings), but an install that launches five
+// times a day counts once. Reinstalls and new machines are indistinguishable
+// from new users. It measures "installs that opened JP Patches today".
+//
+// KV: pg:<YYYYMMDD>:<platform>:<version>:<country> → count, 90-day TTL.
+const PING_TTL_SECONDS = 90 * 24 * 3600;
+const PING_VER_RE = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/;   // reject anything odd
+
+async function handlePing(request, env, ctx) {
+  let body;
+  try { body = await request.json(); } catch { return json({ ok: false, error: 'invalid JSON' }, 400); }
+  const platform = body && body.platform === 'win' ? 'win'
+                 : body && body.platform === 'mac' ? 'mac' : null;
+  const version = body && typeof body.version === 'string' && PING_VER_RE.test(body.version)
+    ? body.version : null;
+  if (!platform || !version) return json({ ok: false, error: 'bad platform/version' }, 400);
+
+  const country = (request.cf && request.cf.country) || 'XX';
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const key = `pg:${day}:${platform}:${version}:${country}`;
+  const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
+  await env.HEARTS.put(key, String(next), { expirationTtl: PING_TTL_SECONDS });
+
+  // Mirror into GoatCounter alongside the downloads (best-effort).
+  if (ctx) ctx.waitUntil(pingGoatCounterPath(env, `active-${platform}`, `Active install — ${platform}`, country));
+  return json({ ok: true });
+}
+
+// GET /ping/stats[?since=YYYYMMDD] — for the daily email. Same public-by-
+// design reasoning as /download/stats: aggregate counts, nothing personal.
+async function handlePingStats(url, env) {
+  const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
+  const byDay = {}, byCountry = {}, byVersion = {};
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix: 'pg:', cursor });
+    for (const k of page.keys) {
+      const parts = k.name.split(':');          // pg:<day>:<platform>:<version>:<country>
+      if (parts.length !== 5) continue;
+      const [, day, platform, version, country] = parts;
+      if (since && day < since) continue;
+      const n = Number(await env.HEARTS.get(k.name)) || 0;
+      if (!n) continue;
+      byDay[day] = (byDay[day] || 0) + n;
+      byCountry[country] = (byCountry[country] || 0) + n;
+      byVersion[version] = (byVersion[version] || 0) + n;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  // "Active today" is the most recent day's count — the number that actually
+  // means active installs. Summing days would double-count the same install.
+  const days = Object.keys(byDay).sort();
+  const latest = days.length ? days[days.length - 1] : null;
+  return json({
+    ok: true, since: since || null,
+    activeLatestDay: latest, activeLatest: latest ? byDay[latest] : 0,
+    byDay, byCountry, byVersion,
+  });
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -226,13 +342,19 @@ export default {
       return handlePostBorrow(request, env);
     }
     if (request.method === 'GET' && url.pathname === '/download/mac') {
-      return handleDownload(request, env, 'mac');
+      return handleDownload(request, env, ctx, 'mac');
     }
     if (request.method === 'GET' && url.pathname === '/download/pc') {
-      return handleDownload(request, env, 'pc');
+      return handleDownload(request, env, ctx, 'pc');
     }
     if (request.method === 'GET' && url.pathname === '/download/stats') {
       return handleDownloadStats(url, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/ping') {
+      return handlePing(request, env, ctx);
+    }
+    if (request.method === 'GET' && url.pathname === '/ping/stats') {
+      return handlePingStats(url, env);
     }
     if (request.method === 'POST' && url.pathname === '/withdraw') {
       // Withdraw a published lending entry. The app sends the SECRET
