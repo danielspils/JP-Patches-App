@@ -50,9 +50,10 @@ jobs:
             p_mac_new=$(jq -r '.mac_new // 0' "$snap")
             p_mac_upd=$(jq -r '.mac_upd // 0' "$snap")
             p_pc_new=$( jq -r '.pc_new  // 0' "$snap")
+            p_updated=$(jq -r '.updated // ""' "$snap")
           else
             first=true
-            p_mac_new=$mac_new; p_mac_upd=$mac_upd; p_pc_new=$pc_new
+            p_mac_new=$mac_new; p_mac_upd=$mac_upd; p_pc_new=$pc_new; p_updated=""
           fi
           d_mac_new=$(( mac_new - p_mac_new ))
           d_mac_upd=$(( mac_upd - p_mac_upd ))
@@ -76,6 +77,25 @@ jobs:
           printf '{"mac_new":%d,"mac_upd":%d,"pc_new":%d,"updated":"%s"}\n' \
             "$mac_new" "$mac_upd" "$pc_new" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$snap"
 
+          # Geography (best-effort). The Cloudflare Worker counts download-button
+          # clicks by country — GitHub's counter has no geo at all. Fails soft:
+          # if the Worker is unreachable or has nothing yet, the email simply
+          # omits this section. NOTE these are button clicks (new installs via
+          # the site), so they won't match the GitHub totals above — those stay
+          # the source of truth for real download counts.
+          names='{"US":"United States","GB":"United Kingdom","DE":"Germany","JP":"Japan","CA":"Canada","AU":"Australia","FR":"France","NL":"Netherlands","SE":"Sweden","IT":"Italy","ES":"Spain","BR":"Brazil","MX":"Mexico","PL":"Poland","NO":"Norway","DK":"Denmark","FI":"Finland","BE":"Belgium","CH":"Switzerland","AT":"Austria","IE":"Ireland","NZ":"New Zealand","RU":"Russia","UA":"Ukraine","CZ":"Czechia","PT":"Portugal","GR":"Greece","TR":"Turkey","IN":"India","CN":"China","KR":"South Korea","TW":"Taiwan","AR":"Argentina","CL":"Chile","CO":"Colombia","ZA":"South Africa","IL":"Israel","IR":"Iran","SG":"Singapore","HK":"Hong Kong","HU":"Hungary","RO":"Romania","TH":"Thailand","ID":"Indonesia","PH":"Philippines","VN":"Vietnam","MY":"Malaysia","EE":"Estonia","LT":"Lithuania","LV":"Latvia","SK":"Slovakia","SI":"Slovenia","HR":"Croatia","RS":"Serbia","BG":"Bulgaria","IS":"Iceland","LU":"Luxembourg","XX":"Unknown"}'
+          geo=""
+          since_day=$(printf '%s' "${p_updated}" | tr -d '-' | cut -c1-8)
+          if stats=$(curl -fsS --max-time 10 "https://lend.jx-3p.com/download/stats?since=${since_day}" 2>/dev/null); then
+            geo=$(printf '%s' "$stats" | jq -r --argjson n "$names" '
+              (.byCountry // {}) | to_entries
+              | map(select((((.value.mac // 0) + (.value.pc // 0)) > 0)))
+              | sort_by(-((.value.mac // 0) + (.value.pc // 0)))
+              | .[]
+              | "  \($n[.key] // .key): \((.value.mac // 0) + (.value.pc // 0))  (Mac \(.value.mac // 0), PC \(.value.pc // 0))"
+            ' 2>/dev/null || printf '')
+          fi
+
           # Email body.
           {
             echo "JP Patches — new downloads"
@@ -85,6 +105,11 @@ jobs:
             echo "  Mac — new installs (.dmg):  +${d_mac_new}"
             echo "  Mac — auto-updates (.zip):  +${d_mac_upd}"
             echo "  PC  — downloads (.exe):     +${d_pc_new}   (all fresh — no Windows updater yet)"
+            if [ -n "$geo" ]; then
+              echo ""
+              echo "Where from (site button clicks — new installs only):"
+              printf '%s\n' "$geo"
+            fi
             echo ""
             echo "All-time totals:"
             echo "  Mac new: ${mac_new}   Mac updates: ${mac_upd}   PC: ${pc_new}"

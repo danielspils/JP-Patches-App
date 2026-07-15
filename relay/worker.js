@@ -128,6 +128,88 @@ async function handlePostBorrow(request, env) {
   return json({ ok: true, count: next });
 }
 
+// ── Download tracking ───────────────────────────────────────────────
+// The site's download buttons point here instead of straight at GitHub so each
+// click can be counted BY COUNTRY — Cloudflare hands us request.cf.country for
+// free. GitHub's own release counter is a bare integer with no geography, so
+// this is the only way to get "where from".
+//
+// Be honest about what these numbers are (don't over-trust them):
+//   - only clicks through the jx-3p.com buttons; downloading straight from the
+//     GitHub releases page never touches this Worker
+//   - a click is INTENT, not a completed download
+//   - it never sees electron-updater auto-updates (those hit GitHub directly),
+//     so this counts new installs only — the emailed GitHub totals stay the
+//     source of truth for actual download counts
+//
+// KV: dl:<YYYYMMDD>:<platform>:<country> → count, 90-day TTL (self-cleaning).
+const DL_MAC_URL = `https://github.com/${REPO}/releases/latest/download/JP-Patches.dmg`;
+const DL_TTL_SECONDS = 90 * 24 * 3600;
+// Obvious crawlers/prefetchers shouldn't count as humans downloading.
+const DL_BOT_RE = /bot|crawl|spider|slurp|curl|wget|python-requests|headless|preview|monitor|scan|fetch/i;
+
+async function handleDownload(request, env, platform) {
+  const target = platform === 'mac' ? DL_MAC_URL : await latestWinExeUrl(env);
+  const ua = request.headers.get('user-agent') || '';
+  if (!DL_BOT_RE.test(ua)) {
+    const country = (request.cf && request.cf.country) || 'XX';
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const key = `dl:${day}:${platform}:${country}`;
+    // Non-atomic increment — same trade-off as hearts, fine at this scale.
+    const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
+    await env.HEARTS.put(key, String(next), { expirationTtl: DL_TTL_SECONDS });
+  }
+  return Response.redirect(target, 302);
+}
+
+// The Windows asset URL is version-pinned per release, so resolve the newest
+// *-win-preview .exe from GitHub instead of hardcoding a URL that rots every
+// release. Cached 1h in KV (the API call is unauthenticated → 60/hr limit).
+async function latestWinExeUrl(env) {
+  const cached = await env.HEARTS.get('dl:winurl');
+  if (cached) return cached;
+  let url = `https://github.com/${REPO}/releases`;   // safe fallback: releases page
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
+      headers: { 'user-agent': 'jp-patches-lending-relay', 'accept': 'application/vnd.github+json' },
+    });
+    if (res.ok) {
+      const rels = await res.json();
+      const rel = rels.find((r) => /win-preview/.test(r.tag_name || ''));
+      const asset = rel && (rel.assets || []).find((a) => /\.exe$/i.test(a.name || ''));
+      if (asset && asset.browser_download_url) url = asset.browser_download_url;
+    }
+  } catch { /* keep the releases-page fallback */ }
+  await env.HEARTS.put('dl:winurl', url, { expirationTtl: 3600 });
+  return url;
+}
+
+// GET /download/stats[?since=YYYYMMDD] — tallies for the daily email report.
+// Deliberately public: these are download counts, not secrets (GitHub already
+// publishes its own totals).
+async function handleDownloadStats(url, env) {
+  const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
+  const byCountry = {};
+  const totals = { mac: 0, pc: 0 };
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix: 'dl:', cursor });
+    for (const k of page.keys) {
+      const parts = k.name.split(':');            // dl:<day>:<platform>:<country>
+      if (parts.length !== 4) continue;            // skips the dl:winurl cache key
+      const [, day, platform, country] = parts;
+      if (since && day < since) continue;
+      const n = Number(await env.HEARTS.get(k.name)) || 0;
+      if (!n) continue;
+      totals[platform] = (totals[platform] || 0) + n;
+      byCountry[country] = byCountry[country] || { mac: 0, pc: 0 };
+      byCountry[country][platform] = (byCountry[country][platform] || 0) + n;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return json({ ok: true, since: since || null, totals, byCountry });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -142,6 +224,15 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/borrow') {
       return handlePostBorrow(request, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/download/mac') {
+      return handleDownload(request, env, 'mac');
+    }
+    if (request.method === 'GET' && url.pathname === '/download/pc') {
+      return handleDownload(request, env, 'pc');
+    }
+    if (request.method === 'GET' && url.pathname === '/download/stats') {
+      return handleDownloadStats(url, env);
     }
     if (request.method === 'POST' && url.pathname === '/withdraw') {
       // Withdraw a published lending entry. The app sends the SECRET
