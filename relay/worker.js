@@ -182,10 +182,18 @@ async function pingGoatCounter(env, platform, country) {
     `download-${platform}`,
     `Download — ${platform === 'mac' ? 'Mac' : 'PC'}`,
     country,
+    // ref = where the click came from. Server-side events have no Referer,
+    // so without this GoatCounter's per-path breakdown reads "(unknown)".
+    // Downloads always originate at the site button, so name it.
+    'jx-3p.com',
   );
 }
 
-async function pingGoatCounterPath(env, path, title, country) {
+// `ref` populates GoatCounter's per-path referrer breakdown (the panel that
+// otherwise shows "(unknown)" for server-side events). It takes any string;
+// callers pass something meaningful — the site for downloads, the app version
+// for pings (so expanding active-mac shows which versions are live).
+async function pingGoatCounterPath(env, path, title, country, ref) {
   if (!env.GOATCOUNTER_TOKEN) return;   // unconfigured → silently skip
   try {
     await fetch(GC_ENDPOINT, {
@@ -196,7 +204,7 @@ async function pingGoatCounterPath(env, path, title, country) {
       },
       body: JSON.stringify({
         no_sessions: true,
-        hits: [{ path, title, event: true, location: country === 'XX' ? '' : country }],
+        hits: [{ path, title, event: true, location: country === 'XX' ? '' : country, ref: ref || '' }],
       }),
     });
   } catch { /* best-effort: a download must never fail over analytics */ }
@@ -289,8 +297,10 @@ async function handlePing(request, env, ctx) {
   const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
   await env.HEARTS.put(key, String(next), { expirationTtl: PING_TTL_SECONDS });
 
-  // Mirror into GoatCounter alongside the downloads (best-effort).
-  if (ctx) ctx.waitUntil(pingGoatCounterPath(env, `active-${platform}`, `Active install — ${platform}`, country));
+  // Mirror into GoatCounter alongside the downloads (best-effort). Pass the
+  // version as ref so expanding active-mac/active-win in GoatCounter shows a
+  // version-adoption breakdown — data that otherwise lives only in KV.
+  if (ctx) ctx.waitUntil(pingGoatCounterPath(env, `active-${platform}`, `Active install — ${platform}`, country, version));
   return json({ ok: true });
 }
 
