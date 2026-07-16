@@ -1,7 +1,7 @@
 {
   "name": "jp-patches",
   "productName": "JP Patches",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "Roland JX-3P patch manager",
   "main": "main.js",
   "author": "Daniel Spils",
