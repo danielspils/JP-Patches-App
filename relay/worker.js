@@ -148,6 +148,18 @@ const DL_TTL_SECONDS = 90 * 24 * 3600;
 // Obvious crawlers/prefetchers shouldn't count as humans downloading.
 const DL_BOT_RE = /bot|crawl|spider|slurp|curl|wget|python-requests|headless|preview|monitor|scan|fetch/i;
 
+// Durable (no-TTL) monthly rollup. `kind` is a short prefix ('dlm' downloads,
+// 'pgm' pings). Key: <kind>:<YYYY-MM>:<platform>:<country>. These never expire,
+// so they're the permanent long-term geo aggregate — the per-day dl:/pg: keys
+// roll off at 90 days, GitHub's counter has no geo, and GoatCounter's counts
+// are unreliable for server-side events. This is the authoritative history.
+async function bumpMonthly(env, kind, platform, country) {
+  const month = new Date().toISOString().slice(0, 7);   // YYYY-MM
+  const key = `${kind}:${month}:${platform}:${country}`;
+  const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
+  await env.HEARTS.put(key, String(next));              // no expirationTtl → permanent
+}
+
 async function handleDownload(request, env, ctx, platform) {
   const target = platform === 'mac' ? DL_MAC_URL : await latestWinExeUrl(env);
   const ua = request.headers.get('user-agent') || '';
@@ -158,6 +170,10 @@ async function handleDownload(request, env, ctx, platform) {
     // Non-atomic increment — same trade-off as hearts, fine at this scale.
     const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
     await env.HEARTS.put(key, String(next), { expirationTtl: DL_TTL_SECONDS });
+    // Durable monthly rollup (never expires) — the long-term geo aggregate.
+    // The per-day dl: keys roll off at 90 days; this keeps a permanent
+    // month-by-country tally so historical download geography survives.
+    await bumpMonthly(env, 'dlm', platform, country);
     // Mirror to GoatCounter. waitUntil so a slow/down GoatCounter can never
     // delay the user's redirect to their download.
     if (ctx) ctx.waitUntil(pingGoatCounter(env, platform, country));
@@ -296,6 +312,10 @@ async function handlePing(request, env, ctx) {
   const key = `pg:${day}:${platform}:${version}:${country}`;
   const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
   await env.HEARTS.put(key, String(next), { expirationTtl: PING_TTL_SECONDS });
+  // Durable monthly rollup (never expires). Platform:country granularity —
+  // version is intentionally dropped here (it churns; the 90-day pg: keys keep
+  // per-version detail). This is the permanent active-install geo aggregate.
+  await bumpMonthly(env, 'pgm', platform, country);
 
   // Mirror into GoatCounter alongside the downloads (best-effort). Pass the
   // version as ref so expanding active-mac/active-win in GoatCounter shows a
@@ -336,6 +356,35 @@ async function handlePingStats(url, env) {
   });
 }
 
+// GET /totals — the permanent long-term aggregate from the never-expiring
+// monthly rollups. Downloads (dlm:) and active installs (pgm:), each broken
+// out by month and by country. Unlike /download/stats and /ping/stats (90-day
+// windows), this is the full history and never rolls off. Public by design.
+async function handleTotals(env) {
+  // shape: { downloads: {byMonth, byCountry, total}, active: {...} }
+  const blank = () => ({ byMonth: {}, byCountry: {}, total: 0 });
+  const acc = { dlm: blank(), pgm: blank() };
+  for (const kind of ['dlm', 'pgm']) {
+    let cursor;
+    do {
+      const page = await env.HEARTS.list({ prefix: `${kind}:`, cursor });
+      for (const k of page.keys) {
+        const parts = k.name.split(':');       // <kind>:<YYYY-MM>:<platform>:<country>
+        if (parts.length !== 4) continue;
+        const [, month, , country] = parts;
+        const n = Number(await env.HEARTS.get(k.name)) || 0;
+        if (!n) continue;
+        const a = acc[kind];
+        a.byMonth[month] = (a.byMonth[month] || 0) + n;
+        a.byCountry[country] = (a.byCountry[country] || 0) + n;
+        a.total += n;
+      }
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+  }
+  return json({ ok: true, downloads: acc.dlm, active: acc.pgm });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -365,6 +414,9 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/ping/stats') {
       return handlePingStats(url, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/totals') {
+      return handleTotals(env);
     }
     if (request.method === 'POST' && url.pathname === '/withdraw') {
       // Withdraw a published lending entry. The app sends the SECRET
