@@ -110,6 +110,22 @@ jobs:
             ' 2>/dev/null || printf '')
           fi
 
+          # Lifetime geo (best-effort). /totals reads the never-expiring monthly
+          # rollups — the durable long-term aggregate that survives the 90-day
+          # roll-off of /download/stats. Started 2026-07-16, grows from there;
+          # same caveat as the section above (site button clicks, not GitHub).
+          lifetime=""; lifetime_total=0
+          if tot=$(curl -fsS --max-time 10 "https://lend.jx-3p.com/totals" 2>/dev/null); then
+            lifetime_total=$(printf '%s' "$tot" | jq -r '.downloads.total // 0' 2>/dev/null || printf '0')
+            lifetime=$(printf '%s' "$tot" | jq -r --argjson n "$names" '
+              (.downloads.byCountry // {}) | to_entries
+              | map(select(.value > 0))
+              | sort_by(-.value)
+              | .[]
+              | "  \($n[.key] // .key): \(.value)"
+            ' 2>/dev/null || printf '')
+          fi
+
           # Email body.
           {
             echo "JP Patches — new downloads"
@@ -125,8 +141,13 @@ jobs:
               printf '%s\n' "$geo"
             fi
             echo ""
-            echo "Totals since v0.8.0:"
+            echo "Totals since v0.8.0 (GitHub — the real download counts):"
             echo "  Mac new: ${mac_new}   Mac updates: ${mac_upd}   PC: ${pc_new}"
+            if [ -n "$lifetime" ]; then
+              echo ""
+              echo "Lifetime downloads by country (site buttons, durable — ${lifetime_total} total):"
+              printf '%s\n' "$lifetime"
+            fi
           } > /tmp/body.txt
 
           {
