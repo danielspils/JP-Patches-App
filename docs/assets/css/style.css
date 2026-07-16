@@ -537,11 +537,18 @@ body {
    The icon is a tray-style download glyph (arrow + horizontal line)
    rendered as an inline SVG data-URI — no network request, stays the
    same cream color as the button text. */
-.site-content a[href*="/releases/"] {
+/* Styling keys off the explicit btn- class the markdown sets
+   ({:.btn-green} / {:.btn-blue} / {:.btn-red}), NOT the href. The buttons
+   used to match on [href*="/releases/"], which silently stripped all
+   styling the moment a button pointed somewhere else (e.g. the
+   lend.jx-3p.com/download redirector). Class-based = the destination can
+   change freely without breaking the button. */
+.site-content a.btn-green,
+.site-content a.btn-blue,
+.site-content a.btn-red {
   display: inline-flex;
   align-items: center;
   padding: 8px 28px;
-  background: var(--roland-green);
   color: var(--cream);
   border: none;
   text-decoration: none;
@@ -555,7 +562,9 @@ body {
      top-left/bottom-right corners). */
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
 }
-.site-content a[href*="/releases/"]::before {
+.site-content a.btn-green::before,
+.site-content a.btn-blue::before,
+.site-content a.btn-red::before {
   content: '';
   display: inline-block;
   width: 16px;
@@ -566,25 +575,30 @@ body {
   background-position: center;
   background-size: contain;
 }
-.site-content a[href*="/releases/"]:hover {
-  background: var(--roland-green-hot);
-}
-.site-content a[href*="/releases/"]:active {
+.site-content a.btn-green:active,
+.site-content a.btn-blue:active,
+.site-content a.btn-red:active {
   transform: translateY(1px);
 }
 
-/* Color variants — override the default green via Kramdown class syntax
-   in the markdown source ({:.btn-blue} / {:.btn-red}). */
-.site-content a.btn-blue[href*="/releases/"] {
+/* Per-color background + hover. Green is the "recommended action"
+   default (design system §4.1a); blue/red are the variants. */
+.site-content a.btn-green {
+  background: var(--roland-green);
+}
+.site-content a.btn-green:hover {
+  background: var(--roland-green-hot);
+}
+.site-content a.btn-blue {
   background: var(--roland-blue);
 }
-.site-content a.btn-blue[href*="/releases/"]:hover {
+.site-content a.btn-blue:hover {
   background: var(--roland-blue-hot);
 }
-.site-content a.btn-red[href*="/releases/"] {
+.site-content a.btn-red {
   background: var(--roland-red);
 }
-.site-content a.btn-red[href*="/releases/"]:hover {
+.site-content a.btn-red:hover {
   background: var(--roland-red-hot);
 }
 
