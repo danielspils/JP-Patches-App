@@ -15,7 +15,9 @@ This file is the cold-start **map + trap list** — where things live and what b
 
 ## Status
 
-**v0.8.6** shipped (July 2026); **main is ahead** with two unreleased, Windows-hardware-validated features awaiting the next cut: **frequency-aware capture** (trap #36) and **Windows app-audio routing** (Task #21 — trap #33). 25+ releases since v0.1.0. Site live at [jx-3p.com](https://jx-3p.com); releases cut via `scripts/release.sh` (signed + notarized DMG, electron-updater auto-update). A Windows preview (CI-built NSIS, tagged `vX.Y.Z-win-preview`, prerelease) is kept in sync with every Mac release.
+Current version: **0.8.8** (July 16, 2026). Both Mac (signed/notarized DMG, electron-updater auto-update) and a synced Windows preview (`vX.Y.Z-win-preview`, CI-built NSIS) are live. 27+ releases since v0.1.0. Site at [jx-3p.com](https://jx-3p.com); releases cut via `scripts/release.sh`. **v0.8.7** shipped the two Windows-hardware-validated features (frequency-aware capture, trap #36; Windows app-audio routing, trap #33 / Task #21). **v0.8.8** added an anonymous, opt-out **usage ping** (first-launch notice + Settings toggle → relay `/ping`, once/day, version + country, no identifier) plus durable download + geography tracking in the relay Worker (`/download/*`, `/totals`, GoatCounter mirror).
+
+*(The `Current version:` line above is auto-stamped by `scripts/release.sh` — keep its `Current version: **X.Y.Z** (Month D, YYYY)` shape so the bump regex matches.)*
 
 - **Phase 1–2** ✅ shipped — panel UI + patch editing; Library (Tones/Sequences, paired-patch model), Custom Bank Builder, sequencer codec + editor, drag-drop import, send-to-JX.
 - **Phase 3 (MIDI)** ⏳ blocked on the Series Circuits JX-3P MIDI kit install. CC map + architecture drafted in the spec doc.
