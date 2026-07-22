@@ -58,7 +58,9 @@ Window is **1140×710**, non-resizable (Daniel's logical screen is 1147×719 —
 │                        /heart · /borrow · /withdraw · GET /hearts (KV-backed). PAT expires ~June 2027.
 ├── scripts/             setup-vendor.sh · release.sh · lend-publish-lib.mjs (auto-publish trust boundary, tested)
 │                        · publish-lend.mjs / withdraw-lend.mjs (CI pipelines) · remove-lend.sh (manual takedown)
+│                        · download-report.mjs + -lib.mjs (the daily downloads email; `--dry-run` previews it)
 ├── .github/workflows/   build-windows.yml (NSIS on windows-latest) · lending-{publish,withdraw,notify}.yml
+│                        · download-report.yml (daily downloads email, 14:00 UTC)
 ├── build/               icon.png (1024²) · entitlements.mac.plist
 ├── vendor/  (gitignored) uv/uv (arm64) + jx3p/ (rsynced from ~/JP-Patches) — populated by setup-vendor.sh
 └── renderer/

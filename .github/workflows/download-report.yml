@@ -3,6 +3,15 @@ name: Download report
 # Daily check for NEW downloads, emailed only when there's something to say.
 # GitHub exposes only a cumulative per-asset counter, so this job stores the
 # last reported totals in .github/download-stats.json and reports the delta.
+# The same snapshot also carries the relay Worker's download-button counters,
+# which is what lets the email split each number into "via jx-3p.com" and
+# "via GitHub" and attribute downloads to a country.
+#
+# All the logic is in scripts/download-report.mjs (pure half:
+# scripts/download-report-lib.mjs, unit-tested in
+# test/download-report-lib.test.js). Preview it any time with:
+#
+#     node scripts/download-report.mjs --dry-run
 #
 # Behaviour:
 #   - runs daily; if nothing new since the last report, it exits silently
@@ -29,132 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute download deltas
+      - name: Build the report
         id: calc
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # Cumulative totals, counting only releases >= MIN_VER (v0.8.0 — when
-          # the site + lending library went live and JP Patches became public).
-          #
-          # Why the cutoff: v0.5.4-and-earlier is 537 of the raw 648 "downloads"
-          # (~83%). Five superseded releases showing ~70-95 each is crawlers +
-          # dev-testing, not humans. Those bots STILL hit the old assets, so the
-          # filter also keeps phantom deltas out of the daily email — it's not
-          # just a cosmetic total.
-          MIN_VER=800     # v0.8.0  → major*10000 + minor*100 + patch
-          gh api --paginate "repos/${{ github.repository }}/releases" \
-            -q '.[] | .tag_name as $t | .assets[] | "\($t)\t\(.name)\t\(.download_count)"' > /tmp/assets.tsv
-          tally() {   # $1 = asset-name regex (matched case-insensitively)
-            awk -F'\t' -v re="$1" -v min="$MIN_VER" '
-              function ver(t,  a) { gsub(/^v/,"",t); sub(/-.*$/,"",t); split(t,a,"."); return a[1]*10000 + a[2]*100 + a[3] }
-              ver($1) >= min && tolower($2) ~ re { s += $3 } END { print s+0 }
-            ' /tmp/assets.tsv
-          }
-          mac_new=$(tally '\.dmg$')
-          mac_upd=$(tally 'mac.*\.zip$')
-          pc_new=$( tally '\.exe$')
-
-          # Totals as of the last REPORT (not the last run).
-          snap=.github/download-stats.json
-          if [ -f "$snap" ]; then
-            first=false
-            p_mac_new=$(jq -r '.mac_new // 0' "$snap")
-            p_mac_upd=$(jq -r '.mac_upd // 0' "$snap")
-            p_pc_new=$( jq -r '.pc_new  // 0' "$snap")
-            p_updated=$(jq -r '.updated // ""' "$snap")
-          else
-            first=true
-            p_mac_new=$mac_new; p_mac_upd=$mac_upd; p_pc_new=$pc_new; p_updated=""
-          fi
-          d_mac_new=$(( mac_new - p_mac_new ))
-          d_mac_upd=$(( mac_upd - p_mac_upd ))
-          d_pc_new=$((  pc_new  - p_pc_new  ))
-          total_new=$(( d_mac_new + d_mac_upd + d_pc_new ))
-
-          # Decide what happens: email only if there's something new;
-          # commit only when we report (or to seed the very first baseline).
-          send=false; commit=false
-          if [ "$first" = true ]; then
-            commit=true
-          elif [ "$total_new" -gt 0 ]; then
-            send=true; commit=true
-          fi
-          echo "send=$send"     >> "$GITHUB_OUTPUT"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "Deltas — mac_new:$d_mac_new mac_upd:$d_mac_upd pc:$d_pc_new (send=$send)"
-
-          # Stage the new snapshot (committed later, only if we reported).
-          mkdir -p .github
-          printf '{"mac_new":%d,"mac_upd":%d,"pc_new":%d,"updated":"%s"}\n' \
-            "$mac_new" "$mac_upd" "$pc_new" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$snap"
-
-          # Geography (best-effort). The Cloudflare Worker counts download-button
-          # clicks by country — GitHub's counter has no geo at all. Fails soft:
-          # if the Worker is unreachable or has nothing yet, the email simply
-          # omits this section. NOTE these are button clicks (new installs via
-          # the site), so they won't match the GitHub totals above — those stay
-          # the source of truth for real download counts.
-          names='{"US":"United States","GB":"United Kingdom","DE":"Germany","JP":"Japan","CA":"Canada","AU":"Australia","FR":"France","NL":"Netherlands","SE":"Sweden","IT":"Italy","ES":"Spain","BR":"Brazil","MX":"Mexico","PL":"Poland","NO":"Norway","DK":"Denmark","FI":"Finland","BE":"Belgium","CH":"Switzerland","AT":"Austria","IE":"Ireland","NZ":"New Zealand","RU":"Russia","UA":"Ukraine","CZ":"Czechia","PT":"Portugal","GR":"Greece","TR":"Turkey","IN":"India","CN":"China","KR":"South Korea","TW":"Taiwan","AR":"Argentina","CL":"Chile","CO":"Colombia","ZA":"South Africa","IL":"Israel","IR":"Iran","SG":"Singapore","HK":"Hong Kong","HU":"Hungary","RO":"Romania","TH":"Thailand","ID":"Indonesia","PH":"Philippines","VN":"Vietnam","MY":"Malaysia","EE":"Estonia","LT":"Lithuania","LV":"Latvia","SK":"Slovakia","SI":"Slovenia","HR":"Croatia","RS":"Serbia","BG":"Bulgaria","IS":"Iceland","LU":"Luxembourg","XX":"Unknown"}'
-          geo=""
-          since_day=$(printf '%s' "${p_updated}" | tr -d '-' | cut -c1-8)
-          if stats=$(curl -fsS --max-time 10 "https://lend.jx-3p.com/download/stats?since=${since_day}" 2>/dev/null); then
-            geo=$(printf '%s' "$stats" | jq -r --argjson n "$names" '
-              (.byCountry // {}) | to_entries
-              | map(select((((.value.mac // 0) + (.value.pc // 0)) > 0)))
-              | sort_by(-((.value.mac // 0) + (.value.pc // 0)))
-              | .[]
-              | "  \($n[.key] // .key): \((.value.mac // 0) + (.value.pc // 0))  (Mac \(.value.mac // 0), PC \(.value.pc // 0))"
-            ' 2>/dev/null || printf '')
-          fi
-
-          # Lifetime geo (best-effort). /totals reads the never-expiring monthly
-          # rollups — the durable long-term aggregate that survives the 90-day
-          # roll-off of /download/stats. Started 2026-07-16, grows from there;
-          # same caveat as the section above (site button clicks, not GitHub).
-          lifetime=""; lifetime_total=0
-          if tot=$(curl -fsS --max-time 10 "https://lend.jx-3p.com/totals" 2>/dev/null); then
-            lifetime_total=$(printf '%s' "$tot" | jq -r '.downloads.total // 0' 2>/dev/null || printf '0')
-            lifetime=$(printf '%s' "$tot" | jq -r --argjson n "$names" '
-              (.downloads.byCountry // {}) | to_entries
-              | map(select(.value > 0))
-              | sort_by(-.value)
-              | .[]
-              | "  \($n[.key] // .key): \(.value)"
-            ' 2>/dev/null || printf '')
-          fi
-
-          # Email body.
-          {
-            echo "JP Patches — new downloads"
-            echo "($(date -u '+%b %-d, %Y'))"
-            echo ""
-            echo "Since your last report:"
-            echo "  Mac — new installs (.dmg):  +${d_mac_new}"
-            echo "  Mac — auto-updates (.zip):  +${d_mac_upd}"
-            echo "  PC  — downloads (.exe):     +${d_pc_new}   (all fresh — no Windows updater yet)"
-            if [ -n "$geo" ]; then
-              echo ""
-              echo "Where from (site button clicks — new installs only):"
-              printf '%s\n' "$geo"
-            fi
-            echo ""
-            echo "Totals since v0.8.0 (GitHub — the real download counts):"
-            echo "  Mac new: ${mac_new}   Mac updates: ${mac_upd}   PC: ${pc_new}"
-            if [ -n "$lifetime" ]; then
-              echo ""
-              echo "Lifetime downloads by country (site buttons, durable — ${lifetime_total} total):"
-              printf '%s\n' "$lifetime"
-            fi
-          } > /tmp/body.txt
-
-          {
-            echo 'body<<BODY_EOF'
-            cat /tmp/body.txt
-            echo 'BODY_EOF'
-          } >> "$GITHUB_OUTPUT"
+        run: node scripts/download-report.mjs
 
       - name: Email the report
         if: steps.calc.outputs.send == 'true'
