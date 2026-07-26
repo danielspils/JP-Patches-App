@@ -222,7 +222,7 @@ test('renderBody emits the section headings in order', async () => {
 
 test('ctaBullet is the plain 5th bullet — phrase then URL', async () => {
   const { ctaBullet, GOATCOUNTER_URL } = await libP;
-  assert.equal(ctaBullet(), `  • Click here for historical Goat Counter metrics: ${GOATCOUNTER_URL}`);
+  assert.equal(ctaBullet(), `  • Historical metrics at GoatCounter: ${GOATCOUNTER_URL}`);
 });
 
 test('htmlBody wraps the report in one <pre> and appends the CTA bullet', async () => {
@@ -233,13 +233,13 @@ test('htmlBody wraps the report in one <pre> and appends the CTA bullet', async 
   const STYLE = "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "
     + "'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; "
     + 'white-space: pre; margin: 0;';
-  const cta = `  • <a href="${GOATCOUNTER_URL}">Click here</a> for historical Goat Counter metrics\n`;
+  const cta = `  • Historical metrics at <a href="${GOATCOUNTER_URL}">GoatCounter</a>\n`;
   assert.equal(html, `<pre style="${STYLE}">${report}${cta}</pre>`);
   // Report is emitted byte-for-byte; the ONLY markup is the inline CTA anchor.
   assert.ok(html.includes(report));
   assert.doesNotMatch(html, /<br|<div|<table|<head|<style|<p[ >]/);
-  // Only "Click here" is linked — the rest of the phrase is outside the anchor.
-  assert.match(html, /<\/a> for historical Goat Counter metrics/);
+  // Only "GoatCounter" is linked — the preceding words are outside the anchor.
+  assert.match(html, /Historical metrics at <a href="[^"]+">GoatCounter<\/a>\n/);
 });
 
 test('htmlBody escapes & < > only in the report, leaving the · separator intact', async () => {

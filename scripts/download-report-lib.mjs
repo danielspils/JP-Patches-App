@@ -278,28 +278,28 @@ export function renderBody(model) {
 
 // The GoatCounter dashboard — the durable, graphed history the daily email
 // can't show. Linked from the 5th bullet of HOW THIS IS COUNTED. Only the
-// words "Click here" are the link.
+// word "GoatCounter" is the link.
 export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
-const CTA_LINK = 'Click here';
-const CTA_REST = ' for historical Goat Counter metrics';
+const CTA_PREFIX = 'Historical metrics at ';
+const CTA_LINK = 'GoatCounter';
 
 // The plain-text 5th bullet: the phrase plus the URL, since plain text can't
 // hyperlink (the URL auto-links in most clients). Appended by the driver.
 export function ctaBullet() {
-  return `  • ${CTA_LINK}${CTA_REST}: ${GOATCOUNTER_URL}`;
+  return `  • ${CTA_PREFIX}${CTA_LINK}: ${GOATCOUNTER_URL}`;
 }
 
 // The HTML alternative part: the report, HTML-escaped (& < > only, & first)
 // and dropped verbatim into one inline-styled <pre> — no reflow, no markdown,
 // no <head>/<style> (clients strip those), no <div>/<table>/<br>. The one
-// exception is the CTA bullet appended last: an inline <a> around "Click here"
-// (inline elements are fine inside <pre>), so only those words link and no raw
+// exception is the CTA bullet appended last: an inline <a> around "GoatCounter"
+// (inline elements are fine inside <pre>), so only that word links and no raw
 // URL shows. charset=utf-8 keeps the "·" separator intact.
 export function htmlBody(report) {
   const escaped = String(report)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const cta = `  • <a href="${GOATCOUNTER_URL}">${CTA_LINK}</a>${CTA_REST}\n`;
+  const cta = `  • ${CTA_PREFIX}<a href="${GOATCOUNTER_URL}">${CTA_LINK}</a>\n`;
   return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
 }
