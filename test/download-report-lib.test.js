@@ -145,18 +145,18 @@ test('renderBody NEW by-country is a 3-column table, sorted, zero platform omitt
   const { renderBody } = await libP;
   const body = renderBody(model());
 
-  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n/);
-  // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Columns align:
-  // country+count padded to 10, Mac cell padded to 8, then PC.
-  assert.match(body, /\n {2}Sweden 4 {2}Mac 2 {3}PC 2\n {2}China 1 {3}Mac 1\n/);
+  assert.match(body, /\nNEW BY COUNTRY\n/);
+  // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Country+count field is
+  // at least 17 wide, so the Mac column lands at column 19 like the rows above.
+  assert.match(body, /\n {2}Sweden 4 {9}Mac 2 {3}PC 2\n {2}China 1 {10}Mac 1\n/);
   assert.doesNotMatch(body, /PC 0/);
 });
 
-test('renderBody LIFETIME by-country is a 2-column table, sorted by count', async () => {
+test('renderBody LIFETIME by-country aligns counts in the value column (19)', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  // US 10 (6+4) outranks SE 8 (3+5); no platform split, count column aligned.
-  assert.match(body, /\nLIFETIME BY COUNTRY \(via jx-3p\.com\)\n {2}United States {2}10\n {2}Sweden {9}8\n/);
+  // US 10 (6+4) outranks SE 8 (3+5); name padded to 17 → count at column 19.
+  assert.match(body, /\nLIFETIME BY COUNTRY\n {2}United States {4}10\n {2}Sweden {11}8\n/);
 });
 
 test('renderBody sorts countries by count desc then full name', async () => {
@@ -178,7 +178,7 @@ test('renderBody prints "none" for an empty by-country table', async () => {
   const body = renderBody(model({
     site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
   }));
-  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
+  assert.match(body, /\nNEW BY COUNTRY\n {2}none\n/);
 });
 
 test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
@@ -187,19 +187,21 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   // Downloads still render (GitHub, not the Worker).
   assert.match(body, /^ {2}Mac {14}\+6$/m);
   assert.match(body, /^ {2}Mac {14}41$/m);
-  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
-  assert.match(body, /\nLIFETIME BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
+  assert.match(body, /\nNEW BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nLIFETIME BY COUNTRY\n {2}none\n/);
 });
 
-test('renderBody carries the static HOW THIS IS COUNTED block verbatim', async () => {
+test('renderBody carries the static HOW THIS IS COUNTED bullets verbatim, and ends there', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  assert.match(body, /\nHOW THIS IS COUNTED\n {2}Downloads are counted by GitHub when a file is served\. Country is\n {2}only known for jx-3p\.com button clicks — a rough interest signal,\n {2}not downloads, so those counts won't match the download totals\.\n {2}PC has no auto-updater yet\.\n$/);
+  assert.match(body, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n$/);
+  // The CTA is composed by the driver, not renderBody.
+  assert.doesNotMatch(body, /Click here|goatcounter/);
 });
 
-test('renderBody never claims a site/GitHub split', async () => {
+test('renderBody never claims a per-line site/GitHub split', async () => {
   const { renderBody } = await libP;
-  assert.doesNotMatch(renderBody(model()), /via GitHub|GitHub \d|estimated/);
+  assert.doesNotMatch(renderBody(model()), /· GitHub|site \d|estimated/);
 });
 
 test('renderBody emits the section headings in order', async () => {
@@ -207,7 +209,7 @@ test('renderBody emits the section headings in order', async () => {
   const body = renderBody(model());
   const order = [
     'NEW DOWNLOADS YESTERDAY', 'MAC UPDATES',
-    'NEW BY COUNTRY (via jx-3p.com)', 'LIFETIME BY COUNTRY (via jx-3p.com)',
+    'NEW BY COUNTRY', 'LIFETIME BY COUNTRY',
     'LIFETIME DOWNLOADS', 'HOW THIS IS COUNTED',
   ];
   let last = -1;
@@ -216,6 +218,16 @@ test('renderBody emits the section headings in order', async () => {
     assert.ok(at > last, `${h} missing or out of order`);
     last = at;
   }
+});
+
+test('textCta / htmlCta link the GoatCounter dashboard', async () => {
+  const { textCta, htmlCta, GOATCOUNTER_URL, CTA_TEXT } = await libP;
+  // Plain: paragraph break, the phrase, then the URL on its own line.
+  assert.equal(textCta(), `\n${CTA_TEXT}:\n${GOATCOUNTER_URL}\n`);
+  // HTML: a real anchor in its own paragraph (lives OUTSIDE the escaped <pre>).
+  const html = htmlCta();
+  assert.match(html, new RegExp(`^\\n<p style="[^"]*"><a href="${GOATCOUNTER_URL.replace(/[/.]/g, '\\$&')}">${CTA_TEXT}</a></p>$`));
+  assert.doesNotMatch(html, /<pre|<br|<div/);
 });
 
 test('htmlBody wraps the body verbatim in one inline-styled <pre>', async () => {

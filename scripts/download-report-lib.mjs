@@ -186,14 +186,16 @@ function countryRows(byCountry) {
     .sort((a, b) => (b.t - a.t) || a.name.localeCompare(b.name));
 }
 
-// "NEW — BY COUNTRY" table: one country per line, three space-aligned
-// columns — "Country N", "Mac n", "PC n" — so it scans down cleanly. A
-// platform with no clicks leaves its cell blank (the next column stays put).
+// "NEW BY COUNTRY" table: one country per line, three space-aligned columns —
+// "Country N", "Mac n", "PC n". The first column is at least LABEL_W wide, so
+// the Mac column lands on the same column (19) as the metric-block values above
+// and the lifetime counts below. A platform with no clicks leaves its cell
+// blank (the next column stays put).
 function countryTableSplit(byCountry) {
   const rows = countryRows(byCountry);
   if (!rows.length) return [`${INDENT}none`];
   const c1 = rows.map((r) => `${r.name} ${r.t}`);
-  const w1 = Math.max(...c1.map((s) => s.length)) + 2;
+  const w1 = Math.max(LABEL_W, Math.max(...c1.map((s) => s.length)) + 2);
   const macCells = rows.map((r) => (r.mac > 0 ? `Mac ${r.mac}` : ''));
   const w2 = Math.max(...macCells.map((s) => s.length)) + 3;
   return rows.map((r, i) => {
@@ -202,11 +204,13 @@ function countryTableSplit(byCountry) {
   });
 }
 
-// "LIFETIME — BY COUNTRY" table: country then a single count, aligned.
+// "LIFETIME BY COUNTRY" table: country then a single count. The name field is
+// at least LABEL_W wide so the count sits in the same value column (19) as the
+// Mac/PC figures elsewhere.
 function countryTableCount(byCountry) {
   const rows = countryRows(byCountry);
   if (!rows.length) return [`${INDENT}none`];
-  const w = Math.max(...rows.map((r) => r.name.length)) + 2;
+  const w = Math.max(LABEL_W, Math.max(...rows.map((r) => r.name.length)) + 2);
   return rows.map((r) => INDENT + r.name.padEnd(w) + r.t);
 }
 
@@ -247,11 +251,11 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  out.push('NEW BY COUNTRY (via jx-3p.com)');
+  out.push('NEW BY COUNTRY');
   out.push(...(winClicks ? countryTableSplit(winClicks) : [`${INDENT}none`]));
   out.push('');
 
-  out.push('LIFETIME BY COUNTRY (via jx-3p.com)');
+  out.push('LIFETIME BY COUNTRY');
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
   out.push('');
 
@@ -261,13 +265,13 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  // Static — deliberately not templated. Explains why the by-country counts
-  // (button clicks) won't add up to the download totals above.
+  // Static — deliberately not templated. Bulleted; the middle two lines are
+  // why the Country and Downloads numbers never tie out.
   out.push('HOW THIS IS COUNTED');
-  out.push('  Downloads are counted by GitHub when a file is served. Country is');
-  out.push('  only known for jx-3p.com button clicks — a rough interest signal,');
-  out.push('  not downloads, so those counts won\'t match the download totals.');
-  out.push('  PC has no auto-updater yet.');
+  out.push('  • Country = button clicks via jx-3p.com');
+  out.push('  • Downloads = a file served via GitHub.');
+  out.push('  • Therefore, Country & Downloads metrics will never match.');
+  out.push('  • PC has no auto-updater yet.');
 
   return out.join('\n') + '\n';
 }
@@ -283,4 +287,23 @@ export function htmlBody(body) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}</pre>`;
+}
+
+// The GoatCounter dashboard — the durable, graphed history the daily email
+// can't show. Linked from a call-to-action after the report.
+export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
+export const CTA_TEXT = 'Click here for historical Goat Counter metrics';
+
+// Plain-text CTA: a paragraph break after the report, then the phrase and the
+// URL on its own line (the URL is the "here" — clients auto-link it).
+export function textCta() {
+  return `\n${CTA_TEXT}:\n${GOATCOUNTER_URL}\n`;
+}
+
+// HTML CTA: a real anchor. It can't live inside the escaped <pre>, so it's a
+// separate paragraph after it, styled to match the monospace body.
+export function htmlCta() {
+  return '\n<p style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, '
+    + "'Liberation Mono', monospace; font-size: 13px; margin: 12px 0 0;\">"
+    + `<a href="${GOATCOUNTER_URL}">${CTA_TEXT}</a></p>`;
 }

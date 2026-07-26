@@ -16,7 +16,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, formatDate,
+  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, textCta, htmlCta, formatDate,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -105,13 +105,19 @@ const daysSince = Number.isNaN(snapMs)
   ? null
   : Math.max(1, Math.round((Date.now() - snapMs) / 86_400_000));
 
-const body = renderBody({
+const report = renderBody({
   prevDate: snap?.updated ? formatDate(snap.updated) : '',
   daysSince,
   delta,
   lifetime: now,
   site: site ? { window: site.window, lifetime: site.lifetime } : null,
 });
+
+// The two multipart/alternative parts. Both carry the GoatCounter CTA after
+// the report — plain gets the phrase + URL, HTML gets a real anchor after the
+// <pre> (a link can't live inside the escaped <pre>).
+const body = report + textCta();
+const html = htmlBody(report) + htmlCta();
 
 process.stdout.write(body);
 
@@ -139,7 +145,7 @@ if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT,
     `send=${send}\ncommit=${commit}\n`
     + `body<<BODY_EOF\n${body}BODY_EOF\n`
-    + `html<<HTML_EOF\n${htmlBody(body)}\nHTML_EOF\n`);
+    + `html<<HTML_EOF\n${html}\nHTML_EOF\n`);
 }
 
 process.stderr.write(`deltas — mac:${delta.macNew} upd:${delta.macUpd} pc:${delta.pcNew} `
