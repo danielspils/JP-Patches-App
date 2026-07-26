@@ -255,7 +255,7 @@ export function renderBody(model) {
   out.push(...(winClicks ? countryTableSplit(winClicks) : [`${INDENT}none`]));
   out.push('');
 
-  out.push('LIFETIME BY COUNTRY');
+  out.push('LIFETIME DOWNLOADS BY COUNTRY');
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
   out.push('');
 

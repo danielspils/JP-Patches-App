@@ -156,7 +156,7 @@ test('renderBody LIFETIME by-country aligns counts in the value column (19)', as
   const { renderBody } = await libP;
   const body = renderBody(model());
   // US 10 (6+4) outranks SE 8 (3+5); name padded to 17 → count at column 19.
-  assert.match(body, /\nLIFETIME BY COUNTRY\n {2}United States {4}10\n {2}Sweden {11}8\n/);
+  assert.match(body, /\nLIFETIME DOWNLOADS BY COUNTRY\n {2}United States {4}10\n {2}Sweden {11}8\n/);
 });
 
 test('renderBody sorts countries by count desc then full name', async () => {
@@ -167,7 +167,7 @@ test('renderBody sorts countries by count desc then full name', async () => {
       lifetime: { byCountry: { SG: { mac: 1, pc: 0 }, KR: { mac: 1, pc: 0 }, US: { mac: 5, pc: 0 } } },
     },
   }));
-  const life = body.slice(body.indexOf('LIFETIME BY COUNTRY'));
+  const life = body.slice(body.indexOf('LIFETIME DOWNLOADS BY COUNTRY'));
   // US 5 first; then the two 1s alphabetically: Singapore before South Korea.
   assert.ok(life.indexOf('United States') < life.indexOf('Singapore'));
   assert.ok(life.indexOf('Singapore') < life.indexOf('South Korea'));
@@ -188,7 +188,7 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   assert.match(body, /^ {2}Mac {14}\+6$/m);
   assert.match(body, /^ {2}Mac {14}41$/m);
   assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n {2}none\n/);
-  assert.match(body, /\nLIFETIME BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nLIFETIME DOWNLOADS BY COUNTRY\n {2}none\n/);
 });
 
 test('renderBody carries the static HOW THIS IS COUNTED bullets verbatim, and ends there', async () => {
@@ -209,7 +209,7 @@ test('renderBody emits the section headings in order', async () => {
   const body = renderBody(model());
   const order = [
     'NEW DOWNLOADS YESTERDAY', 'MAC UPDATES',
-    'NEW DOWNLOADS BY COUNTRY', 'LIFETIME BY COUNTRY',
+    'NEW DOWNLOADS BY COUNTRY', 'LIFETIME DOWNLOADS BY COUNTRY',
     'LIFETIME DOWNLOADS', 'HOW THIS IS COUNTED',
   ];
   let last = -1;
