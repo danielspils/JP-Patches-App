@@ -145,7 +145,7 @@ test('renderBody NEW by-country is a 3-column table, sorted, zero platform omitt
   const { renderBody } = await libP;
   const body = renderBody(model());
 
-  assert.match(body, /\nNEW BY COUNTRY\n/);
+  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n/);
   // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Country+count field is
   // at least 17 wide, so the Mac column lands at column 19 like the rows above.
   assert.match(body, /\n {2}Sweden 4 {9}Mac 2 {3}PC 2\n {2}China 1 {10}Mac 1\n/);
@@ -178,7 +178,7 @@ test('renderBody prints "none" for an empty by-country table', async () => {
   const body = renderBody(model({
     site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
   }));
-  assert.match(body, /\nNEW BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n {2}none\n/);
 });
 
 test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
@@ -187,7 +187,7 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   // Downloads still render (GitHub, not the Worker).
   assert.match(body, /^ {2}Mac {14}\+6$/m);
   assert.match(body, /^ {2}Mac {14}41$/m);
-  assert.match(body, /\nNEW BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n {2}none\n/);
   assert.match(body, /\nLIFETIME BY COUNTRY\n {2}none\n/);
 });
 
@@ -209,7 +209,7 @@ test('renderBody emits the section headings in order', async () => {
   const body = renderBody(model());
   const order = [
     'NEW DOWNLOADS YESTERDAY', 'MAC UPDATES',
-    'NEW BY COUNTRY', 'LIFETIME BY COUNTRY',
+    'NEW DOWNLOADS BY COUNTRY', 'LIFETIME BY COUNTRY',
     'LIFETIME DOWNLOADS', 'HOW THIS IS COUNTED',
   ];
   let last = -1;

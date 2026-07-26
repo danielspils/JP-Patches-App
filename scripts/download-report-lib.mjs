@@ -251,7 +251,7 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  out.push('NEW BY COUNTRY');
+  out.push('NEW DOWNLOADS BY COUNTRY');
   out.push(...(winClicks ? countryTableSplit(winClicks) : [`${INDENT}none`]));
   out.push('');
 
