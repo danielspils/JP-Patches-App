@@ -47,23 +47,6 @@ test('tallyAssets counts only matching assets at or after the cutoff', async () 
   assert.equal(tallyAssets(rows, ASSET_RE.pcNew), 5);
 });
 
-// ── the site/GitHub split ─────────────────────────────────────────────
-
-test('splitCounts derives the GitHub half by subtraction', async () => {
-  const { splitCounts } = await libP;
-  assert.deepEqual(splitCounts(10, 4), { site: 4, github: 6, capped: false, raw: 4 });
-  assert.deepEqual(splitCounts(10, 0), { site: 0, github: 10, capped: false, raw: 0 });
-});
-
-test('splitCounts caps site clicks at the total instead of going negative', async () => {
-  const { splitCounts } = await libP;
-  // 7 button clicks, 5 downloads GitHub actually counted — cancelled clicks,
-  // deduped redirects. The parts must still add up to the whole.
-  const s = splitCounts(5, 7);
-  assert.deepEqual(s, { site: 5, github: 0, capped: true, raw: 7 });
-  assert.equal(s.site + s.github, 5);
-});
-
 // ── window + lifetime bookkeeping ─────────────────────────────────────
 
 const stats = (mac, pc, byCountry = {}) => ({ totals: { mac, pc }, byCountry });
@@ -120,76 +103,148 @@ test('diffSite accumulates lifetime so the Worker 90-day expiry cannot shrink it
 });
 
 // ── rendering ─────────────────────────────────────────────────────────
+//
+// The template is column-precise (two-space indent), so most assertions pin
+// exact whitespace. Downloads (GitHub) and the by-country breakdown (jx-3p.com
+// button clicks) are separate — clicks are never netted against downloads.
+// See scripts/download-report-lib.mjs.
 
 const model = (over = {}) => ({
-  date: 'Jul 22, 2026',
-  lastReport: 'July 20',
-  v0Date: 'Jun 12, 2026',
+  prevDate: 'Jul 22, 2026',
+  daysSince: 4,
   delta: { macNew: 6, macUpd: 1, pcNew: 4 },
-  lifetime: { macNew: 36, macUpd: 23, pcNew: 17 },
+  lifetime: { macNew: 41, macUpd: 23, pcNew: 19 },
   site: {
-    window: { exact: true, mac: 3, pc: 2, byCountry: { SE: { mac: 2, pc: 2 }, CN: { mac: 1, pc: 1 } } },
-    lifetime: { mac: 8, pc: 8, byCountry: { SE: { mac: 2, pc: 2 }, US: { mac: 4, pc: 2 } } },
+    window: { byCountry: { SE: { mac: 2, pc: 2 }, CN: { mac: 1, pc: 0 } } },
+    lifetime: { byCountry: { US: { mac: 6, pc: 4 }, SE: { mac: 3, pc: 5 } } },
   },
   ...over,
 });
 
-test('renderBody lays out the report with both splits', async () => {
+test('renderBody opens with the "last report N days ago" line', async () => {
+  const { renderBody } = await libP;
+  assert.match(renderBody(model()), /^Your last report was 4 days ago\.\n/);
+  assert.match(renderBody(model({ daysSince: 1 })), /^Your last report was 1 day ago\.\n/);
+  assert.match(renderBody(model({ prevDate: '', daysSince: null })), /^Your first download report\.\n/);
+});
+
+test('renderBody NEW/LIFETIME download rows are bare counts, no split', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(model());
+  assert.match(body, /\nNEW DOWNLOADS YESTERDAY\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
+  assert.match(body, /\nLIFETIME DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n/);
+  assert.doesNotMatch(body, /site \d|GitHub \d/);
+});
+
+test('renderBody MAC UPDATES aligns the +delta with the bare lifetime', async () => {
+  const { renderBody } = await libP;
+  assert.match(renderBody(model()), /\nMAC UPDATES\n {2}New {14}\+1\n {2}Lifetime {10}23\n/);
+});
+
+test('renderBody NEW by-country is a 3-column table, sorted, zero platform omitted', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
 
-  assert.match(body, /^JP Patches — new downloads for Jul 22, 2026\n/);
-  assert.match(body, /^Since July 20 > all new downloads:$/m);
-  assert.match(body, /Mac — installs: {6}\+6 {2}\(3 via jx-3p\.com, 3 via GitHub\)/);
-  // Auto-updates never come from the site, so that row carries no split.
-  assert.match(body, /Mac — auto-updates: {2}\+1\n/);
-  assert.match(body, /PC — downloads: {6}\+4 {2}\(2 via jx-3p\.com, 2 via GitHub\)/);
-  assert.match(body, /Mac installs: {3}36 {2}\(8 via jx-3p\.com, 28 via GitHub\)/);
-  assert.match(body, /Mac updates: {4}23\n/);
-  assert.match(body, /PC downloads: {3}17 {2}\(8 via jx-3p\.com, 9 via GitHub\)/);
-  assert.match(body, /Sweden: 4 \(Mac 2, PC 2\)/);
-  assert.match(body, /Total downloads begin with v0\.8\.0, released on Jun 12, 2026\./);
+  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n/);
+  // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Columns align:
+  // country+count padded to 10, Mac cell padded to 8, then PC.
+  assert.match(body, /\n {2}Sweden 4 {2}Mac 2 {3}PC 2\n {2}China 1 {3}Mac 1\n/);
+  assert.doesNotMatch(body, /PC 0/);
 });
 
-test('renderBody sorts countries by total, descending', async () => {
+test('renderBody LIFETIME by-country is a 2-column table, sorted by count', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  const life = body.slice(body.indexOf('Lifetime > jx-3p.com downloads by country:'));
-  assert.ok(life.indexOf('United States') < life.indexOf('Sweden'), 'US (6) outranks Sweden (4)');
+  // US 10 (6+4) outranks SE 8 (3+5); no platform split, count column aligned.
+  assert.match(body, /\nLIFETIME BY COUNTRY \(via jx-3p\.com\)\n {2}United States {2}10\n {2}Sweden {9}8\n/);
 });
 
-test('renderBody omits the split entirely when the Worker is unreachable', async () => {
+test('renderBody sorts countries by count desc then full name', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(model({
+    site: {
+      window: { byCountry: {} },
+      lifetime: { byCountry: { SG: { mac: 1, pc: 0 }, KR: { mac: 1, pc: 0 }, US: { mac: 5, pc: 0 } } },
+    },
+  }));
+  const life = body.slice(body.indexOf('LIFETIME BY COUNTRY'));
+  // US 5 first; then the two 1s alphabetically: Singapore before South Korea.
+  assert.ok(life.indexOf('United States') < life.indexOf('Singapore'));
+  assert.ok(life.indexOf('Singapore') < life.indexOf('South Korea'));
+});
+
+test('renderBody prints "none" for an empty by-country table', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(model({
+    site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
+  }));
+  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
+});
+
+test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model({ site: null }));
-
-  assert.match(body, /Mac — installs: {6}\+6\n/);
-  assert.match(body, /Mac installs: {3}36\n/);
-  assert.doesNotMatch(body, /via jx-3p\.com/);
-  assert.match(body, /couldn't be reached/);
+  // Downloads still render (GitHub, not the Worker).
+  assert.match(body, /^ {2}Mac {14}\+6$/m);
+  assert.match(body, /^ {2}Mac {14}41$/m);
+  assert.match(body, /\nNEW BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
+  assert.match(body, /\nLIFETIME BY COUNTRY \(via jx-3p\.com\)\n {2}none\n/);
 });
 
-test('renderBody suppresses the since-last-report split on the seeding run', async () => {
+test('renderBody carries the static HOW THIS IS COUNTED block verbatim', async () => {
   const { renderBody } = await libP;
-  const site = model().site;
-  site.window.exact = false;
-  const body = renderBody(model({ site }));
-
-  assert.match(body, /Mac — installs: {6}\+6\n/, 'window split withheld');
-  assert.match(body, /Mac installs: {3}36 {2}\(8 via jx-3p\.com/, 'lifetime split still shown');
-  assert.match(body, /sets the click-tracking baseline/);
-  // The by-country section is a click count in its own right, not a claim
-  // about the GitHub totals, so it still prints.
-  assert.match(body, /^Since July 20 > jx-3p\.com downloads by country:$/m);
+  const body = renderBody(model());
+  assert.match(body, /\nHOW THIS IS COUNTED\n {2}Downloads are counted by GitHub when a file is served\. Country is\n {2}only known for jx-3p\.com button clicks — a rough interest signal,\n {2}not downloads, so those counts won't match the download totals\.\n {2}PC has no auto-updater yet\.\n$/);
 });
 
-test('renderBody notes when a row had more clicks than counted downloads', async () => {
+test('renderBody never claims a site/GitHub split', async () => {
   const { renderBody } = await libP;
-  const site = model().site;
-  site.window.mac = 99;
-  const body = renderBody(model({ site }));
+  assert.doesNotMatch(renderBody(model()), /via GitHub|GitHub \d|estimated/);
+});
 
-  assert.match(body, /Mac — installs: {6}\+6 {2}\(6 via jx-3p\.com, 0 via GitHub\)/);
-  assert.match(body, /a click isn't always a finished download/);
+test('renderBody emits the section headings in order', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(model());
+  const order = [
+    'NEW DOWNLOADS YESTERDAY', 'MAC UPDATES',
+    'NEW BY COUNTRY (via jx-3p.com)', 'LIFETIME BY COUNTRY (via jx-3p.com)',
+    'LIFETIME DOWNLOADS', 'HOW THIS IS COUNTED',
+  ];
+  let last = -1;
+  for (const h of order) {
+    const at = body.indexOf(`\n${h}\n`);
+    assert.ok(at > last, `${h} missing or out of order`);
+    last = at;
+  }
+});
+
+test('htmlBody wraps the body verbatim in one inline-styled <pre>', async () => {
+  const { htmlBody } = await libP;
+  const body = 'NEW DOWNLOADS\n  Mac              +6\n';
+  const html = htmlBody(body);
+
+  const STYLE = "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "
+    + "'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; "
+    + 'white-space: pre; margin: 0;';
+  assert.equal(html, `<pre style="${STYLE}">${body}</pre>`);
+  // The body is emitted byte-for-byte inside — same newlines, no reflow.
+  assert.ok(html.includes(body));
+  // No block tags manufactured around the content.
+  assert.doesNotMatch(html, /<br|<div|<table|<head|<style/);
+});
+
+test('htmlBody escapes & < > only, leaving the · separator intact', async () => {
+  const { htmlBody } = await libP;
+  const html = htmlBody('a & b < c > d · e');
+  assert.match(html, />a &amp; b &lt; c &gt; d · e</);
+});
+
+test('htmlBody escapes ampersand before the angle brackets', async () => {
+  const { htmlBody } = await libP;
+  // A literal < in the source must become &lt;, never double-escape to &amp;lt;.
+  const html = htmlBody('x < y');
+  assert.ok(html.includes('x &lt; y'));
+  assert.ok(!html.includes('&amp;lt;'));
 });
 
 test('formatDate renders UTC, not the runner local time', async () => {
@@ -197,18 +252,5 @@ test('formatDate renders UTC, not the runner local time', async () => {
   assert.equal(formatDate('2026-06-12T01:14:12Z'), 'Jun 12, 2026');
   assert.equal(formatDate('2026-07-22T23:59:00Z'), 'Jul 22, 2026');
   assert.equal(formatDate('nonsense'), '');
-});
-
-test('renderBody orders the four sections as specified', async () => {
-  const { renderBody } = await libP;
-  const body = renderBody(model());
-  const headings = body.split('\n').filter((l) => /(:|downloads)$/.test(l) && !l.startsWith(' '));
-
-  assert.deepEqual(headings, [
-    'Since July 20 > all new downloads:',
-    'Since July 20 > jx-3p.com downloads by country:',
-    'Lifetime > jx-3p.com downloads by country:',
-    'Lifetime > total downloads:',
-  ]);
 });
 

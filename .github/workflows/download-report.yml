@@ -26,7 +26,9 @@ name: Download report
 
 on:
   schedule:
-    - cron: '0 14 * * *'      # every day, 14:00 UTC
+    # Just after midnight UTC so each report cleanly covers "yesterday". The
+    # :12 offset dodges the top-of-hour congestion that delays GitHub crons.
+    - cron: '12 0 * * *'
   workflow_dispatch: {}         # allow manual runs (Actions tab → Run workflow)
 
 permissions:
@@ -55,8 +57,11 @@ jobs:
           password: ${{ secrets.MAIL_PASSWORD }}
           from: JP Patches <${{ secrets.MAIL_USERNAME }}>
           to: danielspils@gmail.com
-          subject: "JP Patches — new downloads"
+          subject: "JP Patches — new downloads today!"
+          # Setting both body and html_body sends multipart/alternative:
+          # text/plain for clients that want it, a monospace <pre> for the rest.
           body: ${{ steps.calc.outputs.body }}
+          html_body: ${{ steps.calc.outputs.html }}
 
       # Committed only after a successful send (or to seed the first baseline),
       # so a failed email doesn't burn the delta.

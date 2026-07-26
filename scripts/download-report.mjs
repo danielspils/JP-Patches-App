@@ -16,7 +16,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, MIN_VER_TAG, tallyAssets, diffSite, renderBody, formatDate, formatDay,
+  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, formatDate,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -76,10 +76,6 @@ const now = {
   pcNew: tallyAssets(rows, ASSET_RE.pcNew),
 };
 
-// v0.8.0's date for the closing note. Matched on the tag so a renamed
-// release title can't break it; blank (note omitted) if it's ever gone.
-const v0 = releases.find((r) => r.tag_name === MIN_VER_TAG);
-
 let snap = null;
 try { snap = JSON.parse(readFileSync(SNAP, 'utf8')); } catch { /* first run */ }
 const first = !snap;
@@ -101,10 +97,17 @@ const cur = await relay('/download/stats');
 const fallback = sinceDay ? await relay(`/download/stats?since=${sinceDay}`) : cur;
 const site = cur ? diffSite(snap?.site, cur, fallback || cur) : null;
 
+// Whole days since the last report. We only email on activity, so the last
+// report is also the last time there were new downloads — the intro line
+// leans on that. Floor at 1 so a same-day resend never says "0 days ago".
+const snapMs = snap?.updated ? Date.parse(snap.updated) : NaN;
+const daysSince = Number.isNaN(snapMs)
+  ? null
+  : Math.max(1, Math.round((Date.now() - snapMs) / 86_400_000));
+
 const body = renderBody({
-  date: formatDate(new Date().toISOString()),
-  lastReport: snap?.updated ? formatDay(snap.updated) : '',
-  v0Date: v0 ? formatDate(v0.published_at) : '',
+  prevDate: snap?.updated ? formatDate(snap.updated) : '',
+  daysSince,
   delta,
   lifetime: now,
   site: site ? { window: site.window, lifetime: site.lifetime } : null,
@@ -130,8 +133,13 @@ if (!DRY) {
 }
 
 if (process.env.GITHUB_OUTPUT) {
+  // Both parts of the multipart/alternative email: `body` (text/plain) and
+  // `html` (the same body wrapped in one <pre>). The workflow passes them
+  // to action-send-mail as `body` and `html_body`.
   appendFileSync(process.env.GITHUB_OUTPUT,
-    `send=${send}\ncommit=${commit}\nbody<<BODY_EOF\n${body}BODY_EOF\n`);
+    `send=${send}\ncommit=${commit}\n`
+    + `body<<BODY_EOF\n${body}BODY_EOF\n`
+    + `html<<HTML_EOF\n${htmlBody(body)}\nHTML_EOF\n`);
 }
 
 process.stderr.write(`deltas — mac:${delta.macNew} upd:${delta.macUpd} pc:${delta.pcNew} `
