@@ -276,34 +276,30 @@ export function renderBody(model) {
   return out.join('\n') + '\n';
 }
 
-// The HTML alternative part: the SAME body, HTML-escaped (& < > only, & first)
-// and dropped verbatim into one inline-styled <pre>. No reflow, no markdown,
-// no <head>/<style> (clients strip those), no <div>/<table>/<br> — the body's
-// own newlines are the line breaks. charset=utf-8 (set on the mail part) keeps
-// the "·" separator intact.
-export function htmlBody(body) {
-  const escaped = String(body)
+// The GoatCounter dashboard — the durable, graphed history the daily email
+// can't show. Linked from the 5th bullet of HOW THIS IS COUNTED. Only the
+// words "Click here" are the link.
+export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
+const CTA_LINK = 'Click here';
+const CTA_REST = ' for historical Goat Counter metrics';
+
+// The plain-text 5th bullet: the phrase plus the URL, since plain text can't
+// hyperlink (the URL auto-links in most clients). Appended by the driver.
+export function ctaBullet() {
+  return `  • ${CTA_LINK}${CTA_REST}: ${GOATCOUNTER_URL}`;
+}
+
+// The HTML alternative part: the report, HTML-escaped (& < > only, & first)
+// and dropped verbatim into one inline-styled <pre> — no reflow, no markdown,
+// no <head>/<style> (clients strip those), no <div>/<table>/<br>. The one
+// exception is the CTA bullet appended last: an inline <a> around "Click here"
+// (inline elements are fine inside <pre>), so only those words link and no raw
+// URL shows. charset=utf-8 keeps the "·" separator intact.
+export function htmlBody(report) {
+  const escaped = String(report)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}</pre>`;
-}
-
-// The GoatCounter dashboard — the durable, graphed history the daily email
-// can't show. Linked from a call-to-action after the report.
-export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
-export const CTA_TEXT = 'Click here for historical Goat Counter metrics';
-
-// Plain-text CTA: a paragraph break after the report, then the phrase and the
-// URL on its own line (the URL is the "here" — clients auto-link it).
-export function textCta() {
-  return `\n${CTA_TEXT}:\n${GOATCOUNTER_URL}\n`;
-}
-
-// HTML CTA: a real anchor. It can't live inside the escaped <pre>, so it's a
-// separate paragraph after it, styled to match the monospace body.
-export function htmlCta() {
-  return '\n<p style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, '
-    + "'Liberation Mono', monospace; font-size: 13px; margin: 12px 0 0;\">"
-    + `<a href="${GOATCOUNTER_URL}">${CTA_TEXT}</a></p>`;
+  const cta = `  • <a href="${GOATCOUNTER_URL}">${CTA_LINK}</a>${CTA_REST}\n`;
+  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
 }

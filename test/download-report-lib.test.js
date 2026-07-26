@@ -220,35 +220,32 @@ test('renderBody emits the section headings in order', async () => {
   }
 });
 
-test('textCta / htmlCta link the GoatCounter dashboard', async () => {
-  const { textCta, htmlCta, GOATCOUNTER_URL, CTA_TEXT } = await libP;
-  // Plain: paragraph break, the phrase, then the URL on its own line.
-  assert.equal(textCta(), `\n${CTA_TEXT}:\n${GOATCOUNTER_URL}\n`);
-  // HTML: a real anchor in its own paragraph (lives OUTSIDE the escaped <pre>).
-  const html = htmlCta();
-  assert.match(html, new RegExp(`^\\n<p style="[^"]*"><a href="${GOATCOUNTER_URL.replace(/[/.]/g, '\\$&')}">${CTA_TEXT}</a></p>$`));
-  assert.doesNotMatch(html, /<pre|<br|<div/);
+test('ctaBullet is the plain 5th bullet — phrase then URL', async () => {
+  const { ctaBullet, GOATCOUNTER_URL } = await libP;
+  assert.equal(ctaBullet(), `  • Click here for historical Goat Counter metrics: ${GOATCOUNTER_URL}`);
 });
 
-test('htmlBody wraps the body verbatim in one inline-styled <pre>', async () => {
-  const { htmlBody } = await libP;
-  const body = 'NEW DOWNLOADS\n  Mac              +6\n';
-  const html = htmlBody(body);
+test('htmlBody wraps the report in one <pre> and appends the CTA bullet', async () => {
+  const { htmlBody, GOATCOUNTER_URL } = await libP;
+  const report = 'NEW DOWNLOADS\n  Mac              +6\n';
+  const html = htmlBody(report);
 
   const STYLE = "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "
     + "'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; "
     + 'white-space: pre; margin: 0;';
-  assert.equal(html, `<pre style="${STYLE}">${body}</pre>`);
-  // The body is emitted byte-for-byte inside — same newlines, no reflow.
-  assert.ok(html.includes(body));
-  // No block tags manufactured around the content.
-  assert.doesNotMatch(html, /<br|<div|<table|<head|<style/);
+  const cta = `  • <a href="${GOATCOUNTER_URL}">Click here</a> for historical Goat Counter metrics\n`;
+  assert.equal(html, `<pre style="${STYLE}">${report}${cta}</pre>`);
+  // Report is emitted byte-for-byte; the ONLY markup is the inline CTA anchor.
+  assert.ok(html.includes(report));
+  assert.doesNotMatch(html, /<br|<div|<table|<head|<style|<p[ >]/);
+  // Only "Click here" is linked — the rest of the phrase is outside the anchor.
+  assert.match(html, /<\/a> for historical Goat Counter metrics/);
 });
 
-test('htmlBody escapes & < > only, leaving the · separator intact', async () => {
+test('htmlBody escapes & < > only in the report, leaving the · separator intact', async () => {
   const { htmlBody } = await libP;
-  const html = htmlBody('a & b < c > d · e');
-  assert.match(html, />a &amp; b &lt; c &gt; d · e</);
+  const html = htmlBody('a & b < c > d · e\n');
+  assert.match(html, /a &amp; b &lt; c &gt; d · e/);
 });
 
 test('htmlBody escapes ampersand before the angle brackets', async () => {

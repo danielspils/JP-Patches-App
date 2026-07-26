@@ -16,7 +16,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, textCta, htmlCta, formatDate,
+  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, ctaBullet, formatDate,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -113,11 +113,11 @@ const report = renderBody({
   site: site ? { window: site.window, lifetime: site.lifetime } : null,
 });
 
-// The two multipart/alternative parts. Both carry the GoatCounter CTA after
-// the report — plain gets the phrase + URL, HTML gets a real anchor after the
-// <pre> (a link can't live inside the escaped <pre>).
-const body = report + textCta();
-const html = htmlBody(report) + htmlCta();
+// The two multipart/alternative parts. The GoatCounter CTA is the 5th bullet
+// of HOW THIS IS COUNTED: plain appends the phrase + URL; htmlBody appends an
+// inline "Click here" anchor inside the <pre>.
+const body = `${report}${ctaBullet()}\n`;
+const html = htmlBody(report);
 
 process.stdout.write(body);
 
