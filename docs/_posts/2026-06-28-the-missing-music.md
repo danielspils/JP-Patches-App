@@ -9,7 +9,7 @@ But that is such a royal pain in the butt—why couldn't this be as easy as conn
 
 By the time personal computers grew powerful enough to do anything interesting with this idea, decades had passed. My sounds saved on cassettes had been recorded over or dumped off at the Bishop's Attic (the Anchorage equivalent of Goodwill). The sounds and sequences I'd programmed since high school were gone forever. "Lost in time, like tears in rain."
 
-Last month, it dawned on me that AI could help. I talked to a few developer friends and they pointed me to Claude. Then, I started talking to Claude. At first I told it what I wished JP Patches would look like. Then, about what I wanted it to do. Within a few weeks, my app did what the cassette tapes used to do (and much more). JP Patches became a librarian for a forty-year-old synthesizer. The app captured the synth's screeching tape dumps as audio, decoded them into patches and sequences, and allowed me to name, organized, and send 'em back to the JX-3P. It mostly worked. I was thrilled!
+Last month, it dawned on me that AI could help. I talked to a few developer friends and they pointed me to Claude. Then, I started talking to Claude. At first I told it what I wished JP Patches would look like. Then, about what I wanted it to do. Within a few weeks, my app did what the cassette tapes used to do (and much more). JP Patches became a librarian for a forty-year-old synthesizer. The app captured the synth's screeching tape dumps as audio, decoded them into patches and sequences, and allowed me to name, organize, and send 'em back to the JX-3P. It mostly worked. I was thrilled!
 
 Then, a week ago, it mostly stopped working.
 
