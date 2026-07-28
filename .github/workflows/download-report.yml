@@ -26,9 +26,19 @@ name: Download report
 
 on:
   schedule:
-    # Just after midnight UTC so each report cleanly covers "yesterday". The
-    # :12 offset dodges the top-of-hour congestion that delays GitHub crons.
-    - cron: '12 0 * * *'
+    # 07:12 UTC = 00:12 PDT (23:12 PST in winter) — just after midnight in
+    # Daniel's Pacific timezone, so each report cleanly covers the prior
+    # PACIFIC day and lands in his early morning. Two caveats baked in:
+    #   - GitHub's scheduler runs crons LATE by an unpredictable amount (often
+    #     15 min, lately ~3 h), so actual arrival drifts into 00:15–03:00-ish
+    #     PDT. Can't be pinned to a precise minute — offsetting for the delay
+    #     would misfire on the days GitHub is prompt (it'd send before the
+    #     Pacific day even ended). Scheduling AFTER local midnight is the safe
+    #     floor: the report never covers an unfinished day.
+    #   - fixed UTC, so it shifts an hour across DST (00:12 PDT / 23:12 PST) —
+    #     both near enough to midnight to not matter.
+    # The :12 offset also dodges the top-of-hour congestion that delays crons.
+    - cron: '12 7 * * *'
   workflow_dispatch: {}         # allow manual runs (Actions tab → Run workflow)
 
 permissions:
