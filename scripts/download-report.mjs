@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
   ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, ctaBullet, formatDate,
+  historyRow,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -28,6 +29,7 @@ const has = (name) => args.includes(`--${name}`);
 
 const REPO = flag('repo', process.env.GITHUB_REPOSITORY || 'danielspils/JP-Patches-App');
 const SNAP = flag('snapshot', '.github/download-stats.json');
+const HISTORY = flag('history', '.github/download-history.jsonl');
 const RELAY = flag('relay', 'https://lend.jx-3p.com');
 const DRY = has('dry-run');
 
@@ -126,16 +128,27 @@ process.stdout.write(body);
 const send = !first && totalNew > 0;
 const commit = first || send;
 
+const reportDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+
 if (!DRY) {
   writeFileSync(SNAP, `${JSON.stringify({
     mac_new: now.macNew,
     mac_upd: now.macUpd,
     pc_new: now.pcNew,
-    updated: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    updated: reportDate,
     // Worker counters as of this report. Absent when the Worker was
     // unreachable — keep the old block so the next run still has a baseline.
     site: site ? site.nextSite : snap?.site,
   }, null, 0)}\n`);
+
+  // Append one row to the permanent history whenever we actually report
+  // (commit). The snapshot is overwritten each run; this file only grows, so
+  // it's the durable, chartable download time series. The workflow git-adds it
+  // alongside the snapshot, so it's committed on the same report days.
+  if (commit) {
+    appendFileSync(HISTORY,
+      `${historyRow({ date: reportDate.slice(0, 10), delta, lifetime: now })}\n`);
+  }
 }
 
 if (process.env.GITHUB_OUTPUT) {

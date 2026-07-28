@@ -245,12 +245,6 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  out.push(...metricBlock('MAC UPDATES', [
-    { label: 'New', n: delta.macUpd, delta: true },
-    { label: 'Lifetime', n: lifetime.macUpd, delta: false },
-  ]));
-  out.push('');
-
   out.push('NEW DOWNLOADS BY COUNTRY');
   out.push(...(winClicks ? countryTableSplit(winClicks) : [`${INDENT}none`]));
   out.push('');
@@ -262,6 +256,14 @@ export function renderBody(model) {
   out.push(...metricBlock('LIFETIME DOWNLOADS', [
     { label: 'Mac', n: lifetime.macNew, delta: false },
     { label: 'PC', n: lifetime.pcNew, delta: false },
+  ]));
+  out.push('');
+
+  // Mac auto-updates last — it rarely changes, so it sits below the download
+  // sections (which are the day-to-day interest) and just above the footer.
+  out.push(...metricBlock('MAC UPDATES', [
+    { label: 'New', n: delta.macUpd, delta: true },
+    { label: 'Lifetime', n: lifetime.macUpd, delta: false },
   ]));
   out.push('');
 
@@ -302,4 +304,18 @@ export function htmlBody(report) {
     .replace(/>/g, '&gt;');
   const cta = `  • ${CTA_PREFIX}<a href="${GOATCOUNTER_URL}">${CTA_LINK}</a>\n`;
   return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
+}
+
+// One append-only history row per report, for charting downloads over time.
+// The daily snapshot is overwritten each run (single point); this accumulates.
+// Flat keys so it drops straight into a spreadsheet or plotting tool: the
+// `d_*` fields are that report's NEW counts, the bare fields are the running
+// cumulative totals. `date` is the report's UTC day (YYYY-MM-DD). Returns a
+// single compact JSON line WITHOUT a trailing newline (the caller adds it).
+export function historyRow({ date, delta, lifetime }) {
+  return JSON.stringify({
+    date,
+    d_mac_new: delta.macNew, d_mac_upd: delta.macUpd, d_pc_new: delta.pcNew,
+    mac_new: lifetime.macNew, mac_upd: lifetime.macUpd, pc_new: lifetime.pcNew,
+  });
 }

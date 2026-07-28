@@ -207,10 +207,12 @@ test('renderBody never claims a per-line site/GitHub split', async () => {
 test('renderBody emits the section headings in order', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
+  // MAC UPDATES sits at the bottom (just above the footer): it rarely changes,
+  // so the download sections stay grouped together at the top.
   const order = [
-    'NEW DOWNLOADS YESTERDAY', 'MAC UPDATES',
+    'NEW DOWNLOADS YESTERDAY',
     'NEW DOWNLOADS BY COUNTRY', 'LIFETIME DOWNLOADS BY COUNTRY',
-    'LIFETIME DOWNLOADS', 'HOW THIS IS COUNTED',
+    'LIFETIME DOWNLOADS', 'MAC UPDATES', 'HOW THIS IS COUNTED',
   ];
   let last = -1;
   for (const h of order) {
@@ -223,6 +225,22 @@ test('renderBody emits the section headings in order', async () => {
 test('ctaBullet is the plain 5th bullet — phrase then URL', async () => {
   const { ctaBullet, GOATCOUNTER_URL } = await libP;
   assert.equal(ctaBullet(), `  • Historical metrics at GoatCounter: ${GOATCOUNTER_URL}`);
+});
+
+test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {
+  const { historyRow } = await libP;
+  const row = historyRow({
+    date: '2026-07-27',
+    delta: { macNew: 2, macUpd: 0, pcNew: 1 },
+    lifetime: { macNew: 43, macUpd: 23, pcNew: 21 },
+  });
+  // No trailing newline (the caller adds it), and it round-trips.
+  assert.doesNotMatch(row, /\n/);
+  assert.deepEqual(JSON.parse(row), {
+    date: '2026-07-27',
+    d_mac_new: 2, d_mac_upd: 0, d_pc_new: 1,
+    mac_new: 43, mac_upd: 23, pc_new: 21,
+  });
 });
 
 test('htmlBody wraps the report in one <pre> and appends the CTA bullet', async () => {
