@@ -110,13 +110,51 @@ async function handlePostHeart(request, env) {
 // dedupe pattern as hearts; NOT a toggle — borrowing again is a no-op
 // for the count). Fired by the site's borrow click and by the app's
 // download handler, so the tally combines both surfaces.
-async function handlePostBorrow(request, env) {
+//
+// Two things are counted here, for two different consumers:
+//   1. bc:<id> — unique borrowers per entry (deduped one-per-IP-forever).
+//      Powers the per-entry "N borrows" badge on the site + in the app.
+//      Unchanged.
+//   2. lb:/lbm: — the lending-library DOWNLOAD metric: one bump per borrow
+//      EVENT (NOT deduped), tagged by KIND (patches/sequences) + country, so
+//      the daily email + GoatCounter get borrow trends structured exactly like
+//      the app-download counters (dl:/dlm:). This is a SEPARATE metric from app
+//      downloads and is never netted against them (the email keeps that wall).
+//      Old app builds send no `kind` → bucketed as 'unknown' so the total never
+//      silently undercounts while the tagged call rolls out to installs.
+const BORROW_KINDS = ['patches', 'sequences', 'unknown'];
+const borrowKind = (k) => (k === 'patches' || k === 'sequences' ? k : 'unknown');
+const borrowSource = (s) => (s === 'app' || s === 'jx-3p.com' ? s : '');
+const LB_TTL_SECONDS = 90 * 24 * 3600;   // matches the dl: window
+
+async function handlePostBorrow(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ ok: false, error: 'invalid JSON' }, 400); }
   const id = body && body.id;
   if (typeof id !== 'string' || !HEART_ID_RE.test(id)) {
     return json({ ok: false, error: 'invalid id' }, 400);
   }
+
+  // Borrow-activity tally (every event) — kind + country + monthly rollup,
+  // mirroring handleDownload's dl:/dlm: writes. Runs on every borrow, before
+  // the unique-borrower dedupe below, because it measures activity not reach.
+  const kind = borrowKind(body && body.kind);
+  const country = (request.cf && request.cf.country) || 'XX';
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const lbKey = `lb:${day}:${kind}:${country}`;
+  await env.HEARTS.put(lbKey, String((Number(await env.HEARTS.get(lbKey)) || 0) + 1),
+    { expirationTtl: LB_TTL_SECONDS });
+  await bumpMonthly(env, 'lbm', kind, country);
+  // Mirror to GoatCounter (best-effort). ref = the surface (site vs app) the
+  // borrow came from, so the per-path breakdown splits jx-3p.com from in-app.
+  if (ctx) ctx.waitUntil(pingGoatCounterPath(
+    env,
+    `borrow-${kind}`,
+    `Borrow — ${kind === 'sequences' ? 'Sequences' : kind === 'patches' ? 'Patches' : 'Unknown'}`,
+    country,
+    borrowSource(body && body.source),
+  ));
+
   const marker = `bh:${id}:${await heartIpHash(request)}`;
   const countKey = `bc:${id}`;
   if (await env.HEARTS.get(marker)) {
@@ -126,6 +164,34 @@ async function handlePostBorrow(request, env) {
   const next = (await kvCount(env, countKey)) + 1;
   await env.HEARTS.put(countKey, String(next));
   return json({ ok: true, count: next });
+}
+
+// GET /borrow/stats[?since=YYYYMMDD] — lending-library borrow tallies for the
+// daily email. Twin of handleDownloadStats: totals + byCountry, but the axis is
+// borrow KIND (patches/sequences/unknown) instead of platform. Public by design
+// (borrow counts, not secrets — the per-entry counts are already on the site).
+async function handleBorrowStats(url, env) {
+  const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
+  const byCountry = {};
+  const totals = { patches: 0, sequences: 0, unknown: 0 };
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix: 'lb:', cursor });
+    for (const k of page.keys) {
+      const parts = k.name.split(':');            // lb:<day>:<kind>:<country>
+      if (parts.length !== 4) continue;
+      const [, day, kind, country] = parts;
+      if (!BORROW_KINDS.includes(kind)) continue;
+      if (since && day < since) continue;
+      const n = Number(await env.HEARTS.get(k.name)) || 0;
+      if (!n) continue;
+      totals[kind] = (totals[kind] || 0) + n;
+      byCountry[country] = byCountry[country] || { patches: 0, sequences: 0, unknown: 0 };
+      byCountry[country][kind] = (byCountry[country][kind] || 0) + n;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return json({ ok: true, since: since || null, totals, byCountry });
 }
 
 // ── Download tracking ───────────────────────────────────────────────
@@ -361,15 +427,15 @@ async function handlePingStats(url, env) {
 // out by month and by country. Unlike /download/stats and /ping/stats (90-day
 // windows), this is the full history and never rolls off. Public by design.
 async function handleTotals(env) {
-  // shape: { downloads: {byMonth, byCountry, total}, active: {...} }
+  // shape: { downloads: {byMonth, byCountry, total}, active: {...}, library: {...} }
   const blank = () => ({ byMonth: {}, byCountry: {}, total: 0 });
-  const acc = { dlm: blank(), pgm: blank() };
-  for (const kind of ['dlm', 'pgm']) {
+  const acc = { dlm: blank(), pgm: blank(), lbm: blank() };
+  for (const kind of ['dlm', 'pgm', 'lbm']) {
     let cursor;
     do {
       const page = await env.HEARTS.list({ prefix: `${kind}:`, cursor });
       for (const k of page.keys) {
-        const parts = k.name.split(':');       // <kind>:<YYYY-MM>:<platform>:<country>
+        const parts = k.name.split(':');       // <kind>:<YYYY-MM>:<platform|borrowkind>:<country>
         if (parts.length !== 4) continue;
         const [, month, , country] = parts;
         const n = Number(await env.HEARTS.get(k.name)) || 0;
@@ -382,7 +448,9 @@ async function handleTotals(env) {
       cursor = page.list_complete ? null : page.cursor;
     } while (cursor);
   }
-  return json({ ok: true, downloads: acc.dlm, active: acc.pgm });
+  // library sums patches + sequences per month/country (coarse lifetime aggregate,
+  // like downloads sums mac + pc); /borrow/stats has the per-kind split.
+  return json({ ok: true, downloads: acc.dlm, active: acc.pgm, library: acc.lbm });
 }
 
 export default {
@@ -398,7 +466,10 @@ export default {
       return handlePostHeart(request, env);
     }
     if (request.method === 'POST' && url.pathname === '/borrow') {
-      return handlePostBorrow(request, env);
+      return handlePostBorrow(request, env, ctx);
+    }
+    if (request.method === 'GET' && url.pathname === '/borrow/stats') {
+      return handleBorrowStats(url, env);
     }
     if (request.method === 'GET' && url.pathname === '/download/mac') {
       return handleDownload(request, env, ctx, 'mac');

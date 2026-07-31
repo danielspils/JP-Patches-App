@@ -33,7 +33,7 @@ export const COUNTRY_NAMES = {
   RU: 'Russia', UA: 'Ukraine', CZ: 'Czechia', PT: 'Portugal', GR: 'Greece',
   TR: 'Turkey', IN: 'India', CN: 'China', KR: 'South Korea', TW: 'Taiwan',
   AR: 'Argentina', CL: 'Chile', CO: 'Colombia', ZA: 'South Africa',
-  IL: 'Israel', IR: 'Iran', SG: 'Singapore', HK: 'Hong Kong',
+  IL: 'Israel', IR: 'Iran', IQ: 'Iraq', SG: 'Singapore', HK: 'Hong Kong',
   HU: 'Hungary', RO: 'Romania', TH: 'Thailand', ID: 'Indonesia',
   PH: 'Philippines', VN: 'Vietnam', MY: 'Malaysia', EE: 'Estonia',
   LT: 'Lithuania', LV: 'Latvia', SK: 'Slovakia', SI: 'Slovenia',
@@ -167,6 +167,89 @@ export function diffSite(prevSite, cur, fallback) {
 // no per-download events). So clicks get their own block and downloads come
 // straight from tallyAssets. See the report template for the two-block shape.
 
+// ── lending-library borrow bookkeeping ────────────────────────────────
+// Structurally identical to the site-click math above, but the platform
+// axis is the borrow KIND (patches / sequences) instead of mac / pc, and a
+// third `unknown` bucket catches borrows from app versions that predate the
+// kind-tagged /borrow call — so the total never silently undercounts while
+// that field rolls out to installs in the wild. This is a SEPARATE metric:
+// borrows are lending-library files taken from the site or the app, never
+// GitHub app downloads, and are never netted against them (same firewall the
+// site-clicks block keeps). Same snapshot-subtract-for-an-exact-window and
+// accumulate-lifetime-past-the-Worker's-90-day-expiry design as diffSite.
+export const BORROW_KINDS = ['patches', 'sequences', 'unknown'];
+
+const kinds = (v) => ({
+  patches: Number(v?.patches) || 0,
+  sequences: Number(v?.sequences) || 0,
+  unknown: Number(v?.unknown) || 0,
+});
+const kindSum = (v) => v.patches + v.sequences + v.unknown;
+
+function subCountryKinds(cur = {}, prev = {}) {
+  const out = {};
+  for (const [cc, v] of Object.entries(cur)) {
+    const c = kinds(v);
+    const p = kinds(prev[cc]);
+    const d = {
+      patches: pos(c.patches - p.patches),
+      sequences: pos(c.sequences - p.sequences),
+      unknown: pos(c.unknown - p.unknown),
+    };
+    if (kindSum(d) > 0) out[cc] = d;
+  }
+  return out;
+}
+
+function addCountryKinds(a = {}, b = {}) {
+  const out = {};
+  for (const cc of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    out[cc] = {
+      patches: kinds(a[cc]).patches + kinds(b[cc]).patches,
+      sequences: kinds(a[cc]).sequences + kinds(b[cc]).sequences,
+      unknown: kinds(a[cc]).unknown + kinds(b[cc]).unknown,
+    };
+  }
+  return out;
+}
+
+// The borrow twin of diffSite — see that function's comment for the why of
+// snapshot-subtraction and the accumulated lifetime. Same shapes:
+//   prevLib   — snapshot.library from the last report (null on the first run)
+//   cur       — GET /borrow/stats
+//   fallback  — GET /borrow/stats?since=…  (seeds the first window only)
+export function diffLibrary(prevLib, cur, fallback) {
+  const curT = kinds(cur?.totals);
+  const curC = cur?.byCountry || {};
+  const seen = prevLib?.seen;
+
+  const window = seen
+    ? { exact: true,
+        patches: pos(curT.patches - kinds(seen).patches),
+        sequences: pos(curT.sequences - kinds(seen).sequences),
+        unknown: pos(curT.unknown - kinds(seen).unknown),
+        byCountry: subCountryKinds(curC, prevLib.byCountry) }
+    : { exact: false, ...kinds(fallback?.totals), byCountry: fallback?.byCountry || {} };
+
+  const lifetime = prevLib?.lifetime
+    ? { patches: kinds(prevLib.lifetime).patches + window.patches,
+        sequences: kinds(prevLib.lifetime).sequences + window.sequences,
+        unknown: kinds(prevLib.lifetime).unknown + window.unknown,
+        byCountry: addCountryKinds(prevLib.lifetimeByCountry, window.byCountry) }
+    : { ...curT, byCountry: curC };
+
+  return {
+    window,
+    lifetime,
+    nextLibrary: {
+      seen: curT,
+      byCountry: curC,
+      lifetime: { patches: lifetime.patches, sequences: lifetime.sequences, unknown: lifetime.unknown },
+      lifetimeByCountry: lifetime.byCountry,
+    },
+  };
+}
+
 // ── formatting ────────────────────────────────────────────────────────
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -233,6 +316,32 @@ function countryTableCount(byCountry) {
   return rows.map((r) => INDENT + r.name.padEnd(w) + r.t);
 }
 
+// Borrow country table: one total per country (patches + sequences + unknown
+// summed — the block never splits borrows by kind in the by-country view, to
+// stay tight). Same single-count column layout as countryTableCount above.
+function borrowCountryTable(byCountry) {
+  const rows = Object.entries(byCountry || {})
+    .map(([cc, v]) => ({ name: countryName(cc), t: kindSum(kinds(v)) }))
+    .filter((x) => x.t > 0)
+    .sort((a, b) => (b.t - a.t) || a.name.localeCompare(b.name));
+  if (!rows.length) return [`${INDENT}none`];
+  const w = Math.max(LABEL_W, Math.max(...rows.map((r) => r.name.length)) + 2);
+  return rows.map((r) => INDENT + r.name.padEnd(w) + r.t);
+}
+
+// Rows for a borrow metricBlock. Patches/Sequences are always shown; the
+// `unknown` bucket (borrows from app builds that predate the kind tag) only
+// appears while it is non-zero, so the block stays clean once installs update.
+function borrowRows(counts, delta) {
+  const c = kinds(counts);
+  const rows = [
+    { label: 'Patches', n: c.patches, delta },
+    { label: 'Sequences', n: c.sequences, delta },
+  ];
+  if (c.unknown > 0) rows.push({ label: 'Older app', n: c.unknown, delta });
+  return rows;
+}
+
 // model:
 //   prevDate   — last report's date; "" on the first-ever send
 //   daysSince  — whole days since the last report (null on the first send).
@@ -245,8 +354,13 @@ function countryTableCount(byCountry) {
 //             `week` is the rolling last-7-days query, `lifetime` the
 //             accumulated all-time counters. Their own blocks, never netted
 //             against downloads.
+//   library:  null when the Worker is unreachable, else
+//             { window: {patches, sequences, unknown, byCountry},
+//               lifetime: {patches, sequences, unknown} } — lending-library
+//             borrows (site + app), their OWN separate metric, never netted
+//             against the GitHub download counts above.
 export function renderBody(model) {
-  const { prevDate, daysSince, delta, lifetime, site } = model;
+  const { prevDate, daysSince, delta, lifetime, site, library } = model;
   const weekClicks = site ? site.week : null;
   const lifeClicks = site ? site.lifetime.byCountry : null;
 
@@ -306,13 +420,31 @@ export function renderBody(model) {
     out.push('');
   }
 
+  // Lending-library borrows — a SEPARATE metric from the downloads above (a
+  // borrow is a shared C/D bank or sequence taken from the site or the app,
+  // not an app install). Own block, never summed with or capped by downloads.
+  out.push(...metricBlock('LIBRARY BORROWS YESTERDAY',
+    library ? borrowRows(library.window, true) : [{ label: 'Patches', n: 0, delta: true }, { label: 'Sequences', n: 0, delta: true }]));
+  out.push('');
+
+  out.push('LIBRARY BORROWS BY COUNTRY');
+  out.push(...(library ? borrowCountryTable(library.window.byCountry) : [`${INDENT}none`]));
+  out.push('');
+
+  out.push(...metricBlock('LIFETIME LIBRARY BORROWS',
+    library ? borrowRows(library.lifetime, false) : [{ label: 'Patches', n: 0, delta: false }, { label: 'Sequences', n: 0, delta: false }]));
+  out.push('');
+
   // Static — deliberately not templated. Bulleted; the middle two lines are
-  // why the Country and Downloads numbers never tie out.
+  // why the Country and Downloads numbers never tie out. The last two keep the
+  // separate lending-library borrow metric from being read as app downloads.
   out.push('HOW THIS IS COUNTED');
   out.push('  • Country = button clicks via jx-3p.com');
   out.push('  • Downloads = a file served via GitHub.');
   out.push('  • Therefore, Country & Downloads metrics will never match.');
   out.push('  • PC has no auto-updater yet.');
+  out.push('  • Borrows = a lending-library file taken via jx-3p.com or the app.');
+  out.push('  • Borrows are their own metric — not part of the downloads above.');
 
   return out.join('\n') + '\n';
 }
@@ -351,10 +483,22 @@ export function htmlBody(report) {
 // `d_*` fields are that report's NEW counts, the bare fields are the running
 // cumulative totals. `date` is the report's UTC day (YYYY-MM-DD). Returns a
 // single compact JSON line WITHOUT a trailing newline (the caller adds it).
-export function historyRow({ date, delta, lifetime }) {
-  return JSON.stringify({
+// `borrow` is optional: when the report has library data it carries
+// { window: {patches, sequences, unknown}, lifetime: {patches, sequences,
+// unknown} } and the row gains d_borrow_*/borrow_* columns. Omitted (Worker
+// unreachable, or callers that don't pass it) → the row is byte-for-byte the
+// old download-only shape, so existing history stays consistent.
+export function historyRow({ date, delta, lifetime, borrow }) {
+  const row = {
     date,
     d_mac_new: delta.macNew, d_mac_upd: delta.macUpd, d_pc_new: delta.pcNew,
     mac_new: lifetime.macNew, mac_upd: lifetime.macUpd, pc_new: lifetime.pcNew,
-  });
+  };
+  if (borrow) {
+    const w = kinds(borrow.window);
+    const l = kinds(borrow.lifetime);
+    row.d_borrow_patches = w.patches; row.d_borrow_sequences = w.sequences; row.d_borrow_unknown = w.unknown;
+    row.borrow_patches = l.patches; row.borrow_sequences = l.sequences; row.borrow_unknown = l.unknown;
+  }
+  return JSON.stringify(row);
 }

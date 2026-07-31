@@ -4085,7 +4085,8 @@ function buildLendRow(entry, isTones) {
     btn.disabled = true;
     btn.textContent = 'borrowing…';
     try {
-      const dl = await window.api.communityDownloadToTemp(entry.downloadUrl, entry.name, entry.id);
+      const dl = await window.api.communityDownloadToTemp(
+        entry.downloadUrl, entry.name, entry.id, isTones ? 'patches' : 'sequences');
       if (!dl || !dl.ok) throw new Error((dl && dl.error) || 'download failed');
       // Provenance marker, persisted on the saved item — feeds the
       // "Borrowed on / Lender" lines in the (i) info modals.

@@ -6,8 +6,9 @@
 //
 // What it does:
 //   1. tallies GitHub's per-asset download counts (>= v0.8.0)
-//   2. reads the relay Worker's download-button counters (geo + site/GitHub split)
-//   3. diffs both against .github/download-stats.json — the totals as of the
+//   2. reads the relay Worker's download-button + lending-library-borrow
+//      counters (geo, and the site/GitHub split for downloads)
+//   3. diffs all against .github/download-stats.json — the totals as of the
 //      LAST REPORT, not the last run
 //   4. prints the email body; writes the new snapshot unless --dry-run
 //
@@ -16,8 +17,8 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, tallyAssets, diffSite, renderBody, htmlBody, ctaBullet, formatDate,
-  historyRow,
+  ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody, ctaBullet,
+  formatDate, historyRow,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -108,6 +109,14 @@ const weekDay = new Date(Date.now() - 7 * 86_400_000)
   .toISOString().slice(0, 10).replace(/-/g, '');
 const week = await relay(`/download/stats?since=${weekDay}`);
 
+// Lending-library borrows — the same snapshot-diff dance as site clicks, from
+// the Worker's /borrow/stats counters. A SEPARATE metric, never netted against
+// downloads. `library` is null when the Worker is unreachable or the endpoint
+// isn't deployed yet (the borrow section simply doesn't render).
+const libCur = await relay('/borrow/stats');
+const libFallback = sinceDay ? await relay(`/borrow/stats?since=${sinceDay}`) : libCur;
+const library = libCur ? diffLibrary(snap?.library, libCur, libFallback || libCur) : null;
+
 // Whole days since the last report. We only email on activity, so the last
 // report is also the last time there were new downloads — the heading's span
 // leans on that. Floor at 1 so a same-day resend never says "0 days ago".
@@ -122,6 +131,7 @@ const report = renderBody({
   delta,
   lifetime: now,
   site: site ? { week: week?.byCountry || null, lifetime: site.lifetime } : null,
+  library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 
 // The two multipart/alternative parts. The GoatCounter CTA is the 5th bullet
@@ -132,10 +142,22 @@ const html = htmlBody(report);
 
 process.stdout.write(body);
 
+// New library borrows this window count as activity too — a borrow-only day
+// still sends. Only an EXACT window (a stored library baseline to subtract)
+// can trigger a send; the seeding run's approximate ?since= figure never does.
+const borrowNew = library && library.window.exact
+  ? library.window.patches + library.window.sequences + library.window.unknown
+  : 0;
+
+// The first report that carries library data has a download baseline but no
+// library baseline yet. Commit silently (no email) so it seeds snapshot.library
+// — the next borrow day then has an exact baseline and can trigger on its own.
+const librarySeeding = Boolean(library && !snap?.library);
+
 // Email only when there's something new; commit the snapshot when we report
-// (or to seed the very first baseline).
-const send = !first && totalNew > 0;
-const commit = first || send;
+// (or to seed the very first baseline, or the library baseline).
+const send = !first && (totalNew > 0 || borrowNew > 0);
+const commit = first || send || librarySeeding;
 
 const reportDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
@@ -152,13 +174,20 @@ if (!DRY && commit) {
     // Worker counters as of this report. Absent when the Worker was
     // unreachable — keep the old block so the next run still has a baseline.
     site: site ? site.nextSite : snap?.site,
+    // Same for the library-borrow baseline.
+    library: library ? library.nextLibrary : snap?.library,
   }, null, 0)}\n`);
 
   // Append one row to the permanent history on the same report days. The
   // snapshot is overwritten each report; this file only grows, so it's the
   // durable, chartable download time series. The workflow git-adds both.
   appendFileSync(HISTORY,
-    `${historyRow({ date: reportDate.slice(0, 10), delta, lifetime: now })}\n`);
+    `${historyRow({
+      date: reportDate.slice(0, 10),
+      delta,
+      lifetime: now,
+      borrow: library ? { window: library.window, lifetime: library.lifetime } : null,
+    })}\n`);
 }
 
 if (process.env.GITHUB_OUTPUT) {
@@ -173,4 +202,5 @@ if (process.env.GITHUB_OUTPUT) {
 
 process.stderr.write(`deltas — mac:${delta.macNew} upd:${delta.macUpd} pc:${delta.pcNew} `
   + `| site window mac:${site?.window.mac ?? 'n/a'} pc:${site?.window.pc ?? 'n/a'} `
+  + `| borrow window pat:${library?.window.patches ?? 'n/a'} seq:${library?.window.sequences ?? 'n/a'} `
   + `| send=${send} commit=${commit}${DRY ? ' (dry run)' : ''}\n`);

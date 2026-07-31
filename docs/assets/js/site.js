@@ -229,6 +229,10 @@ document.addEventListener('DOMContentLoaded', () => {
    borrow click fires a beacon alongside the download. */
 (function () {
   var RELAY = 'https://lend.jx-3p.com';
+  // Borrow kind = which library page this is (/patches/ vs /sequences/). Sent
+  // on the borrow beacon so the relay can tally borrows by kind for the daily
+  // email + GoatCounter. This page only ever lists one kind.
+  var BORROW_KIND = /\/sequences\//.test(location.pathname) ? 'sequences' : 'patches';
   var hearts = document.querySelectorAll('.community-heart');
   var borrows = document.querySelectorAll('.community-borrow[data-borrow-id]');
   if (!hearts.length && !borrows.length) return;
@@ -306,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
       fetch(RELAY + '/borrow', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: id }),
+        body: JSON.stringify({ id: id, kind: BORROW_KIND, source: 'jx-3p.com' }),
       }).then(function (res) { return res.json(); })
         .then(function (data) { if (data && data.ok) renderBorrows(link, data.count); })
         .catch(function () { /* decorative */ });

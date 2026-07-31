@@ -205,7 +205,7 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
 test('renderBody carries the static HOW THIS IS COUNTED bullets verbatim, and ends there', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  assert.match(body, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n$/);
+  assert.match(body, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n {2}• Borrows = a lending-library file taken via jx-3p\.com or the app\.\n {2}• Borrows are their own metric — not part of the downloads above\.\n$/);
   // The CTA is composed by the driver, not renderBody.
   assert.doesNotMatch(body, /Click here|goatcounter/);
 });
@@ -223,7 +223,9 @@ test('renderBody emits the section headings in order', async () => {
   const order = [
     'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
     'DOWNLOADS BY COUNTRY — LAST 7 DAYS', 'DOWNLOADS BY COUNTRY — TOTAL',
-    'TOTAL DOWNLOADS', 'MAC UPDATES', 'HOW THIS IS COUNTED',
+    'TOTAL DOWNLOADS', 'MAC UPDATES',
+    'LIBRARY BORROWS YESTERDAY', 'LIBRARY BORROWS BY COUNTRY', 'LIFETIME LIBRARY BORROWS',
+    'HOW THIS IS COUNTED',
   ];
   const search = `\n${body}`;   // the first heading opens the body (no leading \n)
   let last = -1;
@@ -321,5 +323,158 @@ test('formatDate renders UTC, not the runner local time', async () => {
   assert.equal(formatDate('2026-06-12T01:14:12Z'), 'Jun 12, 2026');
   assert.equal(formatDate('2026-07-22T23:59:00Z'), 'Jul 22, 2026');
   assert.equal(formatDate('nonsense'), '');
+});
+
+// ── lending-library borrows ───────────────────────────────────────────
+//
+// diffLibrary is the borrow twin of diffSite — the platform axis is the
+// borrow KIND (patches / sequences) plus an `unknown` bucket for borrows from
+// app builds that predate the kind-tagged /borrow call. Same three rules pinned
+// as for diffSite: exact window via snapshot-subtraction, lifetime accumulation
+// past the Worker's 90-day expiry, and the non-negative clamp. Borrows are a
+// SEPARATE metric — never subtracted from or capped against GitHub downloads.
+
+const bstats = (patches, sequences, unknown = 0, byCountry = {}) =>
+  ({ totals: { patches, sequences, unknown }, byCountry });
+
+test('diffLibrary subtracts the stored baseline for an exact window', async () => {
+  const { diffLibrary } = await libP;
+  const prev = {
+    seen: { patches: 5, sequences: 6, unknown: 0 },
+    byCountry: { US: { patches: 3, sequences: 1 }, SE: { patches: 2, sequences: 2 } },
+    lifetime: { patches: 5, sequences: 6, unknown: 0 },
+    lifetimeByCountry: { US: { patches: 3, sequences: 1 }, SE: { patches: 2, sequences: 2 } },
+  };
+  const cur = bstats(8, 8, 0, {
+    US: { patches: 4, sequences: 2 }, SE: { patches: 2, sequences: 2 }, CN: { patches: 1, sequences: 1 },
+  });
+  const { window, lifetime } = diffLibrary(prev, cur, bstats(99, 99));
+
+  assert.equal(window.exact, true);
+  assert.deepEqual({ patches: window.patches, sequences: window.sequences }, { patches: 3, sequences: 2 });
+  // No-movement countries drop out; new/changed ones carry the per-kind delta.
+  assert.deepEqual(window.byCountry, {
+    US: { patches: 1, sequences: 1, unknown: 0 }, CN: { patches: 1, sequences: 1, unknown: 0 },
+  });
+  assert.deepEqual({ patches: lifetime.patches, sequences: lifetime.sequences }, { patches: 8, sequences: 8 });
+});
+
+test('diffLibrary falls back to the ?since= window when there is no baseline', async () => {
+  const { diffLibrary } = await libP;
+  const cur = bstats(8, 8, 0, { US: { patches: 4, sequences: 2 } });
+  const { window, lifetime } = diffLibrary(null, cur, bstats(7, 7, 0, { US: { patches: 3, sequences: 2 } }));
+
+  // Seeding run: day-granular, so not exact — the driver won't let it trigger a send.
+  assert.equal(window.exact, false);
+  assert.deepEqual({ patches: window.patches, sequences: window.sequences }, { patches: 7, sequences: 7 });
+  assert.deepEqual({ patches: lifetime.patches, sequences: lifetime.sequences }, { patches: 8, sequences: 8 });
+});
+
+test('diffLibrary accumulates lifetime so the Worker 90-day expiry cannot shrink it', async () => {
+  const { diffLibrary } = await libP;
+  const prev = {
+    seen: { patches: 40, sequences: 30, unknown: 0 },
+    byCountry: { US: { patches: 40, sequences: 30 } },
+    lifetime: { patches: 100, sequences: 90, unknown: 0 },
+    lifetimeByCountry: { US: { patches: 100, sequences: 90 } },
+  };
+  // Old keys rolled off: the Worker now reports FEWER borrows than last report.
+  const cur = bstats(38, 31, 0, { US: { patches: 38, sequences: 31 } });
+  const { window, lifetime, nextLibrary } = diffLibrary(prev, cur, bstats(0, 0));
+
+  assert.equal(window.patches, 0, 'a shrinking counter must not report a negative window');
+  assert.equal(window.sequences, 1);
+  assert.deepEqual({ patches: lifetime.patches, sequences: lifetime.sequences }, { patches: 100, sequences: 91 });
+  // The next baseline is the Worker's current figure, not the lifetime total.
+  assert.deepEqual(nextLibrary.seen, { patches: 38, sequences: 31, unknown: 0 });
+  assert.deepEqual(nextLibrary.lifetime, { patches: 100, sequences: 91, unknown: 0 });
+});
+
+test('diffLibrary carries the unknown (pre-kind-tag) bucket through window and lifetime', async () => {
+  const { diffLibrary } = await libP;
+  const prev = {
+    seen: { patches: 2, sequences: 1, unknown: 3 },
+    byCountry: {}, lifetime: { patches: 2, sequences: 1, unknown: 3 }, lifetimeByCountry: {},
+  };
+  const cur = bstats(2, 1, 5, { XX: { patches: 0, sequences: 0, unknown: 2 } });
+  const { window, lifetime } = diffLibrary(prev, cur, bstats(0, 0, 0));
+  assert.equal(window.unknown, 2);
+  assert.equal(lifetime.unknown, 5);
+  assert.deepEqual(window.byCountry, { XX: { patches: 0, sequences: 0, unknown: 2 } });
+});
+
+// ── borrow rendering ──────────────────────────────────────────────────
+
+const libModel = (over = {}) => ({
+  ...model(),
+  library: {
+    window: { patches: 6, sequences: 4, unknown: 0, byCountry: { SE: { patches: 2, sequences: 2 }, CN: { patches: 1, sequences: 0 } } },
+    lifetime: { patches: 41, sequences: 19, unknown: 0 },
+  },
+  ...over,
+});
+
+test('renderBody LIBRARY BORROWS rows split Patches/Sequences, delta then bare lifetime', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(libModel());
+  assert.match(body, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+6\n {2}Sequences {8}\+4\n/);
+  assert.match(body, /\nLIFETIME LIBRARY BORROWS\n {2}Patches {10}41\n {2}Sequences {8}19\n/);
+});
+
+test('renderBody borrow by-country is a single-total table, summed across kinds, sorted', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(libModel());
+  // SE 4 (2+2) outranks CN 1 (1+0); name padded to 17 → count at column 19.
+  assert.match(body, /\nLIBRARY BORROWS BY COUNTRY\n {2}Sweden {11}4\n {2}China {12}1\n/);
+});
+
+test('renderBody shows the Older-app row only while the unknown bucket is non-zero', async () => {
+  const { renderBody } = await libP;
+  assert.doesNotMatch(renderBody(libModel()), /Older app/);
+  const withUnknown = renderBody(libModel({
+    library: {
+      window: { patches: 1, sequences: 0, unknown: 2, byCountry: {} },
+      lifetime: { patches: 1, sequences: 0, unknown: 7 },
+    },
+  }));
+  assert.match(withUnknown, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+1\n {2}Sequences {8}\+0\n {2}Older app {8}\+2\n/);
+  assert.match(withUnknown, /\nLIFETIME LIBRARY BORROWS\n {2}Patches {10}1\n {2}Sequences {8}0\n {2}Older app {8}7\n/);
+});
+
+test('renderBody borrow block degrades to zeros / none when the Worker is unreachable', async () => {
+  const { renderBody } = await libP;
+  const body = renderBody(model({ library: undefined }));   // no library key at all
+  assert.match(body, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+0\n {2}Sequences {8}\+0\n/);
+  assert.match(body, /\nLIBRARY BORROWS BY COUNTRY\n {2}none\n/);
+});
+
+test('historyRow appends d_borrow_*/borrow_* columns when borrow data is present', async () => {
+  const { historyRow } = await libP;
+  const row = historyRow({
+    date: '2026-07-29',
+    delta: { macNew: 2, macUpd: 0, pcNew: 1 },
+    lifetime: { macNew: 43, macUpd: 23, pcNew: 21 },
+    borrow: {
+      window: { patches: 3, sequences: 1, unknown: 0 },
+      lifetime: { patches: 30, sequences: 12, unknown: 4 },
+    },
+  });
+  assert.deepEqual(JSON.parse(row), {
+    date: '2026-07-29',
+    d_mac_new: 2, d_mac_upd: 0, d_pc_new: 1,
+    mac_new: 43, mac_upd: 23, pc_new: 21,
+    d_borrow_patches: 3, d_borrow_sequences: 1, d_borrow_unknown: 0,
+    borrow_patches: 30, borrow_sequences: 12, borrow_unknown: 4,
+  });
+});
+
+test('historyRow stays the exact download-only shape when borrow is omitted', async () => {
+  const { historyRow } = await libP;
+  const row = historyRow({
+    date: '2026-07-29',
+    delta: { macNew: 2, macUpd: 0, pcNew: 1 },
+    lifetime: { macNew: 43, macUpd: 23, pcNew: 21 },
+  });
+  assert.doesNotMatch(row, /borrow/);
 });
 
