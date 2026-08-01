@@ -121,19 +121,23 @@ const model = (over = {}) => ({
   ...over,
 });
 
-test('renderBody opens with the "last report N days ago" line', async () => {
+test('renderBody opens with the NEW DOWNLOADS heading naming the window', async () => {
   const { renderBody } = await libP;
-  assert.match(renderBody(model()), /^Your last report was 4 days ago\.\n/);
-  assert.match(renderBody(model({ daysSince: 1 })), /^Your last report was 1 day ago\.\n/);
-  assert.match(renderBody(model({ prevDate: '', daysSince: null })), /^Your first download report\.\n/);
+  // The window (since last report) is stated once, in the heading — no separate
+  // intro line, and never "YESTERDAY" (the span is routinely >1 day).
+  assert.match(renderBody(model()), /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n/);
+  assert.match(renderBody(model({ daysSince: 1 })), /^NEW DOWNLOADS SINCE LAST REPORT \(1 day ago\)\n/);
+  // First-ever send has no prior report → no window suffix.
+  assert.match(renderBody(model({ prevDate: '', daysSince: null })), /^NEW DOWNLOADS\n/);
+  assert.doesNotMatch(renderBody(model()), /Your last report was|YESTERDAY/);
 });
 
 test('renderBody NEW/LIFETIME download rows are bare counts, no split', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  assert.match(body, /\nNEW DOWNLOADS YESTERDAY\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
+  assert.match(body, /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
   assert.match(body, /\nLIFETIME DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n/);
-  assert.doesNotMatch(body, /site \d|GitHub \d/);
+  assert.doesNotMatch(body, /site \d|· GitHub/);
 });
 
 test('renderBody MAC UPDATES aligns the +delta with the bare lifetime', async () => {
@@ -210,16 +214,47 @@ test('renderBody emits the section headings in order', async () => {
   // MAC UPDATES sits at the bottom (just above the footer): it rarely changes,
   // so the download sections stay grouped together at the top.
   const order = [
-    'NEW DOWNLOADS YESTERDAY',
+    'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
     'NEW DOWNLOADS BY COUNTRY', 'LIFETIME DOWNLOADS BY COUNTRY',
     'LIFETIME DOWNLOADS', 'MAC UPDATES', 'HOW THIS IS COUNTED',
   ];
+  const search = `\n${body}`;   // the first heading opens the body (no leading \n)
   let last = -1;
   for (const h of order) {
-    const at = body.indexOf(`\n${h}\n`);
+    const at = search.indexOf(`\n${h}\n`);
     assert.ok(at > last, `${h} missing or out of order`);
     last = at;
   }
+});
+
+test('countryName resolves any ISO code via Intl, XX → Unknown', async () => {
+  const { countryName } = await libP;
+  assert.equal(countryName('IQ'), 'Iraq');            // was missing from the map
+  assert.equal(countryName('US'), 'United States');
+  assert.equal(countryName('CO'), 'Colombia');
+  assert.equal(countryName('KR'), 'South Korea');
+  assert.equal(countryName('XX'), 'Unknown');         // our own sentinel
+  assert.equal(countryName('zzz'), 'zzz');            // invalid → raw code, no throw
+});
+
+test('LIFETIME by-country appends the Direct-from-GitHub residual, reconciling to the total', async () => {
+  const { renderBody } = await libP;
+  // model: lifetime downloads 41+19 = 60; lifetime clicks 10+8 = 18 → 42 direct.
+  const body = renderBody(model());
+  assert.match(body, /\n {2}Direct from GitHub \(no jx-3p\.com click\) {3}42\n/);
+  // It sits after the country rows, inside the LIFETIME block.
+  const life = body.slice(body.indexOf('LIFETIME DOWNLOADS BY COUNTRY'));
+  assert.ok(life.indexOf('Direct from GitHub') < life.indexOf('LIFETIME DOWNLOADS\n'));
+});
+
+test('Direct residual is hidden when clicks meet or exceed downloads', async () => {
+  const { renderBody } = await libP;
+  // Tiny downloads, big clicks → non-positive residual → omitted (never negative).
+  const body = renderBody(model({
+    lifetime: { macNew: 1, macUpd: 0, pcNew: 0 },
+    site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 5 } } } },
+  }));
+  assert.doesNotMatch(body, /Direct from GitHub/);
 });
 
 test('ctaBullet is the plain 5th bullet — phrase then URL', async () => {

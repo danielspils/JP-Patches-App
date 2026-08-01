@@ -41,7 +41,26 @@ export const COUNTRY_NAMES = {
   LU: 'Luxembourg', XX: 'Unknown',
 };
 
-export const countryName = (code) => COUNTRY_NAMES[code] || code;
+// Resolve an ISO 3166-1 alpha-2 code to a full English name via Intl (the CI
+// runner has full ICU), so ANY code lands — not just the hand-listed ones (IQ
+// slipped through the map). XX is our own "unknown country" sentinel. Falls
+// back to the manual map, then the raw code, if Intl is missing or doesn't
+// recognise the code.
+const REGION_NAMES = (() => {
+  try { return new Intl.DisplayNames(['en'], { type: 'region' }); }
+  catch { return null; }
+})();
+
+export function countryName(code) {
+  if (code === 'XX') return 'Unknown';
+  if (REGION_NAMES) {
+    try {
+      const name = REGION_NAMES.of(code);
+      if (name && name !== code) return name;
+    } catch { /* invalid code → fall through */ }
+  }
+  return COUNTRY_NAMES[code] || code;
+}
 
 // ── GitHub asset tallies ──────────────────────────────────────────────
 
@@ -231,15 +250,15 @@ export function renderBody(model) {
   const lifeClicks = site ? site.lifetime.byCountry : null;
 
   const out = [];
-  // The job runs just after midnight UTC and flushes each active day the next
-  // morning, so a report covers yesterday; daysSince is how long since the last
-  // NON-EMPTY day (the last report).
-  out.push(prevDate
-    ? `Your last report was ${daysSince} day${daysSince === 1 ? '' : 's'} ago.`
-    : 'Your first download report.');
-  out.push('');
+  // Every NEW section covers ONE window: since the last report. Reports fire
+  // only on activity and can be days apart (skipped/quiet days), so the heading
+  // names the actual span instead of claiming "yesterday". NEW DOWNLOADS BY
+  // COUNTRY sits right under it and shares that window.
+  const sinceLabel = prevDate
+    ? ` SINCE LAST REPORT (${daysSince} day${daysSince === 1 ? '' : 's'} ago)`
+    : '';
 
-  out.push(...metricBlock('NEW DOWNLOADS YESTERDAY', [
+  out.push(...metricBlock(`NEW DOWNLOADS${sinceLabel}`, [
     { label: 'Mac', n: delta.macNew, delta: true },
     { label: 'PC', n: delta.pcNew, delta: true },
   ]));
@@ -251,6 +270,18 @@ export function renderBody(model) {
 
   out.push('LIFETIME DOWNLOADS BY COUNTRY');
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
+  // The country lines are jx-3p.com clicks; GitHub's lifetime total is larger
+  // because most downloads never touch a site button. Show that remainder as a
+  // single "Direct" residual so the block reconciles to the download total.
+  // Only when positive — over lifetime, downloads ≫ clicks; a click isn't a
+  // 1:1 download, so a negative residual would be meaningless (never shown).
+  const clickSum = lifeClicks
+    ? Object.values(lifeClicks).reduce((s, v) => s + plat(v).mac + plat(v).pc, 0)
+    : 0;
+  const direct = (lifetime.macNew + lifetime.pcNew) - clickSum;
+  if (lifeClicks && direct > 0) {
+    out.push(`${INDENT}Direct from GitHub (no jx-3p.com click)   ${direct}`);
+  }
   out.push('');
 
   out.push(...metricBlock('LIFETIME DOWNLOADS', [
