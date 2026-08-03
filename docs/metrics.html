@@ -1,0 +1,137 @@
+---
+permalink: /metrics/
+sitemap: false
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>JP Patches — metrics</title>
+<style>
+  :root { --green:#1f6e5b; --blue:#33508f; --ink:#2c2c2a; --mut:#77746c; --line:#e5e1d6; --card:#f7f1e6; --bg:#fbf9f3; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 Helvetica, Arial, sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 2px; }
+  .sub { color:var(--mut); font-size:13px; margin:0 0 24px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:32px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .stat .lbl { font-size:12px; color:var(--mut); margin-bottom:4px; }
+  .stat .val { font-size:26px; font-weight:600; }
+  .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
+  .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
+  .ctl { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .ctl button { font:13px Helvetica, Arial, sans-serif; padding:5px 12px; border:1px solid var(--line);
+    background:#fff; color:var(--ink); border-radius:6px; cursor:pointer; }
+  .ctl button.on { background:var(--green); color:#fff; border-color:var(--green); }
+  .legend { display:flex; gap:16px; margin-bottom:8px; font-size:12px; color:var(--mut); }
+  .legend span { display:flex; align-items:center; gap:5px; }
+  .sw { width:11px; height:11px; border-radius:2px; display:inline-block; }
+  .chart { position:relative; width:100%; margin-bottom:36px; }
+  .note { border-top:1px solid var(--line); padding-top:16px; margin-top:12px; font-size:12px; color:var(--mut); }
+  .note b { color:var(--ink); font-weight:600; }
+  .note ul { margin:6px 0 0; padding-left:18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>JP Patches — metrics</h1>
+  <p class="sub" id="asof">loading…</p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="sec-title">Cumulative downloads over time</div>
+  <div class="sec-sub">GitHub download counts · the running total to date</div>
+  <div class="ctl" id="range">
+    <button data-r="all" class="on">All time</button>
+    <button data-r="ytd">This year</button>
+    <button data-r="90">Last 90 days</button>
+    <button data-r="30">Last 30 days</button>
+  </div>
+  <div class="legend">
+    <span><i class="sw" style="background:#1f6e5b"></i>Mac</span>
+    <span><i class="sw" style="background:#b94a2e"></i>PC</span>
+  </div>
+  <div class="chart" style="height:280px;">
+    <canvas id="curve" role="img" aria-label="Cumulative downloads over time, Mac in green stacked on PC in blue.">Cumulative downloads over time.</canvas>
+  </div>
+
+  <div class="sec-title">Downloads by country</div>
+  <div class="sec-sub">jx-3p.com button clicks · all time · a rough interest signal, counted separately from downloads</div>
+  <div class="chart" id="countryWrap" style="height:520px;">
+    <canvas id="country" role="img" aria-label="Downloads by country, ranked.">Downloads by country.</canvas>
+  </div>
+
+  <div class="note">
+    <b>How this is counted</b>
+    <ul>
+      <li>Downloads = a file served via GitHub (the real count).</li>
+      <li>Country = button clicks via jx-3p.com (a rough interest signal, not downloads).</li>
+      <li>The two are separate metrics — they will not add up to each other.</li>
+    </ul>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const NAMES = {US:'United States',GB:'Great Britain',DE:'Germany',JP:'Japan',CA:'Canada',AU:'Australia',FR:'France',NL:'Netherlands',SE:'Sweden',IT:'Italy',ES:'Spain',BR:'Brazil',MX:'Mexico',PL:'Poland',NO:'Norway',DK:'Denmark',FI:'Finland',BE:'Belgium',CH:'Switzerland',AT:'Austria',IE:'Ireland',NZ:'New Zealand',RU:'Russia',UA:'Ukraine',CZ:'Czechia',PT:'Portugal',GR:'Greece',TR:'Turkey',IN:'India',CN:'China',KR:'South Korea',TW:'Taiwan',AR:'Argentina',CL:'Chile',CO:'Colombia',ZA:'South Africa',IL:'Israel',IR:'Iran',IQ:'Iraq',SG:'Singapore',HK:'Hong Kong',HU:'Hungary',RO:'Romania',TH:'Thailand',ID:'Indonesia',PH:'Philippines',VN:'Vietnam',MY:'Malaysia',EE:'Estonia',LT:'Lithuania',LV:'Latvia',SK:'Slovakia',SI:'Slovenia',HR:'Croatia',RS:'Serbia',BG:'Bulgaria',IS:'Iceland',LU:'Luxembourg',XX:'Unknown'};
+const fmtDate = (iso) => { const [y,m,d]=iso.split('-').map(Number); return new Date(Date.UTC(y,m-1,d)).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}); };
+
+fetch('data.json').then(r=>r.json()).then(D=>{
+  document.getElementById('asof').textContent = D.asOf ? `As of ${fmtDate(D.asOf)} · updates daily` : 'updates daily';
+
+  const stats = [
+    ['Downloads · Mac', D.downloads.mac],
+    ['Downloads · PC', D.downloads.pc],
+    ['Countries reached', Object.keys(D.byCountry).length],
+    ['Library borrows', D.borrows],
+    ['Active today', D.activeToday],
+  ];
+  document.getElementById('stats').innerHTML = stats.map(([l,v]) =>
+    `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+
+  const ink = '#77746c', grid = '#e5e1d6';
+  let curve;
+  function render(preset) {
+    let s = D.series;
+    if (preset !== 'all') {
+      let cutoff;
+      if (preset === 'ytd') cutoff = D.asOf.slice(0,4) + '-01-01';
+      else { const [y,m,d]=D.asOf.split('-').map(Number); const dt=new Date(Date.UTC(y,m-1,d)); dt.setUTCDate(dt.getUTCDate()-Number(preset)); cutoff=dt.toISOString().slice(0,10); }
+      s = D.series.filter(p => p.date >= cutoff);
+    }
+    const labels = s.map(p=>fmtDate(p.date));
+    if (curve) curve.destroy();
+    curve = new Chart(document.getElementById('curve'), {
+      type:'line',
+      data:{ labels, datasets:[
+        { label:'PC', data:s.map(p=>p.pc), borderColor:'#a03f27', backgroundColor:'#b94a2e', fill:true, tension:0.25, borderWidth:1, pointRadius:0, pointHoverRadius:5 },
+        { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1a5d4d', backgroundColor:'#1f6e5b', fill:true, tension:0.25, borderWidth:1, pointRadius:0, pointHoverRadius:5 } ]},
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{display:false} },
+        scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid}, ticks:{color:ink} },
+                 x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } }
+    });
+  }
+  render('all');
+  document.getElementById('range').addEventListener('click', (e)=>{
+    const b = e.target.closest('button'); if(!b) return;
+    document.querySelectorAll('#range button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); render(b.dataset.r);
+  });
+
+  const cc = Object.entries(D.byCountry).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('countryWrap').style.height = Math.max(160, cc.length*38+60)+'px';
+  new Chart(document.getElementById('country'), {
+    type:'bar',
+    data:{ labels:cc.map(c=>NAMES[c[0]]||c[0]), datasets:[{ data:cc.map(c=>c[1]), backgroundColor:'#33508f', borderRadius:4, barThickness:20 }]},
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ x:{ beginAtZero:true, grid:{color:grid}, ticks:{color:ink, precision:0} }, y:{ grid:{display:false}, ticks:{color:ink} } } }
+  });
+}).catch(()=>{ document.getElementById('asof').textContent = 'could not load data'; });
+</script>
+</body>
+</html>

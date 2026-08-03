@@ -1,0 +1,69 @@
+// Snapshot the numbers the private metrics page (/metrics/) reads into one
+// same-origin file, docs/metrics/data.json. Kept deliberately separate from
+// the daily email logic (download-report.mjs) so the tested email path is
+// untouched and the page has no dependency on the Worker being up at view time.
+//
+//   node scripts/build-metrics-data.mjs            # write docs/metrics/data.json
+//   node scripts/build-metrics-data.mjs --dry-run  # print it, write nothing
+//
+// Sources:
+//   - .github/download-history.jsonl  → the cumulative download series (curve)
+//   - relay Worker /totals            → downloads-by-country, borrows, active
+// Both are already public / already collected; this just assembles them.
+
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+const args = process.argv.slice(2);
+const DRY = args.includes('--dry-run');
+const flag = (name, fallback) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : fallback;
+};
+const HISTORY = flag('history', '.github/download-history.jsonl');
+const OUT = flag('out', 'docs/metrics/data.json');
+const RELAY = flag('relay', 'https://lend.jx-3p.com');
+
+// Cumulative download series from the append-only history. Each row already
+// carries the running totals (mac_new / pc_new); we only surface date + totals.
+let rows = [];
+try {
+  rows = readFileSync(HISTORY, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+} catch { /* no history yet → empty series */ }
+const series = rows.map((r) => ({ date: r.date, mac: r.mac_new || 0, pc: r.pc_new || 0 }));
+const last = rows[rows.length - 1] || {};
+
+// Worker aggregates (best-effort — the page degrades to just the curve if the
+// Worker is unreachable at build time).
+async function relay(path) {
+  try {
+    const res = await fetch(`${RELAY}${path}`, { signal: AbortSignal.timeout(10_000) });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+const totals = await relay('/totals');
+const ping = await relay('/ping/stats');
+const byCountry = (totals && totals.downloads && totals.downloads.byCountry) || {};
+
+const data = {
+  asOf: last.date || null,
+  generatedAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+  downloads: { mac: last.mac_new || 0, pc: last.pc_new || 0, macUpd: last.mac_upd || 0 },
+  series,
+  byCountry,                                   // { ISO: clicks } — jx-3p.com button clicks
+  borrows: (totals && totals.library && totals.library.total) || 0,
+  // Daily-active: the usage ping carries no identifier (privacy), so we can
+  // count installs active on the most recent DAY but not dedupe across days
+  // into a weekly/monthly unique. activeLatest = that most-recent day's count.
+  activeToday: (ping && ping.activeLatest) || 0,
+};
+
+const json = `${JSON.stringify(data, null, 0)}\n`;
+if (DRY) {
+  process.stdout.write(json);
+} else {
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT, json);
+  process.stderr.write(`wrote ${OUT}: ${series.length} series points, `
+    + `${Object.keys(byCountry).length} countries, as of ${data.asOf}\n`);
+}

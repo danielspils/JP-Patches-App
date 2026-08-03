@@ -73,16 +73,28 @@ jobs:
           body: ${{ steps.calc.outputs.body }}
           html_body: ${{ steps.calc.outputs.html }}
 
-      # Committed only after a successful send (or to seed the first baseline),
-      # so a failed email doesn't burn the delta.
-      - name: Commit snapshot
-        if: steps.calc.outputs.commit == 'true'
+      # Refresh the private metrics page's data (docs/metrics/data.json) every
+      # run — the page promises "updates daily", and country clicks / pings can
+      # move on days with no downloads (no email).
+      - name: Build metrics data
+        run: node scripts/build-metrics-data.mjs
+
+      # Snapshot + history are committed only after a successful send (or to
+      # seed the first baseline), so a failed email doesn't burn the delta.
+      # data.json is committed EVERY day. [skip ci] skips the Windows build;
+      # the legacy Pages build ignores it (verified) and redeploys the site,
+      # which is how the metrics page refreshes.
+      - name: Commit snapshot + metrics data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # The overwritten snapshot + the append-only history row (the durable,
-          # chartable time series). Both change only on report days.
-          git add .github/download-stats.json .github/download-history.jsonl
-          # [skip ci] so the snapshot commit doesn't trigger the Windows / Pages builds.
+          if [ "${{ steps.calc.outputs.commit }}" = "true" ]; then
+            git add .github/download-stats.json .github/download-history.jsonl
+          else
+            # Non-report day: the report script still overwrote the snapshot
+            # locally — restore it so the un-emailed delta isn't burned.
+            git checkout -- .github/download-stats.json
+          fi
+          git add docs/metrics/data.json
           git commit -m "chore: download snapshot [skip ci]" || { echo "no change"; exit 0; }
           git push
