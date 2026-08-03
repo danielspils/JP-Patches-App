@@ -107,8 +107,8 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     curve = new Chart(document.getElementById('curve'), {
       type:'line',
       data:{ labels, datasets:[
-        { label:'PC', data:s.map(p=>p.pc), borderColor:'#a03f27', backgroundColor:'#b94a2e', fill:true, tension:0.25, borderWidth:1, pointRadius:0, pointHoverRadius:5 },
-        { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1a5d4d', backgroundColor:'#1f6e5b', fill:true, tension:0.25, borderWidth:1, pointRadius:0, pointHoverRadius:5 } ]},
+        { label:'PC', data:s.map(p=>p.pc), borderColor:'#b94a2e', backgroundColor:'rgba(185,74,46,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 },
+        { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1f6e5b', backgroundColor:'rgba(31,110,91,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 } ]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{display:false} },
         scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid}, ticks:{color:ink} },
@@ -126,7 +126,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   document.getElementById('countryWrap').style.height = Math.max(160, cc.length*38+60)+'px';
   new Chart(document.getElementById('country'), {
     type:'bar',
-    data:{ labels:cc.map(c=>NAMES[c[0]]||c[0]), datasets:[{ data:cc.map(c=>c[1]), backgroundColor:'#33508f', borderRadius:4, barThickness:20 }]},
+    data:{ labels:cc.map(c=>NAMES[c[0]]||c[0]), datasets:[{ data:cc.map(c=>c[1]), backgroundColor:'rgba(51,80,143,0.8)', borderColor:'#33508f', borderWidth:1.5, borderRadius:4, barThickness:20 }]},
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false} },
       scales:{ x:{ beginAtZero:true, grid:{color:grid}, ticks:{color:ink, precision:0} }, y:{ grid:{display:false}, ticks:{color:ink} } } }
