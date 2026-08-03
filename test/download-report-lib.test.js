@@ -230,7 +230,7 @@ test('renderBody emits the section headings in order', async () => {
     'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
     'DOWNLOADS BY COUNTRY — LAST 7 DAYS', 'DOWNLOADS BY COUNTRY — TOTAL',
     'TOTAL DOWNLOADS', 'MAC UPDATES',
-    'LIBRARY BORROWS YESTERDAY', 'LIBRARY BORROWS BY COUNTRY', 'LIFETIME LIBRARY BORROWS',
+    'NEW LIBRARY BORROWS', 'LIBRARY BORROWS BY COUNTRY', 'TOTAL LIBRARY BORROWS',
     'HOW THIS IS COUNTED',
   ];
   const search = `\n${body}`;   // the first heading opens the body (no leading \n)
@@ -423,8 +423,8 @@ const libModel = (over = {}) => ({
 test('renderBody LIBRARY BORROWS rows split Patches/Sequences, delta then bare lifetime', async () => {
   const { renderBody } = await libP;
   const body = renderBody(libModel());
-  assert.match(body, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+6\n {2}Sequences {8}\+4\n/);
-  assert.match(body, /\nLIFETIME LIBRARY BORROWS\n {2}Patches {10}41\n {2}Sequences {8}19\n/);
+  assert.match(body, /\nNEW LIBRARY BORROWS\n {2}Patches {10}\+6\n {2}Sequences {8}\+4\n/);
+  assert.match(body, /\nTOTAL LIBRARY BORROWS\n {2}Patches {10}41\n {2}Sequences {8}19\n/);
 });
 
 test('renderBody borrow by-country is a single-total table, summed across kinds, sorted', async () => {
@@ -443,8 +443,8 @@ test('renderBody shows the Older-app row only while the unknown bucket is non-ze
       lifetime: { patches: 1, sequences: 0, unknown: 7 },
     },
   }));
-  assert.match(withUnknown, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+1\n {2}Sequences {8}\+0\n {2}Older app {8}\+2\n/);
-  assert.match(withUnknown, /\nLIFETIME LIBRARY BORROWS\n {2}Patches {10}1\n {2}Sequences {8}0\n {2}Older app {8}7\n/);
+  assert.match(withUnknown, /\nNEW LIBRARY BORROWS\n {2}Patches {10}\+1\n {2}Sequences {8}\+0\n {2}Older app {8}\+2\n/);
+  assert.match(withUnknown, /\nTOTAL LIBRARY BORROWS\n {2}Patches {10}1\n {2}Sequences {8}0\n {2}Older app {8}7\n/);
 });
 
 test('renderBody omits the borrow section entirely when there are no borrows this window', async () => {

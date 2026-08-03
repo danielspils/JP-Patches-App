@@ -428,14 +428,14 @@ export function renderBody(model) {
   const wb = library ? kinds(library.window) : null;
   const hasBorrows = wb ? wb.patches + wb.sequences + wb.unknown > 0 : false;
   if (hasBorrows) {
-    out.push(...metricBlock('LIBRARY BORROWS YESTERDAY', borrowRows(library.window, true)));
+    out.push(...metricBlock('NEW LIBRARY BORROWS', borrowRows(library.window, true)));
     out.push('');
 
     out.push('LIBRARY BORROWS BY COUNTRY');
     out.push(...borrowCountryTable(library.window.byCountry));
     out.push('');
 
-    out.push(...metricBlock('LIFETIME LIBRARY BORROWS', borrowRows(library.lifetime, false)));
+    out.push(...metricBlock('TOTAL LIBRARY BORROWS', borrowRows(library.lifetime, false)));
     out.push('');
   }
 
