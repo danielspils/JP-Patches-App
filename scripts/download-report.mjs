@@ -134,9 +134,9 @@ const report = renderBody({
   library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 
-// The two multipart/alternative parts. The GoatCounter CTA is the 5th bullet
-// of HOW THIS IS COUNTED: plain appends the phrase + URL; htmlBody appends an
-// inline "Click here" anchor inside the <pre>.
+// The two multipart/alternative parts. The footer CTAs (site metrics page,
+// then GoatCounter) follow HOW THIS IS COUNTED: plain appends phrase + URL
+// lines; htmlBody appends inline anchors around the link texts in the <pre>.
 const body = `${report}${ctaBullet()}\n`;
 const html = htmlBody(report);
 

@@ -272,9 +272,13 @@ test('Direct residual is hidden when clicks meet or exceed downloads', async () 
   assert.doesNotMatch(body, /Direct from GitHub/);
 });
 
-test('ctaBullet is the plain 5th bullet — phrase then URL', async () => {
-  const { ctaBullet, GOATCOUNTER_URL } = await libP;
-  assert.equal(ctaBullet(), `  • Historical metrics at GoatCounter: ${GOATCOUNTER_URL}`);
+test('ctaBullet: two plain footer bullets — site metrics page, then GoatCounter', async () => {
+  const { ctaBullet, METRICS_URL, GOATCOUNTER_URL } = await libP;
+  assert.equal(
+    ctaBullet(),
+    `  • Historical metrics at JX-3P.com/metrics: ${METRICS_URL}\n` +
+      `  • more metrics: GoatCounter: ${GOATCOUNTER_URL}`
+  );
 });
 
 test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {
@@ -293,21 +297,23 @@ test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async (
   });
 });
 
-test('htmlBody wraps the report in one <pre> and appends the CTA bullet', async () => {
-  const { htmlBody, GOATCOUNTER_URL } = await libP;
+test('htmlBody wraps the report in one <pre> and appends the CTA bullets', async () => {
+  const { htmlBody, METRICS_URL, GOATCOUNTER_URL } = await libP;
   const report = 'NEW DOWNLOADS\n  Mac              +6\n';
   const html = htmlBody(report);
 
   const STYLE = "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "
     + "'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; "
     + 'white-space: pre; margin: 0;';
-  const cta = `  • Historical metrics at <a href="${GOATCOUNTER_URL}">GoatCounter</a>\n`;
+  const cta = `  • Historical metrics at <a href="${METRICS_URL}">JX-3P.com/metrics</a>\n`
+    + `  • more metrics: <a href="${GOATCOUNTER_URL}">GoatCounter</a>\n`;
   assert.equal(html, `<pre style="${STYLE}">${report}${cta}</pre>`);
-  // Report is emitted byte-for-byte; the ONLY markup is the inline CTA anchor.
+  // Report is emitted byte-for-byte; the ONLY markup is the inline CTA anchors.
   assert.ok(html.includes(report));
   assert.doesNotMatch(html, /<br|<div|<table|<head|<style|<p[ >]/);
-  // Only "GoatCounter" is linked — the preceding words are outside the anchor.
-  assert.match(html, /Historical metrics at <a href="[^"]+">GoatCounter<\/a>\n/);
+  // Only the link texts are anchored — the preceding words sit outside them.
+  assert.match(html, /Historical metrics at <a href="[^"]+">JX-3P\.com\/metrics<\/a>\n/);
+  assert.match(html, /more metrics: <a href="[^"]+">GoatCounter<\/a>\n/);
 });
 
 test('htmlBody escapes & < > only in the report, leaving the · separator intact', async () => {

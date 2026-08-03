@@ -455,31 +455,34 @@ export function renderBody(model) {
   return out.join('\n') + '\n';
 }
 
-// The GoatCounter dashboard — the durable, graphed history the daily email
-// can't show. Linked from the 5th bullet of HOW THIS IS COUNTED. Only the
-// word "GoatCounter" is the link.
+// Footer CTA bullets — the durable, graphed history the daily email can't
+// show. Two lines: the site's own metrics page first, then the GoatCounter
+// dashboard (linked as before). Only each link TEXT is anchored in HTML.
+export const METRICS_URL = 'https://jx-3p.com/metrics';
 export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
-const CTA_PREFIX = 'Historical metrics at ';
-const CTA_LINK = 'GoatCounter';
+const CTAS = [
+  { prefix: 'Historical metrics at ', link: 'JX-3P.com/metrics', url: METRICS_URL },
+  { prefix: 'more metrics: ', link: 'GoatCounter', url: GOATCOUNTER_URL },
+];
 
-// The plain-text 5th bullet: the phrase plus the URL, since plain text can't
+// The plain-text bullets: phrase plus the URL, since plain text can't
 // hyperlink (the URL auto-links in most clients). Appended by the driver.
 export function ctaBullet() {
-  return `  • ${CTA_PREFIX}${CTA_LINK}: ${GOATCOUNTER_URL}`;
+  return CTAS.map((c) => `  • ${c.prefix}${c.link}: ${c.url}`).join('\n');
 }
 
 // The HTML alternative part: the report, HTML-escaped (& < > only, & first)
 // and dropped verbatim into one inline-styled <pre> — no reflow, no markdown,
 // no <head>/<style> (clients strip those), no <div>/<table>/<br>. The one
-// exception is the CTA bullet appended last: an inline <a> around "GoatCounter"
-// (inline elements are fine inside <pre>), so only that word links and no raw
-// URL shows. charset=utf-8 keeps the "·" separator intact.
+// exception is the CTA bullets appended last: an inline <a> around each link
+// text (inline elements are fine inside <pre>), so only those words link and
+// no raw URL shows. charset=utf-8 keeps the "·" separator intact.
 export function htmlBody(report) {
   const escaped = String(report)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const cta = `  • ${CTA_PREFIX}<a href="${GOATCOUNTER_URL}">${CTA_LINK}</a>\n`;
+  const cta = CTAS.map((c) => `  • ${c.prefix}<a href="${c.url}">${c.link}</a>`).join('\n') + '\n';
   return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
 }
 
