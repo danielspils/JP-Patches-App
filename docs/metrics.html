@@ -111,7 +111,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
         { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1f6e5b', backgroundColor:'rgba(31,110,91,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 } ]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
         plugins:{ legend:{display:false} },
-        scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid}, ticks:{color:ink} },
+        scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink} },
                  x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } }
     });
   }
@@ -129,7 +129,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     data:{ labels:cc.map(c=>NAMES[c[0]]||c[0]), datasets:[{ data:cc.map(c=>c[1]), backgroundColor:'rgba(51,80,143,0.8)', borderColor:'#33508f', borderWidth:1.5, borderRadius:4, barThickness:20 }]},
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false} },
-      scales:{ x:{ beginAtZero:true, grid:{color:grid}, ticks:{color:ink, precision:0} }, y:{ grid:{display:false}, ticks:{color:ink} } } }
+      scales:{ x:{ beginAtZero:true, grid:{color:grid, z:1}, ticks:{color:ink, precision:0} }, y:{ grid:{display:false}, ticks:{color:ink} } } }
   });
 }).catch(()=>{ document.getElementById('asof').textContent = 'could not load data'; });
 </script>
