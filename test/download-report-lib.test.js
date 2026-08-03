@@ -109,13 +109,15 @@ test('diffSite accumulates lifetime so the Worker 90-day expiry cannot shrink it
 // button clicks) are separate — clicks are never netted against downloads.
 // See scripts/download-report-lib.mjs.
 
+// site.week is the rolling last-7-days byCountry (a plain map, no snapshot
+// diffing); site.lifetime the accumulated all-time counters.
 const model = (over = {}) => ({
   prevDate: 'Jul 22, 2026',
   daysSince: 4,
   delta: { macNew: 6, macUpd: 1, pcNew: 4 },
   lifetime: { macNew: 41, macUpd: 23, pcNew: 19 },
   site: {
-    window: { byCountry: { SE: { mac: 2, pc: 2 }, CN: { mac: 1, pc: 0 } } },
+    week: { SE: { mac: 2, pc: 2 }, CN: { mac: 1, pc: 0 } },
     lifetime: { byCountry: { US: { mac: 6, pc: 4 }, SE: { mac: 3, pc: 5 } } },
   },
   ...over,
@@ -132,46 +134,51 @@ test('renderBody opens with the NEW DOWNLOADS heading naming the window', async 
   assert.doesNotMatch(renderBody(model()), /Your last report was|YESTERDAY/);
 });
 
-test('renderBody NEW/LIFETIME download rows are bare counts, no split', async () => {
+test('renderBody NEW/TOTAL download rows are bare counts, no split', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
   assert.match(body, /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
-  assert.match(body, /\nLIFETIME DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n/);
+  assert.match(body, /\nTOTAL DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n/);
   assert.doesNotMatch(body, /site \d|· GitHub/);
 });
 
-test('renderBody MAC UPDATES aligns the +delta with the bare lifetime', async () => {
+test('renderBody MAC UPDATES appears only when the window had an update', async () => {
   const { renderBody } = await libP;
+  // macUpd delta 1 → block shown, +delta aligned with the bare lifetime.
   assert.match(renderBody(model()), /\nMAC UPDATES\n {2}New {14}\+1\n {2}Lifetime {10}23\n/);
+  // macUpd delta 0 → block gone entirely (lifetime count included).
+  const quiet = renderBody(model({ delta: { macNew: 6, macUpd: 0, pcNew: 4 } }));
+  assert.doesNotMatch(quiet, /MAC UPDATES/);
+  assert.doesNotMatch(quiet, /\n {2}Lifetime {10}23\n/);
 });
 
-test('renderBody NEW by-country is a 3-column table, sorted, zero platform omitted', async () => {
+test('renderBody 7-day by-country is a 3-column table, sorted, zero platform omitted', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
 
-  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n/);
+  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n/);
   // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Country+count field is
   // at least 17 wide, so the Mac column lands at column 19 like the rows above.
   assert.match(body, /\n {2}Sweden 4 {9}Mac 2 {3}PC 2\n {2}China 1 {10}Mac 1\n/);
   assert.doesNotMatch(body, /PC 0/);
 });
 
-test('renderBody LIFETIME by-country aligns counts in the value column (19)', async () => {
+test('renderBody TOTAL by-country aligns counts in the value column (19)', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
   // US 10 (6+4) outranks SE 8 (3+5); name padded to 17 → count at column 19.
-  assert.match(body, /\nLIFETIME DOWNLOADS BY COUNTRY\n {2}United States {4}10\n {2}Sweden {11}8\n/);
+  assert.match(body, /\nDOWNLOADS BY COUNTRY — TOTAL\n {2}United States {4}10\n {2}Sweden {11}8\n/);
 });
 
 test('renderBody sorts countries by count desc then full name', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model({
     site: {
-      window: { byCountry: {} },
+      week: {},
       lifetime: { byCountry: { SG: { mac: 1, pc: 0 }, KR: { mac: 1, pc: 0 }, US: { mac: 5, pc: 0 } } },
     },
   }));
-  const life = body.slice(body.indexOf('LIFETIME DOWNLOADS BY COUNTRY'));
+  const life = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
   // US 5 first; then the two 1s alphabetically: Singapore before South Korea.
   assert.ok(life.indexOf('United States') < life.indexOf('Singapore'));
   assert.ok(life.indexOf('Singapore') < life.indexOf('South Korea'));
@@ -180,9 +187,9 @@ test('renderBody sorts countries by count desc then full name', async () => {
 test('renderBody prints "none" for an empty by-country table', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model({
-    site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
+    site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
   }));
-  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
 });
 
 test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
@@ -191,8 +198,8 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   // Downloads still render (GitHub, not the Worker).
   assert.match(body, /^ {2}Mac {14}\+6$/m);
   assert.match(body, /^ {2}Mac {14}41$/m);
-  assert.match(body, /\nNEW DOWNLOADS BY COUNTRY\n {2}none\n/);
-  assert.match(body, /\nLIFETIME DOWNLOADS BY COUNTRY\n {2}none\n/);
+  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
+  assert.match(body, /\nDOWNLOADS BY COUNTRY — TOTAL\n {2}none\n/);
 });
 
 test('renderBody carries the static HOW THIS IS COUNTED bullets verbatim, and ends there', async () => {
@@ -211,12 +218,12 @@ test('renderBody never claims a per-line site/GitHub split', async () => {
 test('renderBody emits the section headings in order', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  // MAC UPDATES sits at the bottom (just above the footer): it rarely changes,
-  // so the download sections stay grouped together at the top.
+  // MAC UPDATES sits near the bottom (it's rare and activity-gated), so the
+  // download sections stay grouped together at the top.
   const order = [
     'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
-    'NEW DOWNLOADS BY COUNTRY', 'LIFETIME DOWNLOADS BY COUNTRY',
-    'LIFETIME DOWNLOADS', 'MAC UPDATES', 'HOW THIS IS COUNTED',
+    'DOWNLOADS BY COUNTRY — LAST 7 DAYS', 'DOWNLOADS BY COUNTRY — TOTAL',
+    'TOTAL DOWNLOADS', 'MAC UPDATES', 'HOW THIS IS COUNTED',
   ];
   const search = `\n${body}`;   // the first heading opens the body (no leading \n)
   let last = -1;
@@ -237,14 +244,14 @@ test('countryName resolves any ISO code via Intl, XX → Unknown', async () => {
   assert.equal(countryName('zzz'), 'zzz');            // invalid → raw code, no throw
 });
 
-test('LIFETIME by-country appends the Direct-from-GitHub residual, reconciling to the total', async () => {
+test('TOTAL by-country appends the Direct-from-GitHub residual, reconciling to the total', async () => {
   const { renderBody } = await libP;
-  // model: lifetime downloads 41+19 = 60; lifetime clicks 10+8 = 18 → 42 direct.
+  // model: total downloads 41+19 = 60; total clicks 10+8 = 18 → 42 direct.
   const body = renderBody(model());
   assert.match(body, /\n {2}Direct from GitHub \(no jx-3p\.com click\) {3}42\n/);
-  // It sits after the country rows, inside the LIFETIME block.
-  const life = body.slice(body.indexOf('LIFETIME DOWNLOADS BY COUNTRY'));
-  assert.ok(life.indexOf('Direct from GitHub') < life.indexOf('LIFETIME DOWNLOADS\n'));
+  // It sits after the country rows, inside the TOTAL by-country block.
+  const life = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
+  assert.ok(life.indexOf('Direct from GitHub') < life.indexOf('TOTAL DOWNLOADS\n'));
 });
 
 test('Direct residual is hidden when clicks meet or exceed downloads', async () => {
@@ -252,7 +259,7 @@ test('Direct residual is hidden when clicks meet or exceed downloads', async () 
   // Tiny downloads, big clicks → non-positive residual → omitted (never negative).
   const body = renderBody(model({
     lifetime: { macNew: 1, macUpd: 0, pcNew: 0 },
-    site: { window: { byCountry: {} }, lifetime: { byCountry: { US: { mac: 5, pc: 5 } } } },
+    site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 5 } } } },
   }));
   assert.doesNotMatch(body, /Direct from GitHub/);
 });

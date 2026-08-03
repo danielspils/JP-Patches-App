@@ -237,23 +237,26 @@ function countryTableCount(byCountry) {
 //   prevDate   — last report's date; "" on the first-ever send
 //   daysSince  — whole days since the last report (null on the first send).
 //                Because the email only fires on activity, "last report" IS
-//                "last new downloads", so the intro line is literally true.
+//                "last new downloads", so the heading's span is literally true.
 //   delta:    { macNew, macUpd, pcNew }              GitHub deltas this window
 //   lifetime: { macNew, macUpd, pcNew }              GitHub cumulative
 //   site:     null when the Worker is unreachable, else
-//             { window: {byCountry}, lifetime: {byCountry} } — raw button
-//             clicks. Reported as their own block, never netted against
-//             downloads.
+//             { week: byCountry, lifetime: {byCountry} } — raw button clicks:
+//             `week` is the rolling last-7-days query, `lifetime` the
+//             accumulated all-time counters. Their own blocks, never netted
+//             against downloads.
 export function renderBody(model) {
   const { prevDate, daysSince, delta, lifetime, site } = model;
-  const winClicks = site ? site.window.byCountry : null;
+  const weekClicks = site ? site.week : null;
   const lifeClicks = site ? site.lifetime.byCountry : null;
 
   const out = [];
-  // Every NEW section covers ONE window: since the last report. Reports fire
-  // only on activity and can be days apart (skipped/quiet days), so the heading
-  // names the actual span instead of claiming "yesterday". NEW DOWNLOADS BY
-  // COUNTRY sits right under it and shares that window.
+  // The top block is GitHub's counted downloads since the last report — the
+  // real activity, no click numbers near it. The by-country blocks below use
+  // DIFFERENT, explicitly-labelled windows (rolling 7 days / all time): geo
+  // only exists for site clicks, and GitHub's counter lags by hours, so a
+  // same-window click column would routinely disagree with this block and
+  // invite a reconciliation that can't hold. Distinct windows, no comparison.
   const sinceLabel = prevDate
     ? ` SINCE LAST REPORT (${daysSince} day${daysSince === 1 ? '' : 's'} ago)`
     : '';
@@ -264,17 +267,20 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  out.push('NEW DOWNLOADS BY COUNTRY');
-  out.push(...(winClicks ? countryTableSplit(winClicks) : [`${INDENT}none`]));
+  // Rolling 7 calendar days of site clicks, straight from the Worker's
+  // day-granular keys — no snapshot baseline, and overlap between consecutive
+  // emails is fine because the label says exactly what the window is.
+  out.push('DOWNLOADS BY COUNTRY — LAST 7 DAYS');
+  out.push(...(weekClicks ? countryTableSplit(weekClicks) : [`${INDENT}none`]));
   out.push('');
 
-  out.push('LIFETIME DOWNLOADS BY COUNTRY');
+  out.push('DOWNLOADS BY COUNTRY — TOTAL');
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
-  // The country lines are jx-3p.com clicks; GitHub's lifetime total is larger
-  // because most downloads never touch a site button. Show that remainder as a
-  // single "Direct" residual so the block reconciles to the download total.
-  // Only when positive — over lifetime, downloads ≫ clicks; a click isn't a
-  // 1:1 download, so a negative residual would be meaningless (never shown).
+  // The country lines are jx-3p.com clicks; GitHub's total is larger because
+  // most downloads never touch a site button. Show that remainder as a single
+  // "Direct" residual so the block reconciles to the download total. Only when
+  // positive — over all time, downloads ≫ clicks; a click isn't a 1:1
+  // download, so a negative residual would be meaningless (never shown).
   const clickSum = lifeClicks
     ? Object.values(lifeClicks).reduce((s, v) => s + plat(v).mac + plat(v).pc, 0)
     : 0;
@@ -284,19 +290,21 @@ export function renderBody(model) {
   }
   out.push('');
 
-  out.push(...metricBlock('LIFETIME DOWNLOADS', [
+  out.push(...metricBlock('TOTAL DOWNLOADS', [
     { label: 'Mac', n: lifetime.macNew, delta: false },
     { label: 'PC', n: lifetime.pcNew, delta: false },
   ]));
   out.push('');
 
-  // Mac auto-updates last — it rarely changes, so it sits below the download
-  // sections (which are the day-to-day interest) and just above the footer.
-  out.push(...metricBlock('MAC UPDATES', [
-    { label: 'New', n: delta.macUpd, delta: true },
-    { label: 'Lifetime', n: lifetime.macUpd, delta: false },
-  ]));
-  out.push('');
+  // Mac auto-updates appear only when this window HAD one — they're rare, and
+  // a quiet +0 block is noise next to the always-moving download sections.
+  if (delta.macUpd > 0) {
+    out.push(...metricBlock('MAC UPDATES', [
+      { label: 'New', n: delta.macUpd, delta: true },
+      { label: 'Lifetime', n: lifetime.macUpd, delta: false },
+    ]));
+    out.push('');
+  }
 
   // Static — deliberately not templated. Bulleted; the middle two lines are
   // why the Country and Downloads numbers never tie out.

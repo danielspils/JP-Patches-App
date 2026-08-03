@@ -93,14 +93,23 @@ const delta = first
 const totalNew = delta.macNew + delta.macUpd + delta.pcNew;
 
 // Site clicks. `cur` is the Worker's whole retained window; the ?since=
-// query only seeds the very first report that has no stored baseline.
+// seeding query only feeds the very first report's lifetime baseline.
 const sinceDay = String(snap?.updated || '').slice(0, 10).replace(/-/g, '');
 const cur = await relay('/download/stats');
 const fallback = sinceDay ? await relay(`/download/stats?since=${sinceDay}`) : cur;
 const site = cur ? diffSite(snap?.site, cur, fallback || cur) : null;
 
+// The by-country display window: a rolling last-7-calendar-days query against
+// the Worker's day-granular keys. Deliberately NOT snapshot-based — the label
+// says exactly what the window is, so overlap between consecutive emails is
+// fine, and a 7-day span absorbs GitHub's hours-long download-count lag that
+// made a same-window click column disagree with the download delta.
+const weekDay = new Date(Date.now() - 7 * 86_400_000)
+  .toISOString().slice(0, 10).replace(/-/g, '');
+const week = await relay(`/download/stats?since=${weekDay}`);
+
 // Whole days since the last report. We only email on activity, so the last
-// report is also the last time there were new downloads — the intro line
+// report is also the last time there were new downloads — the heading's span
 // leans on that. Floor at 1 so a same-day resend never says "0 days ago".
 const snapMs = snap?.updated ? Date.parse(snap.updated) : NaN;
 const daysSince = Number.isNaN(snapMs)
@@ -112,7 +121,7 @@ const report = renderBody({
   daysSince,
   delta,
   lifetime: now,
-  site: site ? { window: site.window, lifetime: site.lifetime } : null,
+  site: site ? { week: week?.byCountry || null, lifetime: site.lifetime } : null,
 });
 
 // The two multipart/alternative parts. The GoatCounter CTA is the 5th bullet
@@ -130,7 +139,11 @@ const commit = first || send;
 
 const reportDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
-if (!DRY) {
+// Baseline advances ONLY when we report. The workflow already gates the git
+// commit on `commit`, so an ungated write never became durable — but gating
+// the write too means even a local (non-CI) suppressed run can't move the
+// file, and the invariant lives in one obvious place.
+if (!DRY && commit) {
   writeFileSync(SNAP, `${JSON.stringify({
     mac_new: now.macNew,
     mac_upd: now.macUpd,
@@ -141,14 +154,11 @@ if (!DRY) {
     site: site ? site.nextSite : snap?.site,
   }, null, 0)}\n`);
 
-  // Append one row to the permanent history whenever we actually report
-  // (commit). The snapshot is overwritten each run; this file only grows, so
-  // it's the durable, chartable download time series. The workflow git-adds it
-  // alongside the snapshot, so it's committed on the same report days.
-  if (commit) {
-    appendFileSync(HISTORY,
-      `${historyRow({ date: reportDate.slice(0, 10), delta, lifetime: now })}\n`);
-  }
+  // Append one row to the permanent history on the same report days. The
+  // snapshot is overwritten each report; this file only grows, so it's the
+  // durable, chartable download time series. The workflow git-adds both.
+  appendFileSync(HISTORY,
+    `${historyRow({ date: reportDate.slice(0, 10), delta, lifetime: now })}\n`);
 }
 
 if (process.env.GITHUB_OUTPUT) {
