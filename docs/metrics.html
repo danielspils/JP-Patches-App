@@ -92,7 +92,10 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   document.getElementById('stats').innerHTML = stats.map(([l,v]) =>
     `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
 
-  const ink = '#77746c', grid = '#e5e1d6';
+  // Grid is a translucent neutral (not a solid cream-tinted hex) so the same
+  // hairline reads on the cream page AND over the dark Roland fills — paired
+  // with grid z:1, which draws the lines on top of the fills.
+  const ink = '#77746c', grid = 'rgba(44,44,42,0.16)';
   let curve;
   function render(preset) {
     let s = D.series;
