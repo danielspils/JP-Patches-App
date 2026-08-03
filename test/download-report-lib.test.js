@@ -202,12 +202,16 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   assert.match(body, /\nDOWNLOADS BY COUNTRY — TOTAL\n {2}none\n/);
 });
 
-test('renderBody carries the static HOW THIS IS COUNTED bullets verbatim, and ends there', async () => {
+test('HOW THIS IS COUNTED: 4 bullets when no borrows this window; borrow bullets only with borrows', async () => {
   const { renderBody } = await libP;
-  const body = renderBody(model());
-  assert.match(body, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n {2}• Borrows = a lending-library file taken via jx-3p\.com or the app\.\n {2}• Borrows are their own metric — not part of the downloads above\.\n$/);
-  // The CTA is composed by the driver, not renderBody.
-  assert.doesNotMatch(body, /Click here|goatcounter/);
+  // Download-only report (no borrows this window) → the two borrow bullets are absent.
+  const plain = renderBody(model());
+  assert.match(plain, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n$/);
+  assert.doesNotMatch(plain, /Borrows =|Click here|goatcounter/);
+
+  // A borrow this window → the two borrow bullets join the footer.
+  const withBorrows = renderBody(libModel());
+  assert.match(withBorrows, /• PC has no auto-updater yet\.\n {2}• Borrows = a lending-library file taken via jx-3p\.com or the app\.\n {2}• Borrows are their own metric — not part of the downloads above\.\n$/);
 });
 
 test('renderBody never claims a per-line site/GitHub split', async () => {
@@ -217,9 +221,11 @@ test('renderBody never claims a per-line site/GitHub split', async () => {
 
 test('renderBody emits the section headings in order', async () => {
   const { renderBody } = await libP;
-  const body = renderBody(model());
-  // MAC UPDATES sits near the bottom (it's rare and activity-gated), so the
-  // download sections stay grouped together at the top.
+  // Borrow sections join only when there was a borrow this window, so the
+  // full ordering is asserted on a model WITH borrows. MAC UPDATES and the
+  // borrow blocks are both activity-gated and sit near the bottom, keeping
+  // the download sections grouped together at the top.
+  const body = renderBody(libModel());
   const order = [
     'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
     'DOWNLOADS BY COUNTRY — LAST 7 DAYS', 'DOWNLOADS BY COUNTRY — TOTAL',
@@ -441,11 +447,19 @@ test('renderBody shows the Older-app row only while the unknown bucket is non-ze
   assert.match(withUnknown, /\nLIFETIME LIBRARY BORROWS\n {2}Patches {10}1\n {2}Sequences {8}0\n {2}Older app {8}7\n/);
 });
 
-test('renderBody borrow block degrades to zeros / none when the Worker is unreachable', async () => {
+test('renderBody omits the borrow section entirely when there are no borrows this window', async () => {
   const { renderBody } = await libP;
-  const body = renderBody(model({ library: undefined }));   // no library key at all
-  assert.match(body, /\nLIBRARY BORROWS YESTERDAY\n {2}Patches {10}\+0\n {2}Sequences {8}\+0\n/);
-  assert.match(body, /\nLIBRARY BORROWS BY COUNTRY\n {2}none\n/);
+  // No library data at all (Worker unreachable) → no borrow sections.
+  assert.doesNotMatch(renderBody(model({ library: undefined })), /LIBRARY BORROWS|Borrows/);
+  // Library data present but zero borrows this window → still omitted, even
+  // with a non-zero lifetime (only window activity earns the space).
+  const quiet = renderBody(libModel({
+    library: {
+      window: { patches: 0, sequences: 0, unknown: 0, byCountry: {} },
+      lifetime: { patches: 41, sequences: 19, unknown: 0 },
+    },
+  }));
+  assert.doesNotMatch(quiet, /LIBRARY BORROWS|Borrows/);
 });
 
 test('historyRow appends d_borrow_*/borrow_* columns when borrow data is present', async () => {

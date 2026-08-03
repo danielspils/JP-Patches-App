@@ -422,29 +422,35 @@ export function renderBody(model) {
 
   // Lending-library borrows — a SEPARATE metric from the downloads above (a
   // borrow is a shared C/D bank or sequence taken from the site or the app,
-  // not an app install). Own block, never summed with or capped by downloads.
-  out.push(...metricBlock('LIBRARY BORROWS YESTERDAY',
-    library ? borrowRows(library.window, true) : [{ label: 'Patches', n: 0, delta: true }, { label: 'Sequences', n: 0, delta: true }]));
-  out.push('');
+  // not an app install). Borrows are rare, so the WHOLE section appears only
+  // when there was a borrow in this window — a download-only report stays
+  // uncluttered. (A borrow also triggers a send, so any borrow day surfaces.)
+  const wb = library ? kinds(library.window) : null;
+  const hasBorrows = wb ? wb.patches + wb.sequences + wb.unknown > 0 : false;
+  if (hasBorrows) {
+    out.push(...metricBlock('LIBRARY BORROWS YESTERDAY', borrowRows(library.window, true)));
+    out.push('');
 
-  out.push('LIBRARY BORROWS BY COUNTRY');
-  out.push(...(library ? borrowCountryTable(library.window.byCountry) : [`${INDENT}none`]));
-  out.push('');
+    out.push('LIBRARY BORROWS BY COUNTRY');
+    out.push(...borrowCountryTable(library.window.byCountry));
+    out.push('');
 
-  out.push(...metricBlock('LIFETIME LIBRARY BORROWS',
-    library ? borrowRows(library.lifetime, false) : [{ label: 'Patches', n: 0, delta: false }, { label: 'Sequences', n: 0, delta: false }]));
-  out.push('');
+    out.push(...metricBlock('LIFETIME LIBRARY BORROWS', borrowRows(library.lifetime, false)));
+    out.push('');
+  }
 
   // Static — deliberately not templated. Bulleted; the middle two lines are
-  // why the Country and Downloads numbers never tie out. The last two keep the
-  // separate lending-library borrow metric from being read as app downloads.
+  // why the Country and Downloads numbers never tie out. The borrow lines only
+  // join when the borrow section is shown (nothing to explain otherwise).
   out.push('HOW THIS IS COUNTED');
   out.push('  • Country = button clicks via jx-3p.com');
   out.push('  • Downloads = a file served via GitHub.');
   out.push('  • Therefore, Country & Downloads metrics will never match.');
   out.push('  • PC has no auto-updater yet.');
-  out.push('  • Borrows = a lending-library file taken via jx-3p.com or the app.');
-  out.push('  • Borrows are their own metric — not part of the downloads above.');
+  if (hasBorrows) {
+    out.push('  • Borrows = a lending-library file taken via jx-3p.com or the app.');
+    out.push('  • Borrows are their own metric — not part of the downloads above.');
+  }
 
   return out.join('\n') + '\n';
 }
