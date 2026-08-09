@@ -8,14 +8,7 @@ permalink: /notes/
 
 <p class="notes-subhead">Thoughts on JP Patches, JX-3P, PG-200, synth cetera&hellip;</p>
 
-<form class="notes-subscribe" action="https://buttondown.com/api/emails/embed-subscribe/jp-patches" method="post" target="_blank">
-  <div class="notes-subscribe-head">Get Notes by email. Unsubscribe anytime.</div>
-  <p class="notes-subscribe-sub">New posts about JP Patches, features, and updates. I post infrequently.</p>
-  <div class="notes-subscribe-row">
-    <input type="email" name="email" required placeholder="you@example.com" aria-label="Email address">
-    <button type="submit">Subscribe</button>
-  </div>
-</form>
+{% include subscribe-form.html %}
 
 <div class="notes-list">
 {% if site.posts.size > 0 %}
