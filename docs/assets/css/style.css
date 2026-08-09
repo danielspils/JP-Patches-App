@@ -1296,6 +1296,56 @@ body {
   font-style: italic;
 }
 
+/* Notes email-subscribe form (Buttondown embed). Same parallelogram CTA
+   language as the download buttons; input styled to sit beside it. */
+.notes-subscribe {
+  margin: 24px 0 4px;
+  padding: 16px 20px;
+  background: #faf8f3;
+  border: 1px solid var(--body-border);
+}
+.notes-subscribe-head {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--body-text);
+}
+.notes-subscribe-sub {
+  margin: 2px 0 12px;
+  font-size: 13px;
+  color: var(--body-text-mid);
+}
+.notes-subscribe-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.notes-subscribe input[type="email"] {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  font: 14px var(--font-stack);
+  color: var(--body-text);
+  background: #fff;
+  border: 1px solid var(--body-border);
+}
+.notes-subscribe input[type="email"]:focus {
+  outline: none;
+  border-color: var(--roland-green);
+}
+.notes-subscribe button {
+  padding: 8px 28px;
+  font: 600 14px var(--font-stack);
+  letter-spacing: 0.02em;
+  color: var(--cream);
+  background: var(--roland-green);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+}
+.notes-subscribe button:hover { background: var(--roland-green-hot); }
+.notes-subscribe button:active { transform: translateY(1px); }
+
 /* Individual post page (layout: post) */
 .note-post-head { margin-bottom: 24px; }
 .note-post-title { margin: 0 0 6px; }
