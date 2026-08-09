@@ -465,3 +465,44 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 })();
+
+// ── Notes subscribe form: stay on-site ─────────────────────────────
+// The Buttondown embed endpoint normally lands the user on Buttondown's
+// hosted "check your email" page. Intercept the submit and POST in the
+// background instead, replacing the input row with an inline confirmation
+// so the whole subscribe moment stays on jx-3p.com. no-cors: the endpoint
+// has no CORS headers, so the response is opaque — the POST itself still
+// registers the subscriber; client-side validation (type=email + required)
+// screens malformed input before send. If fetch itself fails (offline),
+// fall through to the plain form submit so the subscribe still works.
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.querySelector('.notes-subscribe');
+    if (!form) return;
+    form.addEventListener('submit', function onSubscribeSubmit(e) {
+      e.preventDefault();
+      var input = form.querySelector('input[type="email"]');
+      var btn = form.querySelector('button');
+      var email = (input.value || '').trim();
+      if (!email) return;
+      btn.disabled = true;
+      btn.textContent = 'Subscribing…';
+      fetch(form.action, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=' + encodeURIComponent(email),
+      }).then(function () {
+        form.querySelector('.notes-subscribe-row').outerHTML =
+          '<p class="notes-subscribe-done">Check your email to confirm your subscription.</p>';
+      }).catch(function () {
+        // Network failure — restore the button and let the native form
+        // submit take over on the next click (lands on Buttondown's page,
+        // but the subscribe succeeds).
+        btn.disabled = false;
+        btn.textContent = 'Subscribe';
+        form.removeEventListener('submit', onSubscribeSubmit);
+      });
+    });
+  });
+})();

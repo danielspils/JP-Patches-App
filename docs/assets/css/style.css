@@ -1345,6 +1345,12 @@ body {
 }
 .notes-subscribe button:hover { background: var(--roland-green-hot); }
 .notes-subscribe button:active { transform: translateY(1px); }
+.notes-subscribe-done {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--roland-green);
+}
 
 /* Individual post page (layout: post) */
 .note-post-head { margin-bottom: 24px; }
