@@ -275,7 +275,10 @@ function metricBlock(title, rows) {
   const width = Math.max(...rows.map((r) => token(r).length));
   const lines = [title];
   for (const r of rows) {
-    lines.push((INDENT + r.label.padEnd(LABEL_W) + token(r).padEnd(width)).replace(/\s+$/, ''));
+    // note = a parenthetical after the number (e.g. the click countries for
+    // this window). Purely informational — omitted when empty.
+    const tail = r.note ? `${token(r).padEnd(width)} (${r.note})` : token(r).padEnd(width);
+    lines.push((INDENT + r.label.padEnd(LABEL_W) + tail).replace(/\s+$/, ''));
   }
   return lines;
 }
@@ -375,9 +378,22 @@ export function renderBody(model) {
     ? ` SINCE LAST REPORT (${daysSince} day${daysSince === 1 ? '' : 's'} ago)`
     : '';
 
+  // Click countries for this window, per platform — appended as a
+  // parenthetical on the matching delta line, e.g. "Mac  +1 (United States)".
+  // These are jx-3p.com CLICK countries (downloads have no geography), so
+  // they're a rough "where from" signal, not an attribution: shown only when
+  // the platform's delta > 0 AND the window had clicks for it; the counts may
+  // not line up 1:1 with the delta (the footer explains why).
+  const clickNote = (p) => {
+    if (!site || !site.window) return '';
+    return countryRows(site.window)
+      .filter((r) => r[p] > 0)
+      .sort((a, b) => (b[p] - a[p]) || a.name.localeCompare(b.name))
+      .map((r) => r.name).join(', ');
+  };
   out.push(...metricBlock(`NEW DOWNLOADS${sinceLabel}`, [
-    { label: 'Mac', n: delta.macNew, delta: true },
-    { label: 'PC', n: delta.pcNew, delta: true },
+    { label: 'Mac', n: delta.macNew, delta: true, note: delta.macNew > 0 ? clickNote('mac') : '' },
+    { label: 'PC', n: delta.pcNew, delta: true, note: delta.pcNew > 0 ? clickNote('pc') : '' },
   ]));
   out.push('');
 

@@ -130,7 +130,7 @@ const report = renderBody({
   daysSince,
   delta,
   lifetime: now,
-  site: site ? { week: week?.byCountry || null, lifetime: site.lifetime } : null,
+  site: site ? { week: week?.byCountry || null, window: site.window.byCountry || null, lifetime: site.lifetime } : null,
   library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 

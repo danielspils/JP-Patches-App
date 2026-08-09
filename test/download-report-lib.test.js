@@ -281,6 +281,18 @@ test('ctaBullet: two plain footer bullets — site metrics page, then GoatCounte
   );
 });
 
+test('delta lines carry click countries only when delta > 0 and clicks exist', async () => {
+  const { renderBody } = await libP;
+  const m = model();
+  // window clicks: US mac-only, SE both — Mac note lists both (by mac count),
+  // PC delta is 0 so its line gets NO note even though PC clicks exist.
+  m.delta.macNew = 2; m.delta.pcNew = 0;
+  m.site.window = { US: { mac: 2, pc: 0 }, SE: { mac: 1, pc: 3 } };
+  const body = renderBody(m);
+  assert.match(body, /\n {2}Mac {14}\+2 \(United States, Sweden\)\n/);
+  assert.match(body, /\n {2}PC {15}\+0\n/);
+});
+
 test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {
   const { historyRow } = await libP;
   const row = historyRow({
