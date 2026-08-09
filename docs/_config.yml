@@ -15,8 +15,12 @@ url: "https://jx-3p.com"
 
 # GitHub Pages natively supports jekyll-sitemap — generates /sitemap.xml so
 # Google can discover and crawl the site. Submit it in Search Console.
+# jekyll-feed (also Pages-native) generates an Atom feed of the Notes posts at
+# /feed.xml — the plumbing for RSS readers AND Buttondown's post-to-email
+# automation (it watches the feed and mails subscribers on each new post).
 plugins:
   - jekyll-sitemap
+  - jekyll-feed
 
 # Front-matter defaults.
 # Blog posts (docs/_posts/*.md → the Notes section) automatically get the

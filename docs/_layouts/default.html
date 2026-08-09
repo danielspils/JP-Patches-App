@@ -51,6 +51,9 @@
        changes show up immediately instead of waiting out the 10-min
        max-age on GitHub Pages assets. -->
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}?v={{ site.time | date: '%s' }}">
+  <!-- Atom feed of the Notes posts (jekyll-feed) — lets RSS readers
+       auto-discover the feed from any page. -->
+  <link rel="alternate" type="application/atom+xml" title="JP Patches — Notes" href="{{ '/feed.xml' | relative_url }}">
 </head>
 <body>
   <header class="site-header" aria-label="Site header">
