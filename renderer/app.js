@@ -11978,6 +11978,58 @@ async function init() {
     await showUsagePingNotice();
   }
   maybeSendUsagePing();
+  maybeShowNotesStrip();
+}
+
+// ── "New on Notes" strip ────────────────────────────────────────────
+// A quiet, dismissible one-liner (bottom-right, over the panel) when the
+// Notes blog has a post the user hasn't seen. The feed fetch is main-side
+// (notes-latest — fixed jx-3p.com URL, nothing sent); this side only decides
+// newness via library.notes.lastSeen and renders. Never blocks startup, never
+// shows on failure, shows at most once per post.
+async function maybeShowNotesStrip() {
+  if (!window.api || typeof window.api.notesLatest !== 'function') return;
+  let latest;
+  try { latest = await window.api.notesLatest(); } catch { return; }
+  if (!latest || !latest.ok || !latest.url || !latest.title) return;
+  if (library.notes && library.notes.lastSeen === latest.url) return;
+
+  const markSeen = () => {
+    if (!library.notes) library.notes = {};
+    library.notes.lastSeen = latest.url;
+    saveLibraryDebounced();
+  };
+
+  const strip = document.createElement('div');
+  strip.className = 'notes-strip';
+
+  const tag = document.createElement('span');
+  tag.className = 'notes-strip-tag';
+  tag.textContent = 'NOTES';
+
+  const link = document.createElement('button');
+  link.className = 'notes-strip-link';
+  link.textContent = latest.title;
+  link.title = 'Read on jx-3p.com';
+  link.addEventListener('click', () => {
+    window.api.openExternal(latest.url);
+    markSeen();
+    strip.remove();
+  });
+
+  const dismiss = document.createElement('button');
+  dismiss.className = 'notes-strip-dismiss';
+  dismiss.textContent = '×';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.addEventListener('click', () => {
+    markSeen();
+    strip.remove();
+  });
+
+  strip.appendChild(tag);
+  strip.appendChild(link);
+  strip.appendChild(dismiss);
+  document.body.appendChild(strip);
 }
 
 // v0.7.0 — gear icon in the panel's red header strip (top-right). Opens

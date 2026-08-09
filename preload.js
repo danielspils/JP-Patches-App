@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('api', {
   // Web Audio-based probes. Returns the device's CURRENT native rate,
   // always fresh, never cached. See main.js for shape and rationale.
   audioInputRates:     ()        => ipcRenderer.invoke('audio-input-rates'),
+  // Latest Notes blog post from the site's Atom feed (fixed jx-3p.com URL,
+  // nothing sent). Renderer decides whether it's "new" via library.notes.
+  notesLatest:         ()        => ipcRenderer.invoke('notes-latest'),
   // Anonymous once-a-day active-install ping. Takes NO arguments on purpose:
   // main states the entire payload (app version + mac|win, nothing else), so
   // the renderer can't influence what is sent — it only decides WHETHER to

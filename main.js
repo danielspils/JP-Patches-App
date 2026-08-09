@@ -500,6 +500,35 @@ async function lendingFetch(url) {
   }
 }
 
+// Latest Notes post, from the site's Atom feed. Same trust posture as the
+// lending manifest: fixed jx-3p.com URL, nothing about the user is sent — a
+// plain GET the renderer can only trigger, not aim. The renderer compares the
+// result against library.notes.lastSeen and decides whether to show its
+// one-line "new on Notes" strip. Best-effort: any failure returns {ok:false}
+// and the app simply shows nothing.
+const NOTES_FEED_URL = 'https://jx-3p.com/feed.xml';
+
+ipcMain.handle('notes-latest', async () => {
+  try {
+    const xml = await lendingFetch(NOTES_FEED_URL);
+    // jekyll-feed emits entries newest-first; take the first.
+    const entry = (xml.match(/<entry>[\s\S]*?<\/entry>/) || [])[0];
+    if (!entry) return { ok: false };
+    const title = (entry.match(/<title[^>]*>([\s\S]*?)<\/title>/) || [])[1] || '';
+    const url = (entry.match(/<link[^>]*href="([^"]+)"/) || [])[1] || '';
+    const published = (entry.match(/<published>([^<]+)<\/published>/) || [])[1] || '';
+    // Belt-and-braces on top of the fixed feed URL: only ever hand the
+    // renderer a link back to the site itself (openExternal re-checks too).
+    if (!url.startsWith('https://jx-3p.com/')) return { ok: false };
+    const decode = (s) => s
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    return { ok: true, title: decode(title).trim(), url, published };
+  } catch {
+    return { ok: false };
+  }
+});
+
 // Fetch + parse the lending-library manifest. Returns {ok, manifest} or
 // {ok: false, error} — renderer decides whether to fall back to its
 // cached copy in library.json.
