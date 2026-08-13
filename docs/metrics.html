@@ -20,15 +20,19 @@ sitemap: false
   .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
   .stat .lbl { font-size:12px; color:var(--mut); margin-bottom:4px; }
   .stat .val { font-size:26px; font-weight:600; }
-  .stat-hero { grid-column: span 2; display:flex; gap:36px; border-color:#c39a3a; }
+  /* Scope color couples the selected filter to the tiles it governs:
+     amber = lifetime (All time), blue = a day-range window. Set as --scope
+     on .wrap by render(); Active today never carries it (not filterable). */
+  .stat-hero { grid-column: span 2; display:flex; gap:36px; border-color:var(--scope,#c39a3a); }
+  .stat.scoped { border-color:var(--scope,#c39a3a); }
   @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
-  .winline { margin:-4px 0 12px; font-size:13px; font-weight:600; color:#1f6e5b; }
+  .winline { margin:-4px 0 12px; font-size:13px; font-weight:600; color:var(--scope,#c39a3a); }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
   .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
   .ctl { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .ctl button { font:13px Helvetica, Arial, sans-serif; padding:5px 12px; border:1px solid var(--line);
     background:#fff; color:var(--ink); border-radius:6px; cursor:pointer; }
-  .ctl button.on { background:var(--green); color:#fff; border-color:var(--green); }
+  .ctl button.on { background:var(--scope,#c39a3a); color:#fff; border-color:var(--scope,#c39a3a); }
   .legend { display:flex; gap:16px; margin-bottom:8px; font-size:12px; color:var(--mut); }
   .legend span { display:flex; align-items:center; gap:5px; }
   .sw { width:11px; height:11px; border-radius:2px; display:inline-block; }
@@ -93,28 +97,30 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   // pings carry no identifier, so cross-day counts would double-count the
   // same install. This year falls back to lifetime (KV daily detail ends at
   // 90 days; for 2026 they're the same thing anyway).
+  // No window-suffix in the labels and no plus signs: the scope COLOR carries
+  // the meaning — the selected filter button and the tiles it governs share
+  // the same Roland accent (amber = lifetime, green/red/blue = 7/30/90 days).
+  // Active today stays unaccented in every view: it never follows the filter.
   function renderCards(preset, dMac, dPc) {
     const w = D.windows && D.windows[preset];
     const windowed = !!w && dMac !== null;
-    const suffix = windowed ? ` · last ${preset} days` : '';
-    const hero = windowed
-      ? `<div class="stat stat-hero">` +
-        `<div><div class="lbl">Downloads${suffix}</div><div class="val">+${dMac + dPc}</div></div>` +
-        `<div><div class="lbl">Mac / PC</div><div class="val">+${dMac} / +${dPc}</div></div>` +
-        `</div>`
-      : `<div class="stat stat-hero">` +
-        `<div><div class="lbl">Total downloads</div><div class="val">${D.downloads.mac + D.downloads.pc}</div></div>` +
-        `<div><div class="lbl">Mac / PC</div><div class="val">${D.downloads.mac} / ${D.downloads.pc}</div></div>` +
-        `</div>`;
+    const mac = windowed ? dMac : D.downloads.mac;
+    const pc = windowed ? dPc : D.downloads.pc;
+    const hero =
+      `<div class="stat stat-hero">` +
+      `<div><div class="lbl">${windowed ? 'Downloads' : 'Total downloads'}</div><div class="val">${mac + pc}</div></div>` +
+      `<div><div class="lbl">Mac / PC</div><div class="val">${mac} / ${pc}</div></div>` +
+      `</div>`;
     const countries = windowed && w.countries !== null ? w.countries : Object.keys(D.byCountry).length;
     const borrows = windowed && w.borrows !== null ? w.borrows : D.borrows;
+    const scoped = windowed ? ' scoped' : '';
     const stats = [
-      [`Countries${windowed ? suffix : ' reached'}`, countries],
-      [`Library borrows${suffix}`, borrows],
-      ['Active today', D.activeToday],
+      [windowed ? 'Countries' : 'Countries reached', countries, scoped],
+      ['Library borrows', borrows, scoped],
+      ['Active today', D.activeToday, ''],
     ];
-    document.getElementById('stats').innerHTML = hero + stats.map(([l,v]) =>
-      `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+    document.getElementById('stats').innerHTML = hero + stats.map(([l,v,c]) =>
+      `<div class="stat${c}"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
   }
 
   // Grid is a translucent neutral (not a solid cream-tinted hex) so the same
@@ -143,12 +149,17 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       dMac = last.mac - base.mac; dPc = last.pc - base.pc;
     }
 
-    // The window's answer, next to the filter that created it:
-    // "Last 7 days: +18 downloads · Mac +12 · PC +6". Hidden on All time
-    // (the hero card already IS that number).
+    // Scope accent: the selected button + the tiles it governs share a Roland
+    // color. Amber = lifetime (This year included — it IS lifetime data until
+    // 2027); green/red/blue = the 7/30/90-day windows.
+    const SCOPE = { all: '#c39a3a', ytd: '#c39a3a', 90: '#33508f', 30: '#b94a2e', 7: '#1f6e5b' };
+    document.querySelector('.wrap').style.setProperty('--scope', SCOPE[preset] || '#c39a3a');
+
+    // The window's answer, next to the filter that created it. Hidden on
+    // All time (the hero card already IS that number).
     const winline = document.getElementById('winline');
     if (dMac !== null) {
-      winline.textContent = `${PRESET_LABEL[preset]}: +${dMac + dPc} downloads · Mac +${dMac} · PC +${dPc}`;
+      winline.textContent = `${PRESET_LABEL[preset]}: ${dMac + dPc} downloads · Mac ${dMac} · PC ${dPc}`;
       winline.style.display = '';
     } else {
       winline.style.display = 'none';
@@ -172,7 +183,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
             const total = ctx.parsed.y;
             if (!base) return `${ctx.dataset.label}: ${total}`;
             const gain = total - (ctx.dataset.label === 'Mac' ? base.mac : base.pc);
-            return `${ctx.dataset.label}: ${total} (+${gain} in window)`;
+            return `${ctx.dataset.label}: ${total} (${gain} in window)`;
           } } } },
         scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink} },
                  x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } }
