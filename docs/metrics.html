@@ -87,21 +87,35 @@ const fmtDate = (iso) => { const [y,m,d]=iso.split('-').map(Number); return new 
 fetch('data.json').then(r=>r.json()).then(D=>{
   document.getElementById('asof').textContent = D.asOf ? `As of ${fmtDate(D.asOf)} · updates daily` : 'updates daily';
 
-  // Hero card first: the total, with the Mac/PC split as its companion stat
-  // (amber accent = the headline number). Then the three singles.
-  const total = D.downloads.mac + D.downloads.pc;
-  const hero =
-    `<div class="stat stat-hero">` +
-    `<div><div class="lbl">Total downloads</div><div class="val">${total}</div></div>` +
-    `<div><div class="lbl">Mac / PC</div><div class="val">${D.downloads.mac} / ${D.downloads.pc}</div></div>` +
-    `</div>`;
-  const stats = [
-    ['Countries reached', Object.keys(D.byCountry).length],
-    ['Library borrows', D.borrows],
-    ['Active today', D.activeToday],
-  ];
-  document.getElementById('stats').innerHTML = hero + stats.map(([l,v]) =>
-    `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+  // Stat cards follow the chart filter. Lifetime view = the totals; a 7/30/90
+  // window swaps in that window's numbers (the Worker's daily keys retain 90
+  // days, so all three presets are exact). "Active today" never windows —
+  // pings carry no identifier, so cross-day counts would double-count the
+  // same install. This year falls back to lifetime (KV daily detail ends at
+  // 90 days; for 2026 they're the same thing anyway).
+  function renderCards(preset, dMac, dPc) {
+    const w = D.windows && D.windows[preset];
+    const windowed = !!w && dMac !== null;
+    const suffix = windowed ? ` · last ${preset} days` : '';
+    const hero = windowed
+      ? `<div class="stat stat-hero">` +
+        `<div><div class="lbl">Downloads${suffix}</div><div class="val">+${dMac + dPc}</div></div>` +
+        `<div><div class="lbl">Mac / PC</div><div class="val">+${dMac} / +${dPc}</div></div>` +
+        `</div>`
+      : `<div class="stat stat-hero">` +
+        `<div><div class="lbl">Total downloads</div><div class="val">${D.downloads.mac + D.downloads.pc}</div></div>` +
+        `<div><div class="lbl">Mac / PC</div><div class="val">${D.downloads.mac} / ${D.downloads.pc}</div></div>` +
+        `</div>`;
+    const countries = windowed && w.countries !== null ? w.countries : Object.keys(D.byCountry).length;
+    const borrows = windowed && w.borrows !== null ? w.borrows : D.borrows;
+    const stats = [
+      [`Countries${windowed ? suffix : ' reached'}`, countries],
+      [`Library borrows${suffix}`, borrows],
+      ['Active today', D.activeToday],
+    ];
+    document.getElementById('stats').innerHTML = hero + stats.map(([l,v]) =>
+      `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+  }
 
   // Grid is a translucent neutral (not a solid cream-tinted hex) so the same
   // hairline reads on the cream page AND over the dark Roland fills — paired
@@ -122,18 +136,26 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       base = before.length ? before[before.length - 1] : { mac: 0, pc: 0 };
     }
 
+    // Window deltas from the series (baseline = last pre-window point).
+    let dMac = null, dPc = null;
+    if (base && s.length) {
+      const last = s[s.length - 1];
+      dMac = last.mac - base.mac; dPc = last.pc - base.pc;
+    }
+
     // The window's answer, next to the filter that created it:
     // "Last 7 days: +18 downloads · Mac +12 · PC +6". Hidden on All time
     // (the hero card already IS that number).
     const winline = document.getElementById('winline');
-    if (base && s.length) {
-      const last = s[s.length - 1];
-      const dMac = last.mac - base.mac, dPc = last.pc - base.pc;
+    if (dMac !== null) {
       winline.textContent = `${PRESET_LABEL[preset]}: +${dMac + dPc} downloads · Mac +${dMac} · PC +${dPc}`;
       winline.style.display = '';
     } else {
       winline.style.display = 'none';
     }
+
+    // Cards follow the filter too (lifetime on All time / This year).
+    renderCards(preset, dMac, dPc);
 
     const labels = s.map(p=>fmtDate(p.date));
     if (curve) curve.destroy();
