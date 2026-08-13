@@ -20,6 +20,8 @@ sitemap: false
   .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
   .stat .lbl { font-size:12px; color:var(--mut); margin-bottom:4px; }
   .stat .val { font-size:26px; font-weight:600; }
+  .stat-hero { grid-column: span 2; display:flex; gap:36px; border-color:#c39a3a; }
+  @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
   .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
   .ctl { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
@@ -83,14 +85,20 @@ const fmtDate = (iso) => { const [y,m,d]=iso.split('-').map(Number); return new 
 fetch('data.json').then(r=>r.json()).then(D=>{
   document.getElementById('asof').textContent = D.asOf ? `As of ${fmtDate(D.asOf)} · updates daily` : 'updates daily';
 
+  // Hero card first: the total, with the Mac/PC split as its companion stat
+  // (amber accent = the headline number). Then the three singles.
+  const total = D.downloads.mac + D.downloads.pc;
+  const hero =
+    `<div class="stat stat-hero">` +
+    `<div><div class="lbl">Total downloads</div><div class="val">${total}</div></div>` +
+    `<div><div class="lbl">Mac / PC</div><div class="val">${D.downloads.mac} / ${D.downloads.pc}</div></div>` +
+    `</div>`;
   const stats = [
-    ['Downloads · Mac', D.downloads.mac],
-    ['Downloads · PC', D.downloads.pc],
     ['Countries reached', Object.keys(D.byCountry).length],
     ['Library borrows', D.borrows],
     ['Active today', D.activeToday],
   ];
-  document.getElementById('stats').innerHTML = stats.map(([l,v]) =>
+  document.getElementById('stats').innerHTML = hero + stats.map(([l,v]) =>
     `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
 
   // Grid is a translucent neutral (not a solid cream-tinted hex) so the same
