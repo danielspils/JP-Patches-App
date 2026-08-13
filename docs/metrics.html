@@ -46,6 +46,8 @@ sitemap: false
   .ctl button.on { background:var(--scope,#c39a3a); color:#fff; border-color:var(--scope,#c39a3a); }
   .legend { display:flex; gap:16px; margin-bottom:8px; font-size:12px; color:var(--mut); }
   .legend span { display:flex; align-items:center; gap:5px; }
+  .legend span[data-di] { cursor:pointer; }
+  .legend span[data-di]:hover { color:var(--ink); text-decoration:underline; }
   .sw { width:11px; height:11px; border-radius:2px; display:inline-block; }
   .chart { position:relative; width:100%; margin-bottom:36px; }
   .note { border-top:1px solid var(--line); padding-top:16px; margin-top:12px; font-size:12px; color:var(--mut); }
@@ -176,8 +178,10 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       interaction:{mode:'index',intersect:false}, plugins:{ legend:{display:false} },
       scales:{ y:{ stacked, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink, precision:0} },
                x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } });
-    const swatches = (rows) => { legend.innerHTML = rows.map(([c,n]) =>
-      `<span><i class="sw" style="background:${c}"></i>${n}</span>`).join(''); };
+    // rows: [color, name, datasetIndex] — the index ties a legend entry to
+    // its dataset so hover can spotlight it (see the #legend handlers).
+    const swatches = (rows) => { legend.innerHTML = rows.map(([c,n,di]) =>
+      `<span data-di="${di}"><i class="sw" style="background:${c}"></i>${n}</span>`).join(''); };
     // Slice an alternate series ({dates, series}) to the active window.
     const slice = (cs) => {
       const idx = cs.dates.map((d,i)=>[d,i]).filter(([d])=>!cutoff || d >= cutoff).map(([,i])=>i);
@@ -195,7 +199,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
         .map(([cc,arr]) => [cc, pick(arr)])
         .sort((a,b) => (b[1][b[1].length-1]||0) - (a[1][a[1].length-1]||0))
         .slice(0, 8);
-      swatches(tops.map(([cc],i) => [PAL[i], NAMES[cc]||cc]));
+      swatches(tops.map(([cc],i) => [PAL[i], NAMES[cc]||cc, i]));
       curve = new Chart(document.getElementById('curve'), {
         type:'line',
         data:{ labels, datasets: tops.map(([cc,arr],i) => (
@@ -212,7 +216,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       const { labels, pick } = slice(D.borrowSeries);
       const KINDS = [['patches','Patches','#1f6e5b'],['sequences','Sequences','#33508f'],['unknown','Older app','#77746c']];
       const rows = KINDS.filter(([k]) => D.borrowSeries.series[k]);
-      swatches(rows.map(([,n,c]) => [c,n]));
+      swatches(rows.map(([,n,c],i) => [c,n,i]));
       curve = new Chart(document.getElementById('curve'), {
         type:'line',
         data:{ labels, datasets: rows.map(([k,n,c]) => (
@@ -226,7 +230,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     // Default: the downloads curve.
     title.textContent = 'Cumulative downloads over time';
     sub.textContent = 'GitHub download counts · the running total to date';
-    swatches([['#1f6e5b','Mac'],['#b94a2e','PC']]);
+    swatches([['#1f6e5b','Mac',1],['#b94a2e','PC',0]]);   // dataset order is [PC, Mac]
     const labels = s.map(p=>fmtDate(p.date));
     curve = new Chart(document.getElementById('curve'), {
       type:'line',
@@ -256,6 +260,30 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   document.getElementById('stats').addEventListener('click', (e)=>{
     const t = e.target.closest('.stat[data-mode]'); if(!t) return;
     curMode = t.dataset.mode; render(curPreset);
+  });
+
+  // Legend hover = spotlight that dataset: it keeps full color and thickens,
+  // every other line fades to a neutral gray — so telling lines apart never
+  // depends on color alone (color-vision accessibility).
+  const spotlight = (di) => {
+    if (!curve) return;
+    curve.data.datasets.forEach((ds, i) => {
+      if (ds._c === undefined) { ds._c = ds.borderColor; ds._bg = ds.backgroundColor; ds._w = ds.borderWidth; }
+      const dim = 'rgba(120,116,108,0.18)';
+      ds.borderColor = (di === null || i === di) ? ds._c : dim;
+      ds.backgroundColor = (di === null || i === di) ? ds._bg : dim;
+      ds.borderWidth = (i === di) ? 3.5 : ds._w;
+    });
+    curve.update('none');
+  };
+  const legendEl = document.getElementById('legend');
+  legendEl.addEventListener('mouseover', (e)=>{
+    const s = e.target.closest('span[data-di]'); if(!s) return;
+    spotlight(Number(s.dataset.di));
+  });
+  legendEl.addEventListener('mouseout', (e)=>{
+    const s = e.target.closest('span[data-di]'); if(!s) return;
+    spotlight(null);
   });
 
   const cc = Object.entries(D.byCountry).sort((a,b)=>b[1]-a[1]);
