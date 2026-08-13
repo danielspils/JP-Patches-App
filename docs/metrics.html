@@ -24,7 +24,15 @@ sitemap: false
      amber = lifetime (All time), blue = a day-range window. Set as --scope
      on .wrap by render(); Active today never carries it (not filterable). */
   .stat-hero { grid-column: span 2; display:flex; gap:36px; border-color:var(--scope,#c39a3a); }
-  .stat.scoped { border-color:var(--scope,#c39a3a); }
+  /* Windowed views: the governed tiles FILL with the scope color, matching
+     the selected filter button exactly — the color is the date connection.
+     All time keeps the amber-border-on-cream hero (the original design). */
+  .stat.scoped {
+    background: var(--scope,#c39a3a);
+    border-color: var(--scope,#c39a3a);
+  }
+  .stat.scoped .lbl { color: rgba(247,241,230,0.78); }
+  .stat.scoped .val { color: #f7f1e6; }
   @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
   .winline { margin:-4px 0 12px; font-size:13px; font-weight:600; color:var(--scope,#c39a3a); }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
@@ -106,16 +114,16 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     const windowed = !!w && dMac !== null;
     const mac = windowed ? dMac : D.downloads.mac;
     const pc = windowed ? dPc : D.downloads.pc;
+    const scoped = windowed ? ' scoped' : '';
     const hero =
-      `<div class="stat stat-hero">` +
+      `<div class="stat stat-hero${scoped}">` +
       `<div><div class="lbl">${windowed ? 'Downloads' : 'Total downloads'}</div><div class="val">${mac + pc}</div></div>` +
       `<div><div class="lbl">Mac / PC</div><div class="val">${mac} / ${pc}</div></div>` +
       `</div>`;
     const countries = windowed && w.countries !== null ? w.countries : Object.keys(D.byCountry).length;
     const borrows = windowed && w.borrows !== null ? w.borrows : D.borrows;
-    const scoped = windowed ? ' scoped' : '';
     const stats = [
-      [windowed ? 'Countries' : 'Countries reached', countries, scoped],
+      ['Countries', countries, scoped],
       ['Library borrows', borrows, scoped],
       ['Active today', D.activeToday, ''],
     ];
