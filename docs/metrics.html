@@ -22,6 +22,7 @@ sitemap: false
   .stat .val { font-size:26px; font-weight:600; }
   .stat-hero { grid-column: span 2; display:flex; gap:36px; border-color:#c39a3a; }
   @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
+  .winline { margin:-4px 0 12px; font-size:13px; font-weight:600; color:#1f6e5b; }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
   .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
   .ctl { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
@@ -53,6 +54,7 @@ sitemap: false
     <button data-r="30">Last 30 days</button>
     <button data-r="7">Last 7 days</button>
   </div>
+  <p class="winline" id="winline" style="display:none"></p>
   <div class="legend">
     <span><i class="sw" style="background:#1f6e5b"></i>Mac</span>
     <span><i class="sw" style="background:#b94a2e"></i>PC</span>
@@ -106,14 +108,33 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   // with grid z:1, which draws the lines on top of the fills.
   const ink = '#77746c', grid = 'rgba(44,44,42,0.16)';
   let curve;
+  const PRESET_LABEL = { ytd: 'This year', 90: 'Last 90 days', 30: 'Last 30 days', 7: 'Last 7 days' };
   function render(preset) {
-    let s = D.series;
+    let s = D.series, base = null;
     if (preset !== 'all') {
       let cutoff;
       if (preset === 'ytd') cutoff = D.asOf.slice(0,4) + '-01-01';
       else { const [y,m,d]=D.asOf.split('-').map(Number); const dt=new Date(Date.UTC(y,m-1,d)); dt.setUTCDate(dt.getUTCDate()-Number(preset)); cutoff=dt.toISOString().slice(0,10); }
       s = D.series.filter(p => p.date >= cutoff);
+      // Window baseline: the last point BEFORE the window (so day one's own
+      // additions count). No prior point → the window covers everything → 0.
+      const before = D.series.filter(p => p.date < cutoff);
+      base = before.length ? before[before.length - 1] : { mac: 0, pc: 0 };
     }
+
+    // The window's answer, next to the filter that created it:
+    // "Last 7 days: +18 downloads · Mac +12 · PC +6". Hidden on All time
+    // (the hero card already IS that number).
+    const winline = document.getElementById('winline');
+    if (base && s.length) {
+      const last = s[s.length - 1];
+      const dMac = last.mac - base.mac, dPc = last.pc - base.pc;
+      winline.textContent = `${PRESET_LABEL[preset]}: +${dMac + dPc} downloads · Mac +${dMac} · PC +${dPc}`;
+      winline.style.display = '';
+    } else {
+      winline.style.display = 'none';
+    }
+
     const labels = s.map(p=>fmtDate(p.date));
     if (curve) curve.destroy();
     curve = new Chart(document.getElementById('curve'), {
@@ -122,7 +143,15 @@ fetch('data.json').then(r=>r.json()).then(D=>{
         { label:'PC', data:s.map(p=>p.pc), borderColor:'#b94a2e', backgroundColor:'rgba(185,74,46,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 },
         { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1f6e5b', backgroundColor:'rgba(31,110,91,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 } ]},
       options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{display:false} },
+        plugins:{ legend:{display:false},
+          // Filtered views speak in window terms: total, plus the gain since
+          // the window opened. All time keeps the plain cumulative number.
+          tooltip:{ callbacks: { label: (ctx) => {
+            const total = ctx.parsed.y;
+            if (!base) return `${ctx.dataset.label}: ${total}`;
+            const gain = total - (ctx.dataset.label === 'Mac' ? base.mac : base.pc);
+            return `${ctx.dataset.label}: ${total} (+${gain} in window)`;
+          } } } },
         scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink} },
                  x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } }
     });
