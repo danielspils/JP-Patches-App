@@ -65,6 +65,29 @@ for (const days of [7, 30, 90]) {
   };
 }
 
+// Per-country and per-kind cumulative series for the page's alternate chart
+// modes (click the Countries / Library borrows tiles). Built from the
+// Worker's per-day series endpoints (dl:/lb: keys, 90-day retention — the
+// whole tracked history for now). Cumulative running totals, same convention
+// as the downloads curve. Countries are CLICK counts (mac+pc combined).
+function cumulate(daysObj, valueOf) {
+  const dates = Object.keys(daysObj || {}).sort();
+  const keys = new Set();
+  for (const d of dates) for (const k of Object.keys(daysObj[d])) keys.add(k);
+  const out = { dates: dates.map((d) => `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`), series: {} };
+  for (const k of keys) {
+    let run = 0;
+    out.series[k] = dates.map((d) => { run += valueOf(daysObj[d][k]); return run; });
+  }
+  return out;
+}
+const dlSeries = await relay('/download/series');
+const lbSeries = await relay('/borrow/series');
+const countrySeries = dlSeries && dlSeries.days
+  ? cumulate(dlSeries.days, (v) => v ? (v.mac || 0) + (v.pc || 0) : 0) : null;
+const borrowSeries = lbSeries && lbSeries.days
+  ? cumulate(lbSeries.days, (v) => Number(v) || 0) : null;
+
 const data = {
   asOf: last.date || null,
   generatedAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
@@ -72,6 +95,8 @@ const data = {
   series,
   byCountry,                                   // { ISO: clicks } — jx-3p.com button clicks
   windows,                                     // per-preset {countries, borrows} for 7/30/90d
+  countrySeries,                               // cumulative clicks per country over time
+  borrowSeries,                                // cumulative borrows per kind over time
   borrows: (totals && totals.library && totals.library.total) || 0,
   // Daily-active: the usage ping carries no identifier (privacy), so we can
   // count installs active on the most recent DAY but not dedupe across days

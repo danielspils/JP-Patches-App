@@ -314,6 +314,50 @@ async function latestWinExeUrl(env) {
   return url;
 }
 
+// GET /download/series — the per-DAY breakdown the aggregates above collapse:
+// { days: { YYYYMMDD: { CC: { mac, pc } } } } from the dl: keys (90-day
+// retention = the full daily history the Worker holds). Feeds the metrics
+// page's countries-over-time chart. Public by design, like the other stats.
+async function handleDownloadSeries(env) {
+  const days = {};
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix: 'dl:', cursor });
+    for (const k of page.keys) {
+      const parts = k.name.split(':');            // dl:<day>:<platform>:<country>
+      if (parts.length !== 4) continue;            // skips dl:winurl
+      const [, day, platform, country] = parts;
+      const n = Number(await env.HEARTS.get(k.name)) || 0;
+      if (!n) continue;
+      days[day] = days[day] || {};
+      days[day][country] = days[day][country] || { mac: 0, pc: 0 };
+      days[day][country][platform] = (days[day][country][platform] || 0) + n;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return json({ ok: true, days });
+}
+
+// GET /borrow/series — twin for lb: keys: { days: { YYYYMMDD: { kind: n } } }.
+async function handleBorrowSeries(env) {
+  const days = {};
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix: 'lb:', cursor });
+    for (const k of page.keys) {
+      const parts = k.name.split(':');            // lb:<day>:<kind>:<country>
+      if (parts.length !== 4) continue;
+      const [, day, kind] = parts;
+      const n = Number(await env.HEARTS.get(k.name)) || 0;
+      if (!n) continue;
+      days[day] = days[day] || {};
+      days[day][kind] = (days[day][kind] || 0) + n;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return json({ ok: true, days });
+}
+
 // GET /download/stats[?since=YYYYMMDD] — tallies for the daily email report.
 // Deliberately public: these are download counts, not secrets (GitHub already
 // publishes its own totals).
@@ -479,6 +523,12 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/download/stats') {
       return handleDownloadStats(url, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/download/series') {
+      return handleDownloadSeries(env);
+    }
+    if (request.method === 'GET' && url.pathname === '/borrow/series') {
+      return handleBorrowSeries(env);
     }
     if (request.method === 'POST' && url.pathname === '/ping') {
       return handlePing(request, env, ctx);

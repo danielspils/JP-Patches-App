@@ -33,6 +33,10 @@ sitemap: false
   }
   .stat.scoped .lbl { color: rgba(247,241,230,0.78); }
   .stat.scoped .val { color: #f7f1e6; }
+  /* Tiles with a data-mode drive the chart below; the active one carries a
+     bottom edge (reads on both cream and solid scoped fills). */
+  .stat[data-mode] { cursor: pointer; }
+  .stat.mode-on { box-shadow: inset 0 -3px 0 rgba(0,0,0,0.22); }
   @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
   .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
@@ -56,8 +60,8 @@ sitemap: false
 
   <div class="stats" id="stats"></div>
 
-  <div class="sec-title">Cumulative downloads over time</div>
-  <div class="sec-sub">GitHub download counts · the running total to date</div>
+  <div class="sec-title" id="chart-title">Cumulative downloads over time</div>
+  <div class="sec-sub" id="chart-sub">GitHub download counts · the running total to date</div>
   <div class="ctl" id="range">
     <button data-r="all" class="on">All time</button>
     <button data-r="ytd">This year</button>
@@ -65,10 +69,7 @@ sitemap: false
     <button data-r="30">Last 30 days</button>
     <button data-r="7">Last 7 days</button>
   </div>
-  <div class="legend">
-    <span><i class="sw" style="background:#1f6e5b"></i>Mac</span>
-    <span><i class="sw" style="background:#b94a2e"></i>PC</span>
-  </div>
+  <div class="legend" id="legend"></div>
   <div class="chart" style="height:280px;">
     <canvas id="curve" role="img" aria-label="Cumulative downloads over time, Mac in green stacked on PC in blue.">Cumulative downloads over time.</canvas>
   </div>
@@ -113,20 +114,24 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     const mac = windowed ? dMac : D.downloads.mac;
     const pc = windowed ? dPc : D.downloads.pc;
     const scoped = windowed ? ' scoped' : '';
+    // Tiles double as the chart's mode switcher (data-mode); the active one
+    // carries .mode-on. Active today has no time series (no install ID), so
+    // it stays a plain stat.
+    const on = (m) => (curMode === m ? ' mode-on' : '');
     const hero =
-      `<div class="stat stat-hero${scoped}">` +
+      `<div class="stat stat-hero${scoped}${on('downloads')}" data-mode="downloads">` +
       `<div><div class="lbl">${windowed ? 'Downloads' : 'Total downloads'}</div><div class="val">${mac + pc}</div></div>` +
       `<div><div class="lbl">Mac / PC</div><div class="val">${mac} / ${pc}</div></div>` +
       `</div>`;
     const countries = windowed && w.countries !== null ? w.countries : Object.keys(D.byCountry).length;
     const borrows = windowed && w.borrows !== null ? w.borrows : D.borrows;
     const stats = [
-      ['Countries', countries, scoped],
-      ['Library borrows', borrows, scoped],
-      ['Active today', D.activeToday, ''],
+      ['Countries', countries, scoped + on('countries'), ' data-mode="countries"'],
+      ['Library borrows', borrows, scoped + on('borrows'), ' data-mode="borrows"'],
+      ['Active today', D.activeToday, '', ''],
     ];
-    document.getElementById('stats').innerHTML = hero + stats.map(([l,v,c]) =>
-      `<div class="stat${c}"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+    document.getElementById('stats').innerHTML = hero + stats.map(([l,v,c,m]) =>
+      `<div class="stat${c}"${m}><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
   }
 
   // Grid is a translucent neutral (not a solid cream-tinted hex) so the same
@@ -135,9 +140,8 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   const ink = '#77746c', grid = 'rgba(44,44,42,0.16)';
   let curve;
   function render(preset) {
-    let s = D.series, base = null;
+    let s = D.series, base = null, cutoff = null;
     if (preset !== 'all') {
-      let cutoff;
       if (preset === 'ytd') cutoff = D.asOf.slice(0,4) + '-01-01';
       else { const [y,m,d]=D.asOf.split('-').map(Number); const dt=new Date(Date.UTC(y,m-1,d)); dt.setUTCDate(dt.getUTCDate()-Number(preset)); cutoff=dt.toISOString().slice(0,10); }
       s = D.series.filter(p => p.date >= cutoff);
@@ -164,14 +168,72 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     // tiles state the window's numbers, so no separate answer line.
     renderCards(preset, dMac, dPc);
 
-    const labels = s.map(p=>fmtDate(p.date));
     if (curve) curve.destroy();
+    const title = document.getElementById('chart-title');
+    const sub = document.getElementById('chart-sub');
+    const legend = document.getElementById('legend');
+    const baseOpts = (stacked) => ({ responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false}, plugins:{ legend:{display:false} },
+      scales:{ y:{ stacked, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink, precision:0} },
+               x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } });
+    const swatches = (rows) => { legend.innerHTML = rows.map(([c,n]) =>
+      `<span><i class="sw" style="background:${c}"></i>${n}</span>`).join(''); };
+    // Slice an alternate series ({dates, series}) to the active window.
+    const slice = (cs) => {
+      const idx = cs.dates.map((d,i)=>[d,i]).filter(([d])=>!cutoff || d >= cutoff).map(([,i])=>i);
+      return { labels: idx.map(i=>fmtDate(cs.dates[i])), pick: (arr) => idx.map(i=>arr[i]) };
+    };
+
+    if (curMode === 'countries' && D.countrySeries) {
+      // Cumulative click lines per country — the race chart. Top 8 by final
+      // total in the window; the rest stay in the bar chart below.
+      title.textContent = 'Countries over time';
+      sub.textContent = 'jx-3p.com download clicks by country · cumulative';
+      const { labels, pick } = slice(D.countrySeries);
+      const PAL = ['#1f6e5b','#b94a2e','#33508f','#c39a3a','#2a8870','#d05a3a','#4264a8','#8a6d29'];
+      const tops = Object.entries(D.countrySeries.series)
+        .map(([cc,arr]) => [cc, pick(arr)])
+        .sort((a,b) => (b[1][b[1].length-1]||0) - (a[1][a[1].length-1]||0))
+        .slice(0, 8);
+      swatches(tops.map(([cc],i) => [PAL[i], NAMES[cc]||cc]));
+      curve = new Chart(document.getElementById('curve'), {
+        type:'line',
+        data:{ labels, datasets: tops.map(([cc,arr],i) => (
+          { label:NAMES[cc]||cc, data:arr, borderColor:PAL[i], backgroundColor:PAL[i],
+            fill:false, tension:0.25, borderWidth:2, pointRadius:0, pointHoverRadius:5 })) },
+        options: baseOpts(false)
+      });
+      return;
+    }
+
+    if (curMode === 'borrows' && D.borrowSeries) {
+      title.textContent = 'Library borrows over time';
+      sub.textContent = 'borrow events by kind · cumulative';
+      const { labels, pick } = slice(D.borrowSeries);
+      const KINDS = [['patches','Patches','#1f6e5b'],['sequences','Sequences','#33508f'],['unknown','Older app','#77746c']];
+      const rows = KINDS.filter(([k]) => D.borrowSeries.series[k]);
+      swatches(rows.map(([,n,c]) => [c,n]));
+      curve = new Chart(document.getElementById('curve'), {
+        type:'line',
+        data:{ labels, datasets: rows.map(([k,n,c]) => (
+          { label:n, data:pick(D.borrowSeries.series[k]), borderColor:c, backgroundColor:c,
+            fill:false, tension:0.25, borderWidth:2, pointRadius:0, pointHoverRadius:5, stepped:true })) },
+        options: baseOpts(false)
+      });
+      return;
+    }
+
+    // Default: the downloads curve.
+    title.textContent = 'Cumulative downloads over time';
+    sub.textContent = 'GitHub download counts · the running total to date';
+    swatches([['#1f6e5b','Mac'],['#b94a2e','PC']]);
+    const labels = s.map(p=>fmtDate(p.date));
     curve = new Chart(document.getElementById('curve'), {
       type:'line',
       data:{ labels, datasets:[
         { label:'PC', data:s.map(p=>p.pc), borderColor:'#b94a2e', backgroundColor:'rgba(185,74,46,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 },
         { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1f6e5b', backgroundColor:'rgba(31,110,91,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 } ]},
-      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      options:{ ...baseOpts(true),
         plugins:{ legend:{display:false},
           // Filtered views speak in window terms: total, plus the gain since
           // the window opened. All time keeps the plain cumulative number.
@@ -180,16 +242,20 @@ fetch('data.json').then(r=>r.json()).then(D=>{
             if (!base) return `${ctx.dataset.label}: ${total}`;
             const gain = total - (ctx.dataset.label === 'Mac' ? base.mac : base.pc);
             return `${ctx.dataset.label}: ${total} (${gain} in window)`;
-          } } } },
-        scales:{ y:{ stacked:true, beginAtZero: preset==='all', grid:{color:grid, z:1}, ticks:{color:ink} },
-                 x:{ grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true } } } }
+          } } } } }
     });
   }
-  render('all');
+  let curPreset = 'all', curMode = 'downloads';
+  render(curPreset);
   document.getElementById('range').addEventListener('click', (e)=>{
     const b = e.target.closest('button'); if(!b) return;
     document.querySelectorAll('#range button').forEach(x=>x.classList.remove('on'));
-    b.classList.add('on'); render(b.dataset.r);
+    b.classList.add('on'); curPreset = b.dataset.r; render(curPreset);
+  });
+  // Tile click = chart mode switch (Downloads / Countries / Library borrows).
+  document.getElementById('stats').addEventListener('click', (e)=>{
+    const t = e.target.closest('.stat[data-mode]'); if(!t) return;
+    curMode = t.dataset.mode; render(curPreset);
   });
 
   const cc = Object.entries(D.byCountry).sort((a,b)=>b[1]-a[1]);
