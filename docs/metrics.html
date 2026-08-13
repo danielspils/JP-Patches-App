@@ -34,7 +34,6 @@ sitemap: false
   .stat.scoped .lbl { color: rgba(247,241,230,0.78); }
   .stat.scoped .val { color: #f7f1e6; }
   @media (max-width: 480px) { .stat-hero { grid-column: 1 / -1; } }
-  .winline { margin:-4px 0 12px; font-size:13px; font-weight:600; color:var(--scope,#c39a3a); }
   .sec-title { font-size:15px; font-weight:600; margin:0 0 2px; }
   .sec-sub { font-size:12px; color:var(--mut); margin:0 0 12px; }
   .ctl { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
@@ -66,7 +65,6 @@ sitemap: false
     <button data-r="30">Last 30 days</button>
     <button data-r="7">Last 7 days</button>
   </div>
-  <p class="winline" id="winline" style="display:none"></p>
   <div class="legend">
     <span><i class="sw" style="background:#1f6e5b"></i>Mac</span>
     <span><i class="sw" style="background:#b94a2e"></i>PC</span>
@@ -136,7 +134,6 @@ fetch('data.json').then(r=>r.json()).then(D=>{
   // with grid z:1, which draws the lines on top of the fills.
   const ink = '#77746c', grid = 'rgba(44,44,42,0.16)';
   let curve;
-  const PRESET_LABEL = { ytd: 'This year', 90: 'Last 90 days', 30: 'Last 30 days', 7: 'Last 7 days' };
   function render(preset) {
     let s = D.series, base = null;
     if (preset !== 'all') {
@@ -163,17 +160,8 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     const SCOPE = { all: '#c39a3a', ytd: '#c39a3a', 90: '#33508f', 30: '#b94a2e', 7: '#1f6e5b' };
     document.querySelector('.wrap').style.setProperty('--scope', SCOPE[preset] || '#c39a3a');
 
-    // The window's answer, next to the filter that created it. Hidden on
-    // All time (the hero card already IS that number).
-    const winline = document.getElementById('winline');
-    if (dMac !== null) {
-      winline.textContent = `${PRESET_LABEL[preset]}: ${dMac + dPc} downloads · Mac ${dMac} · PC ${dPc}`;
-      winline.style.display = '';
-    } else {
-      winline.style.display = 'none';
-    }
-
-    // Cards follow the filter too (lifetime on All time / This year).
+    // Cards follow the filter (lifetime on All time / This year) — the scoped
+    // tiles state the window's numbers, so no separate answer line.
     renderCards(preset, dMac, dPc);
 
     const labels = s.map(p=>fmtDate(p.date));
