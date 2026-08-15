@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "electron": "^35.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "globals": "^17.6.0",
     "js-yaml": "^4.2.0",
@@ -89,7 +89,13 @@
           "arch": "x64"
         }
       ],
-      "artifactName": "JP-Patches-${version}-${arch}-win.${ext}"
+      "artifactName": "JP-Patches-${version}-${arch}-win.${ext}",
+      "azureSignOptions": {
+        "endpoint": "https://wus2.codesigning.azure.net/",
+        "codeSigningAccountName": "t7gt11signing",
+        "certificateProfileName": "T7GT11SEATTLE",
+        "publisherName": "Daniel Spils"
+      }
     },
     "nsis": {
       "oneClick": false,

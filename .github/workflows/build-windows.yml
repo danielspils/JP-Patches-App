@@ -65,10 +65,23 @@ jobs:
           JX3P_SRC: ${{ github.workspace }}/jx3p-src
         run: npm run setup-vendor
 
-      - name: Build NSIS installer (unsigned)
+      - name: Build NSIS installer (Azure-signed)
         # Mirrors `electron-builder --win --x64` from the dist:win script, with
         # an explicit no-publish guard. No GH_TOKEN is exposed, so it couldn't
         # publish anyway — belt and suspenders.
+        #
+        # Signing: win.azureSignOptions in package.json (Azure Artifact
+        # Signing — the cert is shared with Daniel's other project, so both
+        # apps build SmartScreen reputation for ONE certificate). The Azure
+        # signing client is Windows-only, which is fine: this job IS the
+        # Windows build. Credentials reach DefaultAzureCredential via the
+        # three env vars below (repo secrets). If they're ever absent (e.g. a
+        # fork PR, which doesn't receive secrets), the signing step fails the
+        # build — loudly, not silently unsigned.
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: npx electron-builder --win --x64 --publish never
 
       - name: Upload installer artifact
