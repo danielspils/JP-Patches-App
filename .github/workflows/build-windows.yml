@@ -37,7 +37,9 @@ jobs:
   build:
     name: NSIS x64 installer
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 45 (was 30): Azure signing adds per-binary round-trips — the app exe,
+    # elevate helper, uninstaller, installer, and the vendored uv binaries.
+    timeout-minutes: 45
     steps:
       - name: Checkout app
         uses: actions/checkout@v4
@@ -64,6 +66,18 @@ jobs:
           # default ~/JP-Patches (which doesn't exist on the runner).
           JX3P_SRC: ${{ github.workspace }}/jx3p-src
         run: npm run setup-vendor
+
+      - name: Pre-install TrustedSigning PowerShell module
+        # electron-builder installs this on demand the first time it signs —
+        # but its Install-Module call can hang forever in CI waiting on the
+        # NuGet-provider confirmation prompt (that's what timed out run
+        # 31864994891 at the 30-min job limit, 29 silent minutes). Installing
+        # it up front with explicit no-prompt flags sidesteps the hang.
+        shell: pwsh
+        run: |
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name TrustedSigning -Force -Scope CurrentUser -AllowClobber
 
       - name: Build NSIS installer (Azure-signed)
         # Mirrors `electron-builder --win --x64` from the dist:win script, with
