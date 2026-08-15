@@ -90,11 +90,9 @@
         }
       ],
       "artifactName": "JP-Patches-${version}-${arch}-win.${ext}",
-      "azureSignOptions": {
-        "endpoint": "https://wus2.codesigning.azure.net/",
-        "codeSigningAccountName": "t7gt11signing",
-        "certificateProfileName": "T7GT11SEATTLE",
-        "publisherName": "Daniel Spils"
+      "signtoolOptions": {
+        "sign": "./scripts/win-sign.js",
+        "signingHashAlgorithms": ["sha256"]
       }
     },
     "nsis": {
