@@ -67,15 +67,28 @@ jobs:
           JX3P_SRC: ${{ github.workspace }}/jx3p-src
         run: npm run setup-vendor
 
-      - name: Pre-install TrustedSigning PowerShell module
+      - name: Pre-install TrustedSigning module (Windows PowerShell 5.1)
         # electron-builder installs this on demand the first time it signs —
-        # but its Install-Module call can hang forever in CI waiting on the
-        # NuGet-provider confirmation prompt (that's what timed out run
-        # 31864994891 at the 30-min job limit, 29 silent minutes). Installing
-        # it up front with explicit no-prompt flags sidesteps the hang.
+        # but its Install-Module call (in Windows PowerShell 5.1) hangs
+        # forever in CI on the NuGet-provider confirmation prompt (run
+        # 31864994891: 29 silent minutes into the 30-min timeout). Install it
+        # up front, in 5.1 — Install-PackageProvider NuGet is a 5.1-ism and
+        # fails outright in pwsh 7 (run 31887238438), and 5.1 is the shell
+        # the signing step actually uses. TLS12 is required for PSGallery
+        # from 5.1.
+        shell: powershell
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name TrustedSigning -Force -Scope CurrentUser -AllowClobber
+
+      - name: Pre-install TrustedSigning module (pwsh)
+        # Belt and braces: if electron-builder resolves pwsh instead of 5.1,
+        # the module must be visible on pwsh's separate module path too. No
+        # NuGet-provider dance here — pwsh's PowerShellGet doesn't need it.
         shell: pwsh
         run: |
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module -Name TrustedSigning -Force -Scope CurrentUser -AllowClobber
 
