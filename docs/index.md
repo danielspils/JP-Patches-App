@@ -10,6 +10,9 @@ I've always wanted a way to easily save patches to my computer. But the JX relie
 
 [JP Patches for Mac](https://lend.jx-3p.com/download/mac){:.btn-green} [JP Patches for PC](https://lend.jx-3p.com/download/pc){:.btn-blue}
 
+Free, but [donations](https://ko-fi.com/danielspils) help cover code signing and hosting fees. Synth-cerely, Daniel!
+{: .donate-line}
+
 Fast forward a month and I have JP Patches, my JX-3P companion app. It works on macOS 12+ (w/ an Apple Silicon chip) and Windows 10 and above. It doesn't yet support MIDI — the stock JX-3P MIDI does not support SysEx. I'll wire up support for the [Series Circuits MIDI Upgrade Kit](https://seriescircuits.com/product/jx-3p-midi-upgrade-kit/) in a future release. JP Patches operates through tape dumps using a single cord.
 
 ![JP Patches main panel — PG-200 style knobs and switches on the right, active C/D patch list on the left, Tape Memory controls below](screenshots/jx-hero.png)
@@ -56,6 +59,9 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 </div>
 
 [JP Patches for Mac](https://lend.jx-3p.com/download/mac){:.btn-green} [JP Patches for PC](https://lend.jx-3p.com/download/pc){:.btn-blue}
+
+Free, but [donations](https://ko-fi.com/danielspils) help cover code signing and hosting fees. Synth-cerely, Daniel!
+{: .donate-line}
 
 ## FISHING FOR FEEDBACK
 

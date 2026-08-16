@@ -1296,6 +1296,14 @@ body {
   font-style: italic;
 }
 
+/* Donation line under the download buttons (docs/DONATIONS.md: present,
+   not asked — plain text, no button styling, no prompt). */
+.site-content .donate-line {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--body-text-mid);
+}
+
 /* Notes email-subscribe form (Buttondown embed). Same parallelogram CTA
    language as the download buttons; input styled to sit beside it. */
 .notes-subscribe {
