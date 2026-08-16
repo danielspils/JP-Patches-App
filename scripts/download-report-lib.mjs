@@ -405,17 +405,26 @@ export function renderBody(model) {
   out.push('');
 
   out.push('DOWNLOADS BY COUNTRY — TOTAL');
+  // stale = the live click fetch failed and these totals come from the last
+  // report's snapshot. Say so plainly, first, so a stored total is never
+  // mistaken for a current one. Only a totally absent snapshot renders none.
+  const lifeStale = !!(site && site.stale);
+  if (lifeStale) {
+    out.push(`${INDENT}(live click data unavailable — totals below are from the last report)`);
+  }
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
   // The country lines are jx-3p.com clicks; GitHub's total is larger because
   // most downloads never touch a site button. Show that remainder as a single
   // "Direct" residual so the block reconciles to the download total. Only when
   // positive — over all time, downloads ≫ clicks; a click isn't a 1:1
   // download, so a negative residual would be meaningless (never shown).
+  // Skipped when stale: current GitHub totals minus STALE click totals would
+  // inflate the residual and quietly misattribute clicks to "Direct".
   const clickSum = lifeClicks
     ? Object.values(lifeClicks).reduce((s, v) => s + plat(v).mac + plat(v).pc, 0)
     : 0;
   const direct = (lifetime.macNew + lifetime.pcNew) - clickSum;
-  if (lifeClicks && direct > 0) {
+  if (lifeClicks && !lifeStale && direct > 0) {
     out.push(`${INDENT}Direct from GitHub (no jx-3p.com click)   ${direct}`);
   }
   out.push('');

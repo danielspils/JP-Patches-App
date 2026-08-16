@@ -293,6 +293,28 @@ test('delta lines carry click countries only when delta > 0 and clicks exist', a
   assert.match(body, /\n {2}PC {15}\+0\n/);
 });
 
+test('stale site: TOTAL renders the snapshot table + notice, no residual; 7-day stays none', async () => {
+  const { renderBody } = await libP;
+  const m = model();
+  // Simulate a failed live fetch degraded to the snapshot's stored lifetime:
+  // no window, no week, stale flag set.
+  m.site = {
+    week: null,
+    window: null,
+    lifetime: { mac: 6, pc: 4, byCountry: { SE: { mac: 4, pc: 2 }, US: { mac: 2, pc: 2 } } },
+    stale: true,
+  };
+  const body = renderBody(m);
+  const total = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
+  assert.match(total, /\n {2}\(live click data unavailable — totals below are from the last report\)\n/);
+  assert.match(total, /Sweden {11}6/);
+  assert.match(total, /United States {4}4/);
+  // Residual is suppressed when stale (current GitHub minus stale clicks lies).
+  assert.doesNotMatch(total, /Direct from GitHub/);
+  // The rolling window has no snapshot equivalent — none is truthful there.
+  assert.match(body, /DOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
+});
+
 test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {
   const { historyRow } = await libP;
   const row = historyRow({

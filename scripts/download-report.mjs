@@ -130,7 +130,18 @@ const report = renderBody({
   daysSince,
   delta,
   lifetime: now,
-  site: site ? { week: week?.byCountry || null, window: site.window.byCountry || null, lifetime: site.lifetime } : null,
+  // When the live /download/stats fetch fails but the snapshot already holds
+  // an accumulated lifetime table, degrade instead of rendering "none": pass
+  // the stored totals with stale:true so renderBody can label them plainly.
+  // The 7-day window stays live-only (no snapshot equivalent), and the
+  // snapshot itself is never advanced from a failed fetch (see the write
+  // below, which keeps snap.site when site is null).
+  site: site
+    ? { week: week?.byCountry || null, window: site.window.byCountry || null, lifetime: site.lifetime }
+    : snap?.site?.lifetimeByCountry
+      ? { week: week?.byCountry || null, window: null,
+          lifetime: { ...snap.site.lifetime, byCountry: snap.site.lifetimeByCountry }, stale: true }
+      : null,
   library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 
