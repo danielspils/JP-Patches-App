@@ -124,6 +124,7 @@ Window is **1140×710**, non-resizable (Daniel's logical screen is 1147×719 —
 6. **Commits**: `feat:`/`fix:`/`chore:`/`docs:`/`Spec:` prefixes + the trailer `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 7. **Release notes**: succinct, user-facing prose — **always show Daniel the final notes before cutting** a release (he curates the voice).
 8. **Site pushes ship independently of app releases.** Any `docs/` change affecting jx-3p.com commits + pushes on its own (Pages deploys in ~30–60 s) — don't bundle with app code or hold for a release. Internal docs (this file, smoke-test, release-notes) MAY ride app commits.
+9. **After ANY publish (site push or GitHub release), verify every button and link end-to-end** — Daniel's standing protocol (2026-08-16, written after the Mac button 404'd post-release). Minimum sweep: `lend.jx-3p.com/download/mac` and `/download/pc` each 302 to a real asset that returns HTTP 200; `releases/latest/download/latest-mac.yml` reports the expected version; any page link touched by the change actually resolves. Curl the full chain — never trust that publishing succeeded because the push did. Root causes that day: a win-preview release created without `--latest=false` stole "latest" from the Mac release (breaking the Mac button AND the auto-update feed), and the Worker's rate-limited GitHub lookup cached a fallback URL for the PC button.
 
 ## Design language — north star
 

@@ -300,8 +300,17 @@ async function latestWinExeUrl(env) {
   if (cached) return cached;
   let url = `https://github.com/${REPO}/releases`;   // safe fallback: releases page
   try {
+    // Authenticated: unauth'd calls share a 60/hr limit across the whole
+    // Cloudflare colo IP, and a rate-limited call here cached the fallback
+    // releases-page URL for an hour (2026-08-16 PC-button outage). The
+    // lending PAT works for public release reads and gets a dedicated
+    // 5000/hr budget.
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
-      headers: { 'user-agent': 'jp-patches-lending-relay', 'accept': 'application/vnd.github+json' },
+      headers: {
+        'user-agent': 'jp-patches-lending-relay',
+        'accept': 'application/vnd.github+json',
+        ...(env.GITHUB_TOKEN ? { authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}),
+      },
     });
     if (res.ok) {
       const rels = await res.json();
