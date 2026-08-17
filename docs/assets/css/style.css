@@ -1296,6 +1296,15 @@ body {
   font-style: italic;
 }
 
+/* Footer Instagram icon (matches the TSGTE footer). */
+.site-footer-ig {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  color: inherit;
+}
+.site-footer-ig:hover { color: var(--roland-green-hot); }
+
 /* Donation line under the download buttons (docs/DONATIONS.md: present,
    not asked — plain text, no button styling, no prompt). */
 .site-content .donate-line {
