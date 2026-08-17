@@ -271,7 +271,8 @@ fetch('data.json').then(r=>r.json()).then(D=>{
           { label:'PC', data:perPc, backgroundColor:'rgba(51,80,143,0.8)', borderColor:'#33508f', borderWidth:1 },
           { label:'Mac', data:perMac, backgroundColor:'rgba(31,110,91,0.8)', borderColor:'#1f6e5b', borderWidth:1 } ]},
         options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-          plugins:{ legend:{display:false} },
+          // Tooltip rows mirror the visual stack: Mac on top, PC beneath.
+          plugins:{ legend:{display:false}, tooltip:{ itemSort: (a,b) => b.datasetIndex - a.datasetIndex } },
           scales:{ y:{ stacked:true, beginAtZero:true, grid:{color:grid, z:1}, ticks:{color:ink, precision:0} },
                    x:{ stacked:true, grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true} } } }
       });
@@ -292,7 +293,9 @@ fetch('data.json').then(r=>r.json()).then(D=>{
         plugins:{ legend:{display:false},
           // Filtered views speak in window terms: total, plus the gain since
           // the window opened. All time keeps the plain cumulative number.
-          tooltip:{ callbacks: { label: (ctx) => {
+          // itemSort mirrors the visual stack: Mac on top, PC beneath.
+          tooltip:{ itemSort: (a,b) => b.datasetIndex - a.datasetIndex,
+            callbacks: { label: (ctx) => {
             const total = ctx.parsed.y;
             if (!base) return `${ctx.dataset.label}: ${total}`;
             const gain = total - (ctx.dataset.label === 'Mac' ? base.mac : base.pc);
