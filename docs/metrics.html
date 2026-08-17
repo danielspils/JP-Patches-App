@@ -264,11 +264,11 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       }
       title.textContent = 'New downloads over time';
       sub.textContent = `GitHub download counts · new per ${bucketDays === 1 ? 'day' : 'week'} in this window`;
-      swatches([['#1f6e5b','Mac',1],['#b94a2e','PC',0]]);
+      swatches([['#1f6e5b','Mac',1],['#33508f','PC',0]]);
       curve = new Chart(document.getElementById('curve'), {
         type:'bar',
         data:{ labels, datasets:[
-          { label:'PC', data:perPc, backgroundColor:'rgba(185,74,46,0.8)', borderColor:'#b94a2e', borderWidth:1 },
+          { label:'PC', data:perPc, backgroundColor:'rgba(51,80,143,0.8)', borderColor:'#33508f', borderWidth:1 },
           { label:'Mac', data:perMac, backgroundColor:'rgba(31,110,91,0.8)', borderColor:'#1f6e5b', borderWidth:1 } ]},
         options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
           plugins:{ legend:{display:false} },
@@ -281,12 +281,12 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     // Default: the downloads curve (All time / This year — cumulative).
     title.textContent = 'Cumulative downloads over time';
     sub.textContent = 'GitHub download counts · the running total to date';
-    swatches([['#1f6e5b','Mac',1],['#b94a2e','PC',0]]);   // dataset order is [PC, Mac]
+    swatches([['#1f6e5b','Mac',1],['#33508f','PC',0]]);   // dataset order is [PC, Mac]
     const labels = s.map(p=>fmtDate(p.date));
     curve = new Chart(document.getElementById('curve'), {
       type:'line',
       data:{ labels, datasets:[
-        { label:'PC', data:s.map(p=>p.pc), borderColor:'#b94a2e', backgroundColor:'rgba(185,74,46,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 },
+        { label:'PC', data:s.map(p=>p.pc), borderColor:'#33508f', backgroundColor:'rgba(51,80,143,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 },
         { label:'Mac', data:s.map(p=>p.mac), borderColor:'#1f6e5b', backgroundColor:'rgba(31,110,91,0.8)', fill:true, tension:0.25, borderWidth:1.5, pointRadius:0, pointHoverRadius:5 } ]},
       options:{ ...baseOpts(true),
         plugins:{ legend:{display:false},
