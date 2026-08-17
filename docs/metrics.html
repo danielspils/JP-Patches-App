@@ -227,7 +227,58 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       return;
     }
 
-    // Default: the downloads curve.
+    // Day-range views plot PER-PERIOD new downloads (daily bars for 7/30,
+    // weekly for 90) — a cumulative curve in a window is just a cropped
+    // All time, and it contradicted the tiles ("Downloads 25" over a line
+    // running 96→119). Same subtraction the tooltip's "N in window" uses:
+    // cumulative-at-bucket-end minus cumulative-at-previous-bucket-end,
+    // with the pre-window `base` seeding the first bucket. Report-day gaps
+    // in the series are naturally 0-download buckets. All time / This year
+    // keep the cumulative curve below.
+    if (base && (preset === '7' || preset === '30' || preset === '90')) {
+      const bucketDays = preset === '90' ? 7 : 1;
+      const DAY = 86400000;
+      const t1 = Date.parse(D.asOf);
+      const t0 = Date.parse(cutoff);
+      const ends = [];
+      for (let t = t1; t >= t0; t -= bucketDays * DAY) ends.unshift(t);
+      // Cumulative totals as of a moment: the last series point at or before
+      // it, else the pre-window base.
+      const cumAt = (t) => {
+        let c = base;
+        for (const p of s) { if (Date.parse(p.date) <= t) c = p; else break; }
+        return c;
+      };
+      const labels = ends.map((t) => {
+        const endIso = new Date(t).toISOString().slice(0, 10);
+        if (bucketDays === 1) return fmtDate(endIso);
+        const startIso = new Date(Math.max(t - (bucketDays - 1) * DAY, t0)).toISOString().slice(0, 10);
+        return `${fmtDate(startIso)}–${fmtDate(endIso)}`;
+      });
+      const perMac = [], perPc = [];
+      let prev = base;
+      for (const t of ends) {
+        const c = cumAt(t);
+        perMac.push(c.mac - prev.mac); perPc.push(c.pc - prev.pc);
+        prev = c;
+      }
+      title.textContent = 'New downloads over time';
+      sub.textContent = `GitHub download counts · new per ${bucketDays === 1 ? 'day' : 'week'} in this window`;
+      swatches([['#1f6e5b','Mac',1],['#b94a2e','PC',0]]);
+      curve = new Chart(document.getElementById('curve'), {
+        type:'bar',
+        data:{ labels, datasets:[
+          { label:'PC', data:perPc, backgroundColor:'rgba(185,74,46,0.8)', borderColor:'#b94a2e', borderWidth:1 },
+          { label:'Mac', data:perMac, backgroundColor:'rgba(31,110,91,0.8)', borderColor:'#1f6e5b', borderWidth:1 } ]},
+        options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+          plugins:{ legend:{display:false} },
+          scales:{ y:{ stacked:true, beginAtZero:true, grid:{color:grid, z:1}, ticks:{color:ink, precision:0} },
+                   x:{ stacked:true, grid:{display:false}, ticks:{color:ink, maxRotation:0, autoSkip:true} } } }
+      });
+      return;
+    }
+
+    // Default: the downloads curve (All time / This year — cumulative).
     title.textContent = 'Cumulative downloads over time';
     sub.textContent = 'GitHub download counts · the running total to date';
     swatches([['#1f6e5b','Mac',1],['#b94a2e','PC',0]]);   // dataset order is [PC, Mac]
