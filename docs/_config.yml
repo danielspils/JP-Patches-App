@@ -18,6 +18,28 @@ url: "https://jx-3p.com"
 # jekyll-feed (also Pages-native) generates an Atom feed of the Notes posts at
 # /feed.xml — the plumbing for RSS readers AND Buttondown's post-to-email
 # automation (it watches the feed and mails subscribers on each new post).
+# INTERNAL DOCS ARE NOT THE SITE. docs/ is both the Jekyll source and where
+# this project keeps its own reference material, and 36 of the .md files here
+# carry no front matter — so Jekyll copied them verbatim and they were live.
+# jx-3p.com/SIGNING.md returned 200, publishing the signing setup including
+# Azure account identifiers (2026-08-18).
+#
+# Anything listed here is for whoever is building the app, not for someone who
+# owns a JX-3P. Adding a new internal doc means adding it here — there is no
+# pattern that catches them, because a public page and an internal note are the
+# same shape on disk.
+exclude:
+  - SIGNING.md
+  - RELEASE.md
+  - smoke-test.md
+  - site-architecture.md
+  - future-features.md
+  - design-system.md
+  - library-and-midi-spec.md
+  - auto-calibration-handoff.md
+  - session-handoff-2026-05-26.md
+  - session-handoff-2026-06-10.md
+
 plugins:
   - jekyll-sitemap
   - jekyll-feed
