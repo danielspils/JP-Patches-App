@@ -10,6 +10,10 @@ permalink: /feedback/
 Found a bug or just want to say how it's working with your JX-3P? Drop me
 a note below. Your email goes straight to me.
 
+Capture from the JX-3P not decoding? The [troubleshooting guide](/troubleshooting/)
+covers what to check first — it may save you the wait for a reply.
+{:.feedback-hint-line}
+
 <!-- AFTER A SUBMIT, Web3Forms redirects to /thanks/. That target is set in
      the Web3Forms DASHBOARD — the "JX-3P Feedback" form, Settings → Redirect
      URL — and NOT anywhere in this repo. Changing it here does nothing; if

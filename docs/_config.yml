@@ -39,6 +39,39 @@ exclude:
   - auto-calibration-handoff.md
   - session-handoff-2026-05-26.md
   - session-handoff-2026-06-10.md
+  # Internal strategy: showing rules, triggers, the cost table.
+  - DONATIONS.md
+  # Predates auto-calibration, so as a public page it describes the app
+  # INCORRECTLY. If it is worth publishing later it gets updated and promoted
+  # deliberately (Daniel, 2026-08-18).
+  - record-from-jx.md
+  # The SOURCE of the GitHub release bodies (RELEASE.md pipes them to
+  # `gh release edit --notes-file`), so this text is already public and
+  # canonical there. Two copies split search results, and the site's copy goes
+  # stale the moment a release body is edited on GitHub.
+  - release-notes-0.5.13.md
+  - release-notes-0.6.0.md
+  - release-notes-0.6.1.md
+  - release-notes-0.6.2.md
+  - release-notes-0.6.3.md
+  - release-notes-0.6.4.md
+  - release-notes-0.6.5.md
+  - release-notes-0.7.0.md
+  - release-notes-0.7.1.md
+  - release-notes-0.7.2.md
+  - release-notes-0.7.3.md
+  - release-notes-0.7.4.md
+  - release-notes-0.7.5.md
+  - release-notes-0.8.0.md
+  - release-notes-0.8.1.md
+  - release-notes-0.8.2.md
+  - release-notes-0.8.3.md
+  - release-notes-0.8.4.md
+  - release-notes-0.8.5.md
+  - release-notes-0.8.6.md
+  - release-notes-0.8.7.md
+  - release-notes-0.8.8.md
+  - release-notes-0.8.9.md
 
 plugins:
   - jekyll-sitemap

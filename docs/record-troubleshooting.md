@@ -1,3 +1,10 @@
+---
+layout: default
+title: Capture troubleshooting
+description: When a tape-dump capture from the JX-3P doesn't decode — how to tell the failure modes apart.
+permalink: /troubleshooting/
+---
+
 # Record-from-JX — "didn't decode cleanly" troubleshooting
 
 When a tape-dump capture fails to decode, **get DATA before theorizing.** Two debugging marathons (2026-06-26/27) burned days on wrong theories the data would have killed in minutes. Both real software causes have since shipped fixes (v0.8.5); what remains useful is the toolkit + how to tell the failure modes apart.

@@ -208,6 +208,20 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
     only rotated by re-lending — which keeps the id, hearts and borrows, and
     changes only the `added:` date.
 
+38. **Every file in `docs/` is either a PUBLISHED PAGE or EXCLUDED. There is
+    no third category.** A published page has front matter, is styled by the
+    layout, and is linked from somewhere a reader would look. Everything else
+    goes in `exclude:` in `docs/_config.yml`. A raw `.md` with no front matter
+    is neither — Jekyll copies it verbatim and serves it, which is exactly how
+    36 internal documents ended up live on jx-3p.com, `SIGNING.md` among them
+    (found 2026-08-18, returning 200 with the Azure account identifiers in it).
+
+    Adding an internal doc means adding it to `exclude:` in the same commit.
+    Nothing distinguishes a design note from a public page on disk, so the
+    config is the only place the distinction exists. Verify by FETCHING the
+    URL after Pages deploys — a config that looks right and a site that still
+    serves the file are indistinguishable from the repo.
+
 29. **The win-preview `.exe` is ~107 MB** — `gh release create … <exe>` can time out the upload and leave the release a **DRAFT** (no git tag → the site button 404s). Upload the exe in a separate backgrounded step and verify `gh release view --json isDraft` is `false`; publish a stuck draft with `gh release edit … --draft=false`.
 
 ### Windows port  *(round-trip verified on real HW 2026-07-04; hard-won lessons)*
