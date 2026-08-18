@@ -53,6 +53,13 @@ const HEART_SALT = 'jp-patches-hearts-v1:';
 const HEART_ID_RE = /^[a-z0-9-]{1,64}$/;
 const MAX_HEART_IDS = 60;
 
+// sha256 hex. The lending paths both need it: the withdraw request hashes the
+// token it was given, and a SUBMISSION now records only the hash.
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function heartIpHash(request) {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const digest = await crypto.subtle.digest(
@@ -562,9 +569,7 @@ export default {
       if (typeof wtoken !== 'string' || !wtoken.trim() || wtoken.length > 100) {
         return json({ ok: false, error: 'invalid token' }, 400);
       }
-      const hash = [...new Uint8Array(await crypto.subtle.digest(
-        'SHA-256', new TextEncoder().encode(wtoken.trim())))]
-        .map((b) => b.toString(16).padStart(2, '0')).join('');
+      const hash = await sha256Hex(wtoken.trim());
       const ghRes = await fetch(`https://api.github.com/repos/${REPO}/issues`, {
         method: 'POST',
         headers: {
@@ -638,7 +643,21 @@ export default {
       notes ? `**Notes:** ${clean(notes)}` : null,
       '',
       '_Submitted from inside JP Patches via the lending relay._',
-      `<!-- lend-token: ${clean(token)} -->`,
+      // THE HASH, NEVER THE TOKEN. This line used to carry the token itself
+      // — `<!-- lend-token: … -->` — and an HTML comment does not render, so
+      // it looked like nothing while being world-readable through the issues
+      // API on a public repo. The withdraw endpoint accepts that token, and
+      // the withdraw workflow trusts any issue the relay filed, so anybody
+      // reading the API could have withdrawn anybody's patch (2026-08-18).
+      //
+      // The token was inert metadata when it was written and became an
+      // authorization secret when withdraw shipped, without this line being
+      // revisited (relay/README.md). Nothing downstream ever needed the
+      // pre-image: publish-lend.mjs only hashed it to fill token_hash in the
+      // catalog, which is public anyway. So the relay hashes it here and the
+      // token stays where it belongs — in the lender's app, and in the body of
+      // a withdraw request.
+      `<!-- lend-token-sha256: ${await sha256Hex(String(token).trim())} -->`,
       '',
       '```json',
       payloadJson,

@@ -72,6 +72,24 @@ export const extractMeta = (body, label) => {
   return m ? m[1].trim() : '';
 };
 
+// THE HASH the catalog publishes, from whichever form the issue carries.
+//
+// New submissions record `lend-token-sha256` — the relay hashes the token and
+// the pre-image never reaches an issue body. Older issues carry
+// `lend-token: <token>` verbatim, which is the leak fixed on 2026-08-18; they
+// are still hashed here so a submission filed before the fix can still be
+// published, and so this function has exactly one output either way.
+//
+// Returns a sha256 hex string, or null when the issue carries neither.
+export const extractTokenHash = async (body, sha256Hex) => {
+  const hashed = String(body || '').match(/<!-- lend-token-sha256: ([0-9a-f]{64}) -->/);
+  if (hashed) return hashed[1];
+  const legacy = String(body || '').match(/<!-- lend-token: (.+?) -->/);
+  return legacy ? sha256Hex(legacy[1].trim()) : null;
+};
+
+// Kept for the legacy shape alone, and used by the migration report. It
+// returns a SECRET: nothing may write its result anywhere public.
 export const extractToken = (body) => {
   const m = String(body || '').match(/<!-- lend-token: (.+?) -->/);
   return m ? m[1].trim() : null;

@@ -258,3 +258,40 @@ test('findEntryByTokenHash returns null when nothing matches', async () => {
   assert.equal(findEntryByTokenHash('', 'a'.repeat(64)), null);
   assert.equal(findEntryByTokenHash(null, 'a'.repeat(64)), null);
 });
+
+// ---- The lend-token leak (2026-08-18) -------------------------------------
+//
+// The relay wrote the withdraw token into the submission issue body as an HTML
+// comment. It does not render, so it looked like nothing — while being
+// world-readable through the issues API on a public repo, and accepted by the
+// withdraw endpoint. Nothing downstream ever needed the pre-image: the catalog
+// publishes only the hash.
+
+test('a new submission yields the hash without the relay ever writing a token', async () => {
+  const { extractTokenHash, extractToken } = await libP;
+  const sha256Hex = async (t) =>
+    (await import('node:crypto')).createHash('sha256').update(t).digest('hex');
+  const hash = await sha256Hex('s3cret-token');
+
+  const body = [
+    '**Package name:** Test', '**Author:** Someone', '',
+    `<!-- lend-token-sha256: ${hash} -->`, '', '```json', '{}', '```',
+  ].join('\n');
+
+  assert.equal(await extractTokenHash(body, sha256Hex), hash, 'the hash is read straight out');
+  assert.equal(extractToken(body), null, 'and there is no token in the body to read');
+  assert.ok(!body.includes('s3cret-token'), 'the pre-image appears nowhere');
+});
+
+test('an issue filed before the fix is still publishable, by hashing it here', async () => {
+  const { extractTokenHash } = await libP;
+  const sha256Hex = async (t) =>
+    (await import('node:crypto')).createHash('sha256').update(t).digest('hex');
+  const legacy = ['**Package name:** Old', '<!-- lend-token: abc123XYZ -->'].join('\n');
+  assert.equal(await extractTokenHash(legacy, sha256Hex), await sha256Hex('abc123XYZ'));
+});
+
+test('a body with neither form yields null rather than a bogus hash', async () => {
+  const { extractTokenHash } = await libP;
+  assert.equal(await extractTokenHash('**Package name:** No token', async () => 'x'), null);
+});

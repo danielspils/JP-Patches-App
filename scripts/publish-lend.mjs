@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   validatePayload, contentHash, cleanText, yamlQuote,
-  extractMeta, extractToken, extractJsonFence, uniqueId,
+  extractMeta, extractTokenHash, extractJsonFence, uniqueId,
 } from './lend-publish-lib.mjs';
 
 const REPO = process.env.GITHUB_REPOSITORY;
@@ -77,7 +77,10 @@ const hometown = cleanText(meta('Hometown'), 80);
 const notes    = cleanText(meta('Notes'), 200);
 if (!lendName || !author) await needsReview('could not parse the name/author fields from the issue');
 
-const lendToken = extractToken(body);
+// The HASH, not the token: new issues carry only the hash, and an older one
+// is hashed here rather than anywhere public (2026-08-18).
+const lendTokenHash = await extractTokenHash(body,
+  (t) => createHash('sha256').update(t).digest('hex'));
 
 const fence = extractJsonFence(body);
 if (fence === null) await needsReview('no JSON payload found in the issue body');
@@ -124,8 +127,8 @@ const entry = `
   file: /library/${kind === 'tones' ? 'patches' : 'sequences'}/${id}.json
   size_bytes: ${size}
   tags: []
-  audio_preview: null${lendToken ? `
-  token_hash: ${createHash('sha256').update(lendToken).digest('hex')}` : ''}
+  audio_preview: null${lendTokenHash ? `
+  token_hash: ${lendTokenHash}` : ''}
 `;
 fs.appendFileSync(yamlPath, entry);
 
