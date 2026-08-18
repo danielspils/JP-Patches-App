@@ -15,6 +15,7 @@ sitemap: false
 ## THANKS
 
 Thanks for dropping me a line. I read every email and respond when it makes
-sense. - Daniel
+sense.\
+\- Daniel
 
 [← Back to JP Patches](/){:.feedback-back}
