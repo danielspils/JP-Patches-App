@@ -179,6 +179,35 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
 19. **The logo lives in TWO files** — `renderer/assets/jp-logo.png` (panel) and `docs/assets/img/jp-logo.png` (site). Update both + regenerate favicons via `sips`.
 20. **The site's download CTAs all point at `/releases/latest`** — never hardcode a version. The PC (beta) button is the one exception (points at the current `vX.Y.Z-win-preview` tag).
 23. **Relay-filed lending issues are authored by Daniel's own PAT** — GitHub never notifies you of your own activity, so `lending-notify.yml` @mentions him (a mention from another actor *does* email). Don't remove it. The Worker PAT (`jp-patches-lend-relay`, Issues-only) expires ~June 2027 → renew + `wrangler secret put GITHUB_TOKEN`.
+37. **NEVER write a secret into an issue body — and re-read any comment that
+    explains why something is safe.** The relay wrote the withdraw token
+    verbatim into every lending submission as `<!-- lend-token: … -->`. HTML
+    comments do not render, so it looked like nothing while being
+    world-readable through the issues API on a public repo; the withdraw
+    endpoint accepts that token and `lending-withdraw.yml` trusts any
+    relay-filed issue, so anyone could have withdrawn any community entry.
+    Fixed 2026-08-18 — the relay now writes only `lend-token-sha256`, which is
+    the value the catalog publishes anyway. **Full account, timeline and
+    containment: `relay/README.md` → "The lend-token leak".**
+
+    The lesson is NOT "re-review inert metadata when something starts trusting
+    it" — the token was load-bearing from v0.8.0, the library's first public
+    moment, whose notes sell withdraw as a launch feature. It is this: the
+    design comment on the withdraw path reasoned **correctly** that only the
+    hash appears in the WITHDRAW issue, and was written in the very commit that
+    made the token a secret. It never asked the same question about the
+    SUBMISSION issue holding the pre-image. **A security argument that covers
+    one path does not cover its sibling, and the more careful the argument
+    looks, the less likely anyone is to check whether it covered everything.**
+    When you write one, name the paths it does not cover.
+
+    Containment as fact: 31 issues DELETED, not edited (an edited body retains
+    a diff — GraphQL `UserContentEdit` exposes `diff`), each verified fully
+    consumed against git first, catalog and `token_hash` values untouched.
+    Residual: those tokens were public June–August and cannot be un-harvested,
+    only rotated by re-lending — which keeps the id, hearts and borrows, and
+    changes only the `added:` date.
+
 29. **The win-preview `.exe` is ~107 MB** — `gh release create … <exe>` can time out the upload and leave the release a **DRAFT** (no git tag → the site button 404s). Upload the exe in a separate backgrounded step and verify `gh release view --json isDraft` is `false`; publish a stuck draft with `gh release edit … --draft=false`.
 
 ### Windows port  *(round-trip verified on real HW 2026-07-04; hard-won lessons)*
