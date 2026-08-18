@@ -58,7 +58,14 @@ jobs:
 
       - name: Email the report
         if: steps.calc.outputs.send == 'true'
-        uses: dawidd6/action-send-mail@v3
+        # Pinned to a full commit SHA, not the mutable v3 tag: this step
+        # receives MAIL_USERNAME/MAIL_PASSWORD (a Gmail App Password that
+        # bypasses 2FA on the mailbox that is the recovery address for the
+        # Apple/Azure/GitHub/Cloudflare accounts), and whoever controls a
+        # mutable tag can run arbitrary code daily with those in env.
+        # SHA below = v3.11.0 (what v3 pointed to on 2026-08-18). Updates
+        # are deliberate: resolve the new tag's SHA and change both lines.
+        uses: dawidd6/action-send-mail@4226df7daafa6fc901a43789c49bf7ab309066e7  # v3.11.0
         with:
           server_address: smtp.gmail.com
           server_port: 465
