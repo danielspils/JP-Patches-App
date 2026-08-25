@@ -33,6 +33,15 @@ try {
 const series = rows.map((r) => ({ date: r.date, mac: r.mac_new || 0, pc: r.pc_new || 0 }));
 const last = rows[rows.length - 1] || {};
 
+// History rows only exist on report (download) days, so on quiet days the
+// series — and the page's "As of" label — froze at the last report. Extend
+// the curve flat to TODAY: honest (totals genuinely unchanged), keeps the
+// windowed bar views showing real zero days, and makes "updates daily" true.
+const todayIso = new Date().toISOString().slice(0, 10);
+if (series.length && series[series.length - 1].date < todayIso) {
+  series.push({ date: todayIso, mac: last.mac_new || 0, pc: last.pc_new || 0 });
+}
+
 // Worker aggregates (best-effort — the page degrades to just the curve if the
 // Worker is unreachable at build time).
 async function relay(path) {
@@ -89,7 +98,7 @@ const borrowSeries = lbSeries && lbSeries.days
   ? cumulate(lbSeries.days, (v) => Number(v) || 0) : null;
 
 const data = {
-  asOf: last.date || null,
+  asOf: series.length ? series[series.length - 1].date : null,   // = today once extended
   generatedAt: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
   downloads: { mac: last.mac_new || 0, pc: last.pc_new || 0, macUpd: last.mac_upd || 0 },
   series,

@@ -177,27 +177,39 @@ async function handlePostBorrow(request, env, ctx) {
 // daily email. Twin of handleDownloadStats: totals + byCountry, but the axis is
 // borrow KIND (patches/sequences/unknown) instead of platform. Public by design
 // (borrow counts, not secrets — the per-entry counts are already on the site).
+// List every key under a prefix, then fetch ALL values in one parallel round
+// instead of a get-per-key loop. The sequential version cost ~30ms × N keys —
+// at 40+ days of daily counters the stats endpoints crossed 5-8s and
+// intermittently blew the report's 10s fetch timeout (the stale-fallback
+// firings). One list + Promise.all makes them ~constant-time again.
+// Returns [name, count] pairs; zero counts included (callers skip them).
+async function kvCounts(env, prefix) {
+  const names = [];
+  let cursor;
+  do {
+    const page = await env.HEARTS.list({ prefix, cursor });
+    for (const k of page.keys) names.push(k.name);
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  const values = await Promise.all(names.map((n) => env.HEARTS.get(n)));
+  return names.map((n, i) => [n, Number(values[i]) || 0]);
+}
+
 async function handleBorrowStats(url, env) {
   const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
   const byCountry = {};
   const totals = { patches: 0, sequences: 0, unknown: 0 };
-  let cursor;
-  do {
-    const page = await env.HEARTS.list({ prefix: 'lb:', cursor });
-    for (const k of page.keys) {
-      const parts = k.name.split(':');            // lb:<day>:<kind>:<country>
-      if (parts.length !== 4) continue;
-      const [, day, kind, country] = parts;
-      if (!BORROW_KINDS.includes(kind)) continue;
-      if (since && day < since) continue;
-      const n = Number(await env.HEARTS.get(k.name)) || 0;
-      if (!n) continue;
-      totals[kind] = (totals[kind] || 0) + n;
-      byCountry[country] = byCountry[country] || { patches: 0, sequences: 0, unknown: 0 };
-      byCountry[country][kind] = (byCountry[country][kind] || 0) + n;
-    }
-    cursor = page.list_complete ? null : page.cursor;
-  } while (cursor);
+  for (const [name, n] of await kvCounts(env, 'lb:')) {
+    const parts = name.split(':');              // lb:<day>:<kind>:<country>
+    if (parts.length !== 4) continue;
+    const [, day, kind, country] = parts;
+    if (!BORROW_KINDS.includes(kind)) continue;
+    if (since && day < since) continue;
+    if (!n) continue;
+    totals[kind] = (totals[kind] || 0) + n;
+    byCountry[country] = byCountry[country] || { patches: 0, sequences: 0, unknown: 0 };
+    byCountry[country][kind] = (byCountry[country][kind] || 0) + n;
+  }
   return json({ ok: true, since: since || null, totals, byCountry });
 }
 
@@ -336,41 +348,29 @@ async function latestWinExeUrl(env) {
 // page's countries-over-time chart. Public by design, like the other stats.
 async function handleDownloadSeries(env) {
   const days = {};
-  let cursor;
-  do {
-    const page = await env.HEARTS.list({ prefix: 'dl:', cursor });
-    for (const k of page.keys) {
-      const parts = k.name.split(':');            // dl:<day>:<platform>:<country>
-      if (parts.length !== 4) continue;            // skips dl:winurl
-      const [, day, platform, country] = parts;
-      const n = Number(await env.HEARTS.get(k.name)) || 0;
-      if (!n) continue;
-      days[day] = days[day] || {};
-      days[day][country] = days[day][country] || { mac: 0, pc: 0 };
-      days[day][country][platform] = (days[day][country][platform] || 0) + n;
-    }
-    cursor = page.list_complete ? null : page.cursor;
-  } while (cursor);
+  for (const [name, n] of await kvCounts(env, 'dl:')) {
+    const parts = name.split(':');              // dl:<day>:<platform>:<country>
+    if (parts.length !== 4) continue;            // skips dl:winurl
+    const [, day, platform, country] = parts;
+    if (!n) continue;
+    days[day] = days[day] || {};
+    days[day][country] = days[day][country] || { mac: 0, pc: 0 };
+    days[day][country][platform] = (days[day][country][platform] || 0) + n;
+  }
   return json({ ok: true, days });
 }
 
 // GET /borrow/series — twin for lb: keys: { days: { YYYYMMDD: { kind: n } } }.
 async function handleBorrowSeries(env) {
   const days = {};
-  let cursor;
-  do {
-    const page = await env.HEARTS.list({ prefix: 'lb:', cursor });
-    for (const k of page.keys) {
-      const parts = k.name.split(':');            // lb:<day>:<kind>:<country>
-      if (parts.length !== 4) continue;
-      const [, day, kind] = parts;
-      const n = Number(await env.HEARTS.get(k.name)) || 0;
-      if (!n) continue;
-      days[day] = days[day] || {};
-      days[day][kind] = (days[day][kind] || 0) + n;
-    }
-    cursor = page.list_complete ? null : page.cursor;
-  } while (cursor);
+  for (const [name, n] of await kvCounts(env, 'lb:')) {
+    const parts = name.split(':');              // lb:<day>:<kind>:<country>
+    if (parts.length !== 4) continue;
+    const [, day, kind] = parts;
+    if (!n) continue;
+    days[day] = days[day] || {};
+    days[day][kind] = (days[day][kind] || 0) + n;
+  }
   return json({ ok: true, days });
 }
 
@@ -381,22 +381,16 @@ async function handleDownloadStats(url, env) {
   const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
   const byCountry = {};
   const totals = { mac: 0, pc: 0 };
-  let cursor;
-  do {
-    const page = await env.HEARTS.list({ prefix: 'dl:', cursor });
-    for (const k of page.keys) {
-      const parts = k.name.split(':');            // dl:<day>:<platform>:<country>
-      if (parts.length !== 4) continue;            // skips the dl:winurl cache key
-      const [, day, platform, country] = parts;
-      if (since && day < since) continue;
-      const n = Number(await env.HEARTS.get(k.name)) || 0;
-      if (!n) continue;
-      totals[platform] = (totals[platform] || 0) + n;
-      byCountry[country] = byCountry[country] || { mac: 0, pc: 0 };
-      byCountry[country][platform] = (byCountry[country][platform] || 0) + n;
-    }
-    cursor = page.list_complete ? null : page.cursor;
-  } while (cursor);
+  for (const [name, n] of await kvCounts(env, 'dl:')) {
+    const parts = name.split(':');              // dl:<day>:<platform>:<country>
+    if (parts.length !== 4) continue;            // skips the dl:winurl cache key
+    const [, day, platform, country] = parts;
+    if (since && day < since) continue;
+    if (!n) continue;
+    totals[platform] = (totals[platform] || 0) + n;
+    byCountry[country] = byCountry[country] || { mac: 0, pc: 0 };
+    byCountry[country][platform] = (byCountry[country][platform] || 0) + n;
+  }
   return json({ ok: true, since: since || null, totals, byCountry });
 }
 
@@ -455,22 +449,16 @@ async function handlePing(request, env, ctx) {
 async function handlePingStats(url, env) {
   const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
   const byDay = {}, byCountry = {}, byVersion = {};
-  let cursor;
-  do {
-    const page = await env.HEARTS.list({ prefix: 'pg:', cursor });
-    for (const k of page.keys) {
-      const parts = k.name.split(':');          // pg:<day>:<platform>:<version>:<country>
-      if (parts.length !== 5) continue;
-      const [, day, platform, version, country] = parts;
-      if (since && day < since) continue;
-      const n = Number(await env.HEARTS.get(k.name)) || 0;
-      if (!n) continue;
-      byDay[day] = (byDay[day] || 0) + n;
-      byCountry[country] = (byCountry[country] || 0) + n;
-      byVersion[version] = (byVersion[version] || 0) + n;
-    }
-    cursor = page.list_complete ? null : page.cursor;
-  } while (cursor);
+  for (const [name, n] of await kvCounts(env, 'pg:')) {
+    const parts = name.split(':');            // pg:<day>:<platform>:<version>:<country>
+    if (parts.length !== 5) continue;
+    const [, day, platform, version, country] = parts;
+    if (since && day < since) continue;
+    if (!n) continue;
+    byDay[day] = (byDay[day] || 0) + n;
+    byCountry[country] = (byCountry[country] || 0) + n;
+    byVersion[version] = (byVersion[version] || 0) + n;
+  }
   // "Active today" is the most recent day's count — the number that actually
   // means active installs. Summing days would double-count the same install.
   const days = Object.keys(byDay).sort();
@@ -491,22 +479,16 @@ async function handleTotals(env) {
   const blank = () => ({ byMonth: {}, byCountry: {}, total: 0 });
   const acc = { dlm: blank(), pgm: blank(), lbm: blank() };
   for (const kind of ['dlm', 'pgm', 'lbm']) {
-    let cursor;
-    do {
-      const page = await env.HEARTS.list({ prefix: `${kind}:`, cursor });
-      for (const k of page.keys) {
-        const parts = k.name.split(':');       // <kind>:<YYYY-MM>:<platform|borrowkind>:<country>
-        if (parts.length !== 4) continue;
-        const [, month, , country] = parts;
-        const n = Number(await env.HEARTS.get(k.name)) || 0;
-        if (!n) continue;
-        const a = acc[kind];
-        a.byMonth[month] = (a.byMonth[month] || 0) + n;
-        a.byCountry[country] = (a.byCountry[country] || 0) + n;
-        a.total += n;
-      }
-      cursor = page.list_complete ? null : page.cursor;
-    } while (cursor);
+    for (const [name, n] of await kvCounts(env, `${kind}:`)) {
+      const parts = name.split(':');         // <kind>:<YYYY-MM>:<platform|borrowkind>:<country>
+      if (parts.length !== 4) continue;
+      const [, month, , country] = parts;
+      if (!n) continue;
+      const a = acc[kind];
+      a.byMonth[month] = (a.byMonth[month] || 0) + n;
+      a.byCountry[country] = (a.byCountry[country] || 0) + n;
+      a.total += n;
+    }
   }
   // library sums patches + sequences per month/country (coarse lifetime aggregate,
   // like downloads sums mac + pc); /borrow/stats has the per-kind split.
