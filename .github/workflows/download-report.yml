@@ -39,6 +39,11 @@ on:
     #     both near enough to midnight to not matter.
     # The :12 offset also dodges the top-of-hour congestion that delays crons.
     - cron: '12 7 * * *'
+    # Same-day retry (15:12 UTC = 08:12 PDT): GitHub's cron drift has grown
+    # from ~3 h to fired-11-hours-late / not-at-all (2026-08-27/28). Safe to
+    # double-run: the delta logic means whichever run fires first sends and
+    # advances the snapshot, and the other computes zero and stays silent.
+    - cron: '12 15 * * *'
   workflow_dispatch: {}         # allow manual runs (Actions tab → Run workflow)
 
 permissions:
