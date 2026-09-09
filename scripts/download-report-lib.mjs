@@ -397,42 +397,39 @@ export function renderBody(model) {
   ]));
   out.push('');
 
-  // Rolling 7 calendar days of site clicks, straight from the Worker's
+  // Rolling 7 calendar days of site presses, straight from the Worker's
   // day-granular keys — no snapshot baseline, and overlap between consecutive
   // emails is fine because the label says exactly what the window is.
-  out.push('DOWNLOADS BY COUNTRY — LAST 7 DAYS');
+  // Each press table states its population under the heading: two country-ish
+  // numbers from two sources read as one number contradicting itself unless
+  // each says who it counts (the Seven's lesson).
+  const PRESS_POP = `${INDENT}(download button presses on the site — includes presses that never finished)`;
+  out.push('STARTED FROM THE WEBSITE — LAST 7 DAYS');
+  out.push(PRESS_POP);
   out.push(...(weekClicks ? countryTableSplit(weekClicks) : [`${INDENT}none`]));
   out.push('');
 
-  out.push('DOWNLOADS BY COUNTRY — TOTAL');
-  // stale = the live click fetch failed and these totals come from the last
+  out.push('STARTED FROM THE WEBSITE — TOTAL');
+  out.push(PRESS_POP);
+  // stale = the live press fetch failed and these totals come from the last
   // report's snapshot. Say so plainly, first, so a stored total is never
   // mistaken for a current one. Only a totally absent snapshot renders none.
   const lifeStale = !!(site && site.stale);
   if (lifeStale) {
-    out.push(`${INDENT}(live click data unavailable — totals below are from the last report)`);
+    out.push(`${INDENT}(live press data unavailable — totals below are from the last report)`);
   }
   out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
-  // The country lines are jx-3p.com clicks; GitHub's total is larger because
-  // most downloads never touch a site button. Show that remainder as a single
-  // "Direct" residual so the block reconciles to the download total. Only when
-  // positive — over all time, downloads ≫ clicks; a click isn't a 1:1
-  // download, so a negative residual would be meaningless (never shown).
-  // Skipped when stale: current GitHub totals minus STALE click totals would
-  // inflate the residual and quietly misattribute clicks to "Direct".
-  const clickSum = lifeClicks
-    ? Object.values(lifeClicks).reduce((s, v) => s + plat(v).mac + plat(v).pc, 0)
-    : 0;
-  const direct = (lifetime.macNew + lifetime.pcNew) - clickSum;
-  if (lifeClicks && !lifeStale && direct > 0) {
-    out.push(`${INDENT}Direct from GitHub (no jx-3p.com click)   ${direct}`);
-  }
+  // No "Direct from GitHub" residual here: that line was GitHub downloads
+  // MINUS site presses, and the two are different populations (completions vs
+  // presses) — the difference has no meaning. Rule: never sum, difference, or
+  // percentage the two.
   out.push('');
 
-  out.push(...metricBlock('TOTAL DOWNLOADS', [
+  out.push(...metricBlock('ALL DOWNLOADS', [
     { label: 'Mac', n: lifetime.macNew, delta: false },
     { label: 'PC', n: lifetime.pcNew, delta: false },
   ]));
+  out.push(`${INDENT}(every copy that left GitHub, from any route — installers only)`);
   out.push('');
 
   // Mac auto-updates appear only when this window HAD one — they're rare, and
@@ -468,9 +465,12 @@ export function renderBody(model) {
   // why the Country and Downloads numbers never tie out. The borrow lines only
   // join when the borrow section is shown (nothing to explain otherwise).
   out.push('HOW THIS IS COUNTED');
-  out.push('  • Country = button clicks via jx-3p.com');
-  out.push('  • Downloads = a file served via GitHub.');
-  out.push('  • Therefore, Country & Downloads metrics will never match.');
+  out.push('  • All downloads = every copy that left GitHub, from any route —');
+  out.push('    the website, the releases page, a direct link, a forum post.');
+  out.push('  • Started from the website = download button presses on the site,');
+  out.push('    counted at the relay. Presses, not completions — and country');
+  out.push('    exists only here.');
+  out.push('  • Separate populations: never summed, differenced, or percentaged.');
   out.push('  • PC has no auto-updater yet.');
   if (hasBorrows) {
     out.push('  • Borrows = a lending-library file taken via jx-3p.com or the app.');

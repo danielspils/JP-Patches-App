@@ -138,7 +138,7 @@ test('renderBody NEW/TOTAL download rows are bare counts, no split', async () =>
   const { renderBody } = await libP;
   const body = renderBody(model());
   assert.match(body, /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
-  assert.match(body, /\nTOTAL DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n/);
+  assert.match(body, /\nALL DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n {2}\(every copy that left GitHub, from any route — installers only\)\n/);
   assert.doesNotMatch(body, /site \d|· GitHub/);
 });
 
@@ -156,7 +156,7 @@ test('renderBody 7-day by-country is a 3-column table, sorted, zero platform omi
   const { renderBody } = await libP;
   const body = renderBody(model());
 
-  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses on the site — includes presses that never finished\)\n/);
   // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Country+count field is
   // at least 17 wide, so the Mac column lands at column 19 like the rows above.
   assert.match(body, /\n {2}Sweden 4 {9}Mac 2 {3}PC 2\n {2}China 1 {10}Mac 1\n/);
@@ -167,7 +167,7 @@ test('renderBody TOTAL by-country aligns counts in the value column (19)', async
   const { renderBody } = await libP;
   const body = renderBody(model());
   // US 10 (6+4) outranks SE 8 (3+5); name padded to 17 → count at column 19.
-  assert.match(body, /\nDOWNLOADS BY COUNTRY — TOTAL\n {2}United States {4}10\n {2}Sweden {11}8\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL\n {2}\(download button presses[^\n]*\n {2}United States {4}10\n {2}Sweden {11}8\n/);
 });
 
 test('renderBody sorts countries by count desc then full name', async () => {
@@ -178,7 +178,7 @@ test('renderBody sorts countries by count desc then full name', async () => {
       lifetime: { byCountry: { SG: { mac: 1, pc: 0 }, KR: { mac: 1, pc: 0 }, US: { mac: 5, pc: 0 } } },
     },
   }));
-  const life = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
+  const life = body.slice(body.indexOf('STARTED FROM THE WEBSITE — TOTAL'));
   // US 5 first; then the two 1s alphabetically: Singapore before South Korea.
   assert.ok(life.indexOf('United States') < life.indexOf('Singapore'));
   assert.ok(life.indexOf('Singapore') < life.indexOf('South Korea'));
@@ -189,7 +189,7 @@ test('renderBody prints "none" for an empty by-country table', async () => {
   const body = renderBody(model({
     site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
   }));
-  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
 test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
@@ -198,15 +198,15 @@ test('renderBody shows "none" for both country tables when the Worker is unreach
   // Downloads still render (GitHub, not the Worker).
   assert.match(body, /^ {2}Mac {14}\+6$/m);
   assert.match(body, /^ {2}Mac {14}41$/m);
-  assert.match(body, /\nDOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
-  assert.match(body, /\nDOWNLOADS BY COUNTRY — TOTAL\n {2}none\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
 test('HOW THIS IS COUNTED: 4 bullets when no borrows this window; borrow bullets only with borrows', async () => {
   const { renderBody } = await libP;
   // Download-only report (no borrows this window) → the two borrow bullets are absent.
   const plain = renderBody(model());
-  assert.match(plain, /\nHOW THIS IS COUNTED\n {2}• Country = button clicks via jx-3p\.com\n {2}• Downloads = a file served via GitHub\.\n {2}• Therefore, Country & Downloads metrics will never match\.\n {2}• PC has no auto-updater yet\.\n$/);
+  assert.match(plain, /\nHOW THIS IS COUNTED\n {2}• All downloads = every copy that left GitHub, from any route —\n {4}the website, the releases page, a direct link, a forum post\.\n {2}• Started from the website = download button presses on the site,\n {4}counted at the relay\. Presses, not completions — and country\n {4}exists only here\.\n {2}• Separate populations: never summed, differenced, or percentaged\.\n {2}• PC has no auto-updater yet\.\n$/);
   assert.doesNotMatch(plain, /Borrows =|Click here|goatcounter/);
 
   // A borrow this window → the two borrow bullets join the footer.
@@ -228,8 +228,8 @@ test('renderBody emits the section headings in order', async () => {
   const body = renderBody(libModel());
   const order = [
     'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
-    'DOWNLOADS BY COUNTRY — LAST 7 DAYS', 'DOWNLOADS BY COUNTRY — TOTAL',
-    'TOTAL DOWNLOADS', 'MAC UPDATES',
+    'STARTED FROM THE WEBSITE — LAST 7 DAYS', 'STARTED FROM THE WEBSITE — TOTAL',
+    'ALL DOWNLOADS', 'MAC UPDATES',
     'NEW LIBRARY BORROWS', 'LIBRARY BORROWS BY COUNTRY', 'TOTAL LIBRARY BORROWS',
     'HOW THIS IS COUNTED',
   ];
@@ -252,19 +252,13 @@ test('countryName resolves any ISO code via Intl, XX → Unknown', async () => {
   assert.equal(countryName('zzz'), 'zzz');            // invalid → raw code, no throw
 });
 
-test('TOTAL by-country appends the Direct-from-GitHub residual, reconciling to the total', async () => {
+test('the Direct-from-GitHub residual never renders (downloads minus presses is meaningless)', async () => {
   const { renderBody } = await libP;
-  // model: total downloads 41+19 = 60; total clicks 10+8 = 18 → 42 direct.
-  const body = renderBody(model());
-  assert.match(body, /\n {2}Direct from GitHub \(no jx-3p\.com click\) {3}42\n/);
-  // It sits after the country rows, inside the TOTAL by-country block.
-  const life = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
-  assert.ok(life.indexOf('Direct from GitHub') < life.indexOf('TOTAL DOWNLOADS\n'));
-});
-
-test('Direct residual is hidden when clicks meet or exceed downloads', async () => {
-  const { renderBody } = await libP;
-  // Tiny downloads, big clicks → non-positive residual → omitted (never negative).
+  // Downloads well above presses (the old residual would have been 42) …
+  assert.doesNotMatch(renderBody(model()), /Direct from GitHub/);
+  // … and presses above downloads: gone either way. The two are different
+  // populations (completions vs presses) — never summed, differenced, or
+  // percentaged.
   const body = renderBody(model({
     lifetime: { macNew: 1, macUpd: 0, pcNew: 0 },
     site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 5 } } } },
@@ -305,14 +299,14 @@ test('stale site: TOTAL renders the snapshot table + notice, no residual; 7-day 
     stale: true,
   };
   const body = renderBody(m);
-  const total = body.slice(body.indexOf('DOWNLOADS BY COUNTRY — TOTAL'));
-  assert.match(total, /\n {2}\(live click data unavailable — totals below are from the last report\)\n/);
+  const total = body.slice(body.indexOf('STARTED FROM THE WEBSITE — TOTAL'));
+  assert.match(total, /\n {2}\(live press data unavailable — totals below are from the last report\)\n/);
   assert.match(total, /Sweden {11}6/);
   assert.match(total, /United States {4}4/);
   // Residual is suppressed when stale (current GitHub minus stale clicks lies).
   assert.doesNotMatch(total, /Direct from GitHub/);
   // The rolling window has no snapshot equivalent — none is truthful there.
-  assert.match(body, /DOWNLOADS BY COUNTRY — LAST 7 DAYS\n {2}none\n/);
+  assert.match(body, /STARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
 test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {

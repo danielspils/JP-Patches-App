@@ -76,18 +76,19 @@ sitemap: false
     <canvas id="curve" role="img" aria-label="Cumulative downloads over time, Mac in green stacked on PC in blue.">Cumulative downloads over time.</canvas>
   </div>
 
-  <div class="sec-title">Downloads by country</div>
-  <div class="sec-sub">jx-3p.com button clicks · all time · a rough interest signal, counted separately from downloads</div>
+  <div class="sec-title">Started from the website</div>
+  <div class="sec-sub">download button presses on the site, by country · includes presses that never finished downloading · counted at the relay · all time</div>
   <div class="chart" id="countryWrap" style="height:520px;">
-    <canvas id="country" role="img" aria-label="Downloads by country, ranked.">Downloads by country.</canvas>
+    <canvas id="country" role="img" aria-label="Download button presses by country, ranked.">Download button presses by country.</canvas>
   </div>
+  <p class="sub">The first is every download. The second is the ones that came through this site.</p>
 
   <div class="note">
     <b>How this is counted</b>
     <ul>
-      <li>Downloads = a file served via GitHub (the real count).</li>
-      <li>Country = button clicks via jx-3p.com (a rough interest signal, not downloads).</li>
-      <li>The two are separate metrics — they will not add up to each other.</li>
+      <li>All downloads = every copy that left GitHub, from any route — the website, the releases page, a direct link, a forum post. Installers only.</li>
+      <li>Started from the website = download button presses on the site, counted at the relay. Presses, not completions — and country exists only here.</li>
+      <li>Separate populations — never summed, differenced, or percentaged.</li>
     </ul>
   </div>
 </div>
@@ -122,7 +123,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
     const on = (m) => (curMode === m ? ' mode-on' : '');
     const hero =
       `<div class="stat stat-hero${scoped}${on('downloads')}" data-mode="downloads">` +
-      `<div><div class="lbl">${windowed ? 'Downloads' : 'Total downloads'}</div><div class="val">${mac + pc}</div></div>` +
+      `<div><div class="lbl">All downloads</div><div class="val">${mac + pc}</div></div>` +
       `<div><div class="lbl">Mac / PC</div><div class="val">${mac} / ${pc}</div></div>` +
       `</div>`;
     const countries = windowed && w.countries !== null ? w.countries : Object.keys(D.byCountry).length;
@@ -192,7 +193,7 @@ fetch('data.json').then(r=>r.json()).then(D=>{
       // Cumulative click lines per country — the race chart. Top 8 by final
       // total in the window; the rest stay in the bar chart below.
       title.textContent = 'Countries over time';
-      sub.textContent = 'jx-3p.com download clicks by country · cumulative';
+      sub.textContent = 'download button presses on the site, by country · cumulative';
       const { labels, pick } = slice(D.countrySeries);
       const PAL = ['#1f6e5b','#b94a2e','#33508f','#c39a3a','#2a8870','#d05a3a','#4264a8','#8a6d29'];
       const tops = Object.entries(D.countrySeries.series)
