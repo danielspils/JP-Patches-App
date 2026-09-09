@@ -89,6 +89,8 @@ jobs:
       # run — the page promises "updates daily", and country clicks / pings can
       # move on days with no downloads (no email).
       - name: Build metrics data
+        env:
+          GH_TOKEN: ${{ github.token }}   # the version table reads per-release asset counts
         run: node scripts/build-metrics-data.mjs
 
       # Snapshot + history are committed only after a successful send (or to
