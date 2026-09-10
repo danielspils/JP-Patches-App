@@ -76,8 +76,24 @@ jobs:
         # 31888913488 — three timeouts, 29-43 silent minutes each).
         shell: pwsh
         run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name TrustedSigning -Force -Scope CurrentUser -AllowClobber
+          # 2026-09-10: the runner image dropped the default PSGallery
+          # registration (run 34486338797 — "No repository with the name
+          # 'PSGallery' was found", 54s failure). Prefer the image's modern
+          # PSResourceGet; fall back to re-registering the classic gallery.
+          if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
+            Install-PSResource -Name TrustedSigning -TrustRepository -Scope CurrentUser
+          } else {
+            if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+              Register-PSRepository -Default
+            }
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name TrustedSigning -Force -Scope CurrentUser -AllowClobber
+          }
+          # Fail HERE, loudly, if the module still isn't present — not 20
+          # minutes later inside the signing hook.
+          if (-not (Get-Module -ListAvailable TrustedSigning)) {
+            throw 'TrustedSigning module did not install'
+          }
 
       - name: Build NSIS installer (Azure-signed)
         # Mirrors `electron-builder --win --x64` from the dist:win script, with
