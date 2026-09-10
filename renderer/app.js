@@ -11746,6 +11746,7 @@ function todayStamp() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;   // local date, not UTC
 }
 
+let pingInFlight = false;   // module state, deliberately not on library.telemetry
 async function maybeSendUsagePing() {
   if (!library.telemetry) library.telemetry = {};
   const t = library.telemetry;
@@ -11754,11 +11755,23 @@ async function maybeSendUsagePing() {
   if (!t.enabled) return;                             // opted out
   const today = todayStamp();
   if (t.lastPing === today) return;                   // already counted today
-  // Stamp BEFORE awaiting: two quick launches shouldn't double-count, and a
-  // failed ping shouldn't retry all day. One attempt per day, win or lose.
-  t.lastPing = today;
-  saveLibraryDebounced();
-  try { await window.api.telemetryPing(); } catch { /* never surface */ }
+  if (pingInFlight) return;                           // one attempt at a time
+  // Stamp only on a CONFIRMED success: the old stamp-before-await meant a
+  // rejected or failed ping was recorded as counted and never retried. This
+  // runs once per launch, so a failure retries at the next launch — never a
+  // same-day hammer. The in-flight flag is module state, NOT t.* — anything
+  // on library.telemetry gets persisted, and a crash mid-flight would then
+  // leave it stuck true in library.json, silencing the install for good.
+  pingInFlight = true;
+  try {
+    const r = await window.api.telemetryPing();
+    if (r && r.ok) {
+      t.lastPing = today;
+      saveLibraryDebounced();
+    }
+  } catch { /* never surface */ } finally {
+    pingInFlight = false;
+  }
 }
 
 // The one-time disclosure. Copy is Daniel's — don't reword it without asking.

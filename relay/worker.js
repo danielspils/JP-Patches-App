@@ -418,14 +418,34 @@ async function handleDownloadStats(url, env) {
 const PING_TTL_SECONDS = 90 * 24 * 3600;
 const PING_VER_RE = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/;   // reject anything odd
 
+// A rejected ping must leave a trace: a 400 alone vanishes (Workers keep no
+// logs), so a broken client would look like a quiet fleet. pgx:<day>:<reason>
+// counters (90-day TTL, same as pg:) surface in /ping/stats as `rejected` —
+// nonzero there means some install is sending pings the Worker won't count.
+async function notePingReject(env, ctx, reason) {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const key = `pgx:${day}:${reason}`;
+  const bump = (async () => {
+    const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
+    await env.HEARTS.put(key, String(next), { expirationTtl: PING_TTL_SECONDS });
+  })();
+  if (ctx) ctx.waitUntil(bump); else await bump;
+}
+
 async function handlePing(request, env, ctx) {
   let body;
-  try { body = await request.json(); } catch { return json({ ok: false, error: 'invalid JSON' }, 400); }
+  try { body = await request.json(); } catch {
+    await notePingReject(env, ctx, 'json');
+    return json({ ok: false, error: 'invalid JSON' }, 400);
+  }
   const platform = body && body.platform === 'win' ? 'win'
                  : body && body.platform === 'mac' ? 'mac' : null;
   const version = body && typeof body.version === 'string' && PING_VER_RE.test(body.version)
     ? body.version : null;
-  if (!platform || !version) return json({ ok: false, error: 'bad platform/version' }, 400);
+  if (!platform || !version) {
+    await notePingReject(env, ctx, !platform ? 'platform' : 'version');
+    return json({ ok: false, error: 'bad platform/version' }, 400);
+  }
 
   const country = (request.cf && request.cf.country) || 'XX';
   const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -459,6 +479,17 @@ async function handlePingStats(url, env) {
     byCountry[country] = (byCountry[country] || 0) + n;
     byVersion[version] = (byVersion[version] || 0) + n;
   }
+  // Rejected-ping counters (pgx:<day>:<reason>) ride along: nonzero means
+  // some install is sending pings the Worker won't count — the failure mode
+  // that used to be invisible.
+  const rejected = {};
+  for (const [name, n] of await kvCounts(env, 'pgx:')) {
+    const parts = name.split(':');            // pgx:<day>:<reason>
+    if (parts.length !== 3 || !n) continue;
+    const [, day, reason] = parts;
+    if (since && day < since) continue;
+    rejected[reason] = (rejected[reason] || 0) + n;
+  }
   // "Active today" is the most recent day's count — the number that actually
   // means active installs. Summing days would double-count the same install.
   const days = Object.keys(byDay).sort();
@@ -466,7 +497,7 @@ async function handlePingStats(url, env) {
   return json({
     ok: true, since: since || null,
     activeLatestDay: latest, activeLatest: latest ? byDay[latest] : 0,
-    byDay, byCountry, byVersion,
+    byDay, byCountry, byVersion, rejected,
   });
 }
 

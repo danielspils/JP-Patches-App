@@ -472,13 +472,16 @@ ipcMain.handle('telemetry-ping', async () => {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
   try {
-    await fetch(PING_URL, {
+    const res = await fetch(PING_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ platform, version }),
       signal: ctrl.signal,
     });
-    return { ok: true };
+    // res.ok matters: a Worker 400 (rejected ping) used to come back {ok:true},
+    // so a rejected install looked counted forever. The renderer only stamps
+    // lastPing on a confirmed success, so a failure retries next launch.
+    return { ok: res.ok, status: res.status };
   } catch {
     return { ok: false };   // offline, blocked, endpoint down — all fine
   } finally {
