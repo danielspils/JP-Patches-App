@@ -174,6 +174,19 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
 21. **JX-3P Memory Protect silently discards tape-load writes.** Switch ON → the JX accepts the audio, completes the load, reports nothing, saves nothing. Undetectable in tape mode (no return channel). Surfaced via a Send-modal sub-line. MIDI (Phase 3) sidesteps it entirely.
 22. **macOS CoreAudio "dormancy" can make `setSinkId` silently no-op** (returns resolved, routes nothing) after a macOS update / renderer reload / idle. User workaround: System Settings → Sound → click built-in speakers, then the USB device, to wake the routing graph. Below the layer JP can fix.
 
+39. **The KT cable is TWO devices in macOS, and the OUTPUT half has its own
+    volume.** "KT USB Audio 1" (1 in / 0 outs) is the capture side; "KT USB
+    Audio 2" (0 ins / 2 outs) is the send side, and its device-level volume
+    (Audio MIDI Setup → Output) scales the FSK **even though the app pins its
+    element volume to 1.0**. Found at −6.5 dB on 2026-09-24: every send
+    reached the JX at ~half amplitude → received-but-rejected dump (keys in
+    the 11–16 error range lit) and a WEDGED panel needing a power cycle,
+    while capture stayed perfect (input half was at 0 dB). When sends fail
+    but captures work, check that slider before anything else. Same session
+    also hardened the other silent path: a failed `setSinkId(cable)` pin now
+    stops the transfer with a visible message instead of quietly degrading
+    to the system-default route (app.js `startPlayback`).
+
 ### Lending / site / release
 8. **Loop suppression matters in Phase 3 (MIDI)** — inbound CC must not trigger outbound CC. Spec §3.5.1.
 19. **The logo lives in TWO files** — `renderer/assets/jp-logo.png` (panel) and `docs/assets/img/jp-logo.png` (site). Update both + regenerate favicons via `sips`.

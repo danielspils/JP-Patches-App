@@ -7500,7 +7500,14 @@ function showSendToJxFlow(opts) {
         const prefixEl = sendLabelEl.querySelector('.record-jx-package-label-prefix');
         if (prefixEl) prefixEl.textContent = '✓ complete:';
       }
-      statusText.textContent = '✓ Complete. Check your JX for confirmation.';
+      // The Memory Protect check-in (Daniel, 2026-09-24; future-features.md).
+      // Tape has no return channel, so a protect-ON load LOOKS successful to
+      // both sides while the JX saves nothing — this line sits at the one
+      // moment the user would hit that confusion. Static copy, own <em>.
+      const doneHint = kind === 'sequence'
+        ? 'If the JX accepted the load but your sequence didn’t arrive, check Memory Protect — the JX saves nothing while it’s on, and reports nothing.'
+        : 'If the JX accepted the load but your patches didn’t change, check Memory Protect — the JX saves nothing while it’s on, and reports nothing.';
+      statusText.innerHTML = `✓ Complete. Check your JX for confirmation.<br><em>${doneHint}</em>`;
       // "▶ Play" becomes "Done" — the only remaining action closes the modal.
       primaryBtn.textContent = 'Done';
       primaryBtn.disabled = false;

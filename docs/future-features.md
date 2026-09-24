@@ -32,6 +32,22 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **Multi-capture reliability mode for Record** (design ready, build only if real-world failures appear). The 10-of-10 KT bit-perfect test showed Record is deterministic with current software, so not needed for v1 — but fully designed. Do 3 (or N) back-to-back captures, merge at the page level (keep the first checksum-valid copy of each page across captures). Merged success after N captures = 1 − (1−p)^N. Toggle in Settings, default off; half-day build, mostly the modal state machine. Ship only if a user reports persistent flakiness on hardware we can't access.
 
+- **Warn when the cable's OS output volume is turned down** (Daniel,
+  2026-09-24 — the day it cost a debugging session: KT USB Audio 2 sat at
+  −6.5 dB, every send reached the JX at ~half amplitude and was rejected;
+  trap #39). The renderer cannot read device volume (no web API) and
+  `system_profiler` doesn't report it (checked: rates/channels only), so
+  this needs a tiny vendored CoreAudio helper — ~60 lines of Swift reading
+  `kAudioDevicePropertyVolumeScalar` + mute for a named output device,
+  compiled arm64 at dist time and shipped in extraResources exactly like
+  `uv` (precedent for vendored signed binaries exists). Wire-up: on Send-
+  modal open, main.js execFiles the helper for the picked cable device; if
+  volume < ~0.95 or muted, the modal shows a warning with the actual value
+  and points at Audio MIDI Setup. Mac-only first (Windows needs its own
+  IAudioEndpointVolume helper — defer). Warning copy needs Daniel's
+  approval. Medium effort: helper + build step + signing check + IPC +
+  modal line — v0.9.0 material.
+
 - **Memory-Protect check-in after a send** (Daniel, 2026-09-24). Tape has no
   return channel, so the app CANNOT detect the JX's Memory Protect switch —
   protect-ON fails *silently* (the JX accepts the whole load, reports nothing,
