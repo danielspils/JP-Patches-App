@@ -7150,6 +7150,9 @@ function showSendToJxFlow(opts) {
   let tempPath = null;
   let progressTimer = null;
   let cancelled = false;
+  // Set after a failed cable pin so a SECOND Play press means "send via the
+  // system output anyway". Never persisted — every transfer re-tries the pin.
+  let sinkFallbackArmed = false;
   // (cableDeviceId + tapeDumpMuted are declared earlier, above the mute
   // toggle that closes over them — see the Tape Dump Sounds state block.)
 
@@ -7357,12 +7360,26 @@ function showSendToJxFlow(opts) {
     if (library.cableOutputDeviceId && typeof audioEl.setSinkId === 'function') {
       try {
         await audioEl.setSinkId(library.cableOutputDeviceId);
+        sinkFallbackArmed = false;
       } catch (err) {
-        // setSinkId rejected (device gone, permission denied, etc.).
-        // Don't abort — fall through to default routing rather than
-        // failing the whole transfer. User will hear via Tape Dump Sounds
-        // if enabled, OR catch it via the JX not receiving anything.
-        console.warn('JP: setSinkId(cable) failed, using default sink:', err && err.message);
+        // setSinkId rejected even though the pre-flight saw the device (a
+        // stale-but-reenumerated id, permission, CoreAudio state). The old
+        // behavior fell through to the DEFAULT output with only a console
+        // warning — a route where system volume / OS processing scale the
+        // FSK, which the JX receives as a bad dump (lights 11-16, and a
+        // possible panel wedge needing a power cycle). A silently degraded
+        // transfer is worse than a stopped one, so: stop, say so, and only
+        // proceed on an explicit second Play press (2026-09-24).
+        console.warn('JP: setSinkId(cable) failed:', err && err.message);
+        if (!sinkFallbackArmed) {
+          sinkFallbackArmed = true;
+          sendRow.classList.add('play-ready');   // restore the pre-play state
+          primaryBtn.disabled = false;
+          statusText.textContent = 'Couldn’t route to your saved cable — re-pick it in the output list, '
+            + 'or press Play again to send via the system output (may not decode).';
+          return;
+        }
+        // Second press: the user chose the system-output route knowingly.
       }
     }
     try {
