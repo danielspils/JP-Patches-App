@@ -300,15 +300,26 @@ test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async (
   });
 });
 
-test('htmlBody wraps the escaped report in one <pre>, no CTA anchors', async () => {
-  const { htmlBody } = await libP;
+test('htmlBody wraps the escaped report in one <pre> and appends the CTA anchors', async () => {
+  const { htmlBody, METRICS_URL, GOATCOUNTER_URL } = await libP;
   const html = htmlBody('ALL DOWNLOADS\n  Mac   1 <&>');
   assert.ok(html.startsWith('<pre style='));
   assert.ok(html.endsWith('</pre>'));
   assert.match(html, /ALL DOWNLOADS\n {2}Mac {3}1 &lt;&amp;&gt;/);
-  // The shared format ends at HOW THIS IS COUNTED on both sites — the old
-  // CTA-link appendix is gone from both parts.
-  assert.doesNotMatch(html, /<a href|goatcounter|metrics/i);
+  // The declared footer exception: two link bullets after the report, only
+  // the link TEXT anchored, no raw URL visible.
+  const cta = `  • Historical metrics at <a href="${METRICS_URL}">JX-3P.com/metrics</a>\n`
+    + `  • more metrics: <a href="${GOATCOUNTER_URL}">GoatCounter</a>\n`;
+  assert.ok(html.includes(cta));
+});
+
+test('ctaBullet: two plain footer bullets — site metrics page, then GoatCounter', async () => {
+  const { ctaBullet, METRICS_URL, GOATCOUNTER_URL } = await libP;
+  assert.equal(
+    ctaBullet(),
+    `  • Historical metrics at JX-3P.com/metrics: ${METRICS_URL}\n`
+      + `  • more metrics: GoatCounter: ${GOATCOUNTER_URL}`
+  );
 });
 
 test('htmlBody escapes & < > only in the report, leaving the · separator intact', async () => {

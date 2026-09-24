@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody,
+  ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody, ctaBullet,
   historyRow,
 } from './download-report-lib.mjs';
 
@@ -139,9 +139,10 @@ const report = renderBody({
   library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 
-// The two multipart/alternative parts — the same text; the shared format
-// ends at HOW THIS IS COUNTED (the CTA appendix left with it).
-const body = report;
+// The two multipart/alternative parts. The footer CTAs (site metrics page,
+// then GoatCounter — JP's declared footer exception) follow HOW THIS IS
+// COUNTED: plain appends phrase + URL lines; htmlBody appends inline anchors.
+const body = `${report}\n${ctaBullet()}\n`;
 const html = htmlBody(report);
 
 process.stdout.write(body);

@@ -376,9 +376,9 @@ function borrowRows(counts) {
 //
 // SECTION ORDER IS SHARED WITH the Seven's email, same words in the same
 // order, so one person reading both every morning reads one format twice
-// rather than two formats. The one declared difference is JP's library-borrow
-// blocks, which have no counterpart there; a difference that is written down
-// is not drift.
+// rather than two formats. JP's two DECLARED differences: the library-borrow
+// blocks (no counterpart on the Seven) and the two footer CTA links appended
+// after HOW THIS IS COUNTED; a difference that is written down is not drift.
 //
 //   1  ALL DOWNLOADS SINCE <date>
 //   2  ALL DOWNLOADS, LIFETIME
@@ -495,16 +495,35 @@ export function renderBody(model) {
   return `${sections.map((sec) => sec.join('\n')).join('\n\n')}\n`;
 }
 
+// Footer CTA bullets — the durable, graphed history the daily email can't
+// show. Two lines: the site's own metrics page first, then the GoatCounter
+// dashboard. A DECLARED exception to the shared format (like the borrow
+// blocks): the Seven's email ends at HOW THIS IS COUNTED and JP's carries
+// these two links after it — Daniel asked for them back (2026-09-24), and a
+// difference that is written down is not drift.
+export const METRICS_URL = 'https://jx-3p.com/metrics';
+export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
+const CTAS = [
+  { prefix: 'Historical metrics at ', link: 'JX-3P.com/metrics', url: METRICS_URL },
+  { prefix: 'more metrics: ', link: 'GoatCounter', url: GOATCOUNTER_URL },
+];
+
+export function ctaBullet() {
+  return CTAS.map((c) => `  • ${c.prefix}${c.link}: ${c.url}`).join('\n');
+}
+
 // The HTML half of the multipart email: the same text, escaped, in one
 // inline-styled <pre>. No reflow and no markdown — the alignment above IS the
-// layout. (The old CTA-anchor appendix left with the CTA bullets: the shared
-// format ends at HOW THIS IS COUNTED on both sites.)
+// layout. The one exception is the CTA bullets appended last: an inline <a>
+// around each link text (inline elements are fine inside <pre>), so only
+// those words link and no raw URL shows.
 export function htmlBody(report) {
   const escaped = String(report)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}</pre>`;
+  const cta = CTAS.map((c) => `  • ${c.prefix}<a href="${c.url}">${c.link}</a>`).join('\n') + '\n';
+  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
 }
 
 // One append-only history row per report, for charting downloads over time.
