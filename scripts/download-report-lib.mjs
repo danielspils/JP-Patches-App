@@ -38,7 +38,7 @@ export const COUNTRY_NAMES = {
   PH: 'Philippines', VN: 'Vietnam', MY: 'Malaysia', EE: 'Estonia',
   LT: 'Lithuania', LV: 'Latvia', SK: 'Slovakia', SI: 'Slovenia',
   HR: 'Croatia', RS: 'Serbia', BG: 'Bulgaria', IS: 'Iceland',
-  LU: 'Luxembourg', XX: 'Unknown',
+  LU: 'Luxembourg', T1: 'Tor network', XX: 'Unknown',
 };
 
 // Resolve an ISO 3166-1 alpha-2 code to a full English name via Intl (the CI
@@ -252,72 +252,87 @@ export function diffLibrary(prevLib, cur, fallback) {
 
 // ── formatting ────────────────────────────────────────────────────────
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-  'August', 'September', 'October', 'November', 'December'];
-
-// "2026-06-12T01:14:12Z" → "Jun 12, 2026". UTC throughout — the workflow
-// runs on GitHub's clock, not Daniel's.
-export function formatDate(iso) {
+// "17 Aug" for the header, "17 Aug 2026" where the year earns its place —
+// shared wording with the Seven's email. One deliberate difference from its
+// code: timeZone is pinned to UTC (the Seven formats in runner-local time;
+// JP's test suite has always required UTC so a report cut near midnight
+// doesn't name the wrong day). Fixed locale: this is one person's daily
+// email, and en-GB puts the day first.
+export function formatDate(iso, { year = false } = {}) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return `${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
-}
-
-const INDENT = '  ';
-const LABEL_W = 17;              // labels padded so values start at column 19
-
-// A titled block of "label   value" rows, values in one column. A "+" marks a
-// since-window delta; a bare figure sharing a block with deltas reserves that
-// sign column with a leading space, so the digits still line up under them.
-function metricBlock(title, rows) {
-  const anyDelta = rows.some((r) => r.delta);
-  const token = (r) => (r.delta ? `+${r.n}` : `${anyDelta ? ' ' : ''}${r.n}`);
-  const width = Math.max(...rows.map((r) => token(r).length));
-  const lines = [title];
-  for (const r of rows) {
-    // note = a parenthetical after the number (e.g. the click countries for
-    // this window). Purely informational — omitted when empty.
-    const tail = r.note ? `${token(r).padEnd(width)} (${r.note})` : token(r).padEnd(width);
-    lines.push((INDENT + r.label.padEnd(LABEL_W) + tail).replace(/\s+$/, ''));
-  }
-  return lines;
-}
-
-// Country rows, sorted by count desc then full name. Each: { name, mac, pc, t }.
-function countryRows(byCountry) {
-  return Object.entries(byCountry || {})
-    .map(([cc, v]) => ({ name: countryName(cc), mac: plat(v).mac, pc: plat(v).pc, t: plat(v).mac + plat(v).pc }))
-    .filter((x) => x.t > 0)
-    .sort((a, b) => (b.t - a.t) || a.name.localeCompare(b.name));
-}
-
-// "NEW BY COUNTRY" table: one country per line, three space-aligned columns —
-// "Country N", "Mac n", "PC n". The first column is at least LABEL_W wide, so
-// the Mac column lands on the same column (19) as the metric-block values above
-// and the lifetime counts below. A platform with no clicks leaves its cell
-// blank (the next column stays put).
-function countryTableSplit(byCountry) {
-  const rows = countryRows(byCountry);
-  if (!rows.length) return [`${INDENT}none`];
-  const c1 = rows.map((r) => `${r.name} ${r.t}`);
-  const w1 = Math.max(LABEL_W, Math.max(...c1.map((s) => s.length)) + 2);
-  const macCells = rows.map((r) => (r.mac > 0 ? `Mac ${r.mac}` : ''));
-  const w2 = Math.max(...macCells.map((s) => s.length)) + 3;
-  return rows.map((r, i) => {
-    const pc = r.pc > 0 ? `PC ${r.pc}` : '';
-    return (INDENT + c1[i].padEnd(w1) + macCells[i].padEnd(w2) + pc).replace(/\s+$/, '');
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', timeZone: 'UTC', ...(year ? { year: 'numeric' } : {}),
   });
 }
 
-// "LIFETIME BY COUNTRY" table: country then a single count. The name field is
-// at least LABEL_W wide so the count sits in the same value column (19) as the
-// Mac/PC figures elsewhere.
+const INDENT = '  ';
+const LABEL_W = 6;
+// Where a header's figure ends, so every section total shares one column. It
+// was 38 until the press sections arrived: "STARTED FROM THE WEBSITE — LAST 7
+// DAYS" is 38 characters on its own, so its figure fell off the end and sat
+// one space after the words while every other total lined up without it. A
+// column that one row opts out of is not a column. Widened rather than
+// shortening the heading, because the headings are shared with the Seven's
+// email word for word.
+const LINE_W = 44;
+
+// THE SECTION TOTAL LIVES ON THE HEADER, right-aligned. Mac and PC underneath
+// are the breakdown; the number you read first should not be one you have to
+// add up yourself every morning.
+function header(title, n) {
+  const figure = String(n);
+  return title + ' '.repeat(Math.max(1, LINE_W - title.length - figure.length)) + figure;
+}
+
+function row(label, n, note) {
+  return (INDENT + label.padEnd(LABEL_W) + String(n) + (note ? `   (${note})` : ''))
+    .replace(/\s+$/, '');
+}
+
+// Country rows, biggest first, then alphabetically so two equal counts have a
+// stable order rather than whatever the relay's key listing happened to give.
+// A row that counts nothing is dropped: a country appears because somebody
+// there pressed a button.
+function countryRows(byCountry) {
+  return Object.entries(byCountry || {})
+    .map(([cc, v]) => {
+      const o = (v && typeof v === 'object') ? v : { total: Number(v) || 0 };
+      const mac = Number(o.mac) || 0;
+      const pc = Number(o.pc) || 0;
+      return { name: countryName(cc), mac, pc, total: Number(o.total) || mac + pc };
+    })
+    .filter((r) => r.total > 0)
+    .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
+}
+
+// LAST 7 DAYS: "United States 3   Mac 2   PC 1". The platform cells are blank
+// when that platform had none, so the columns stay put and an all-Mac country
+// does not print "PC 0" — a zero nobody needs to read.
+function countryTableSplit(byCountry) {
+  const rows = countryRows(byCountry);
+  if (!rows.length) return [`${INDENT}none`];
+  const first = rows.map((r) => `${r.name} ${r.total}`);
+  const w1 = Math.max(LABEL_W, Math.max(...first.map((s) => s.length)) + 2);
+  const macCells = rows.map((r) => (r.mac > 0 ? `Mac ${r.mac}` : ''));
+  const w2 = Math.max(...macCells.map((s) => s.length)) + 3;
+  return rows.map((r, i) => (
+    INDENT + first[i].padEnd(w1) + macCells[i].padEnd(w2) + (r.pc > 0 ? `PC ${r.pc}` : '')
+  ).replace(/\s+$/, ''));
+}
+
+// TOTAL: country then one count.
 function countryTableCount(byCountry) {
   const rows = countryRows(byCountry);
   if (!rows.length) return [`${INDENT}none`];
   const w = Math.max(LABEL_W, Math.max(...rows.map((r) => r.name.length)) + 2);
-  return rows.map((r) => INDENT + r.name.padEnd(w) + r.t);
+  return rows.map((r) => INDENT + r.name.padEnd(w) + r.total);
 }
+
+// WHAT POPULATION A PRESS TABLE COUNTS, under its own heading. Two
+// country-ish numbers from two sources read as one number contradicting
+// itself unless each says who it counts.
+const PRESS_POP = `${INDENT}(download button presses on the site — includes presses that never finished)`;
 
 // Borrow country table: one total per country (patches + sequences + unknown
 // summed — the block never splits borrows by kind in the by-country view, to
@@ -332,58 +347,59 @@ function borrowCountryTable(byCountry) {
   return rows.map((r) => INDENT + r.name.padEnd(w) + r.t);
 }
 
-// Rows for a borrow metricBlock. Patches/Sequences are always shown; the
+// Rows for a borrow block. Patches/Sequences are always shown; the
 // `unknown` bucket (borrows from app builds that predate the kind tag) only
 // appears while it is non-zero, so the block stays clean once installs update.
-function borrowRows(counts, delta) {
+function borrowRows(counts) {
+  // Borrow labels outgrow LABEL_W ("Sequences" is 9 chars), so they carry
+  // their own pad — 11 keeps at least two spaces before every count.
   const c = kinds(counts);
-  const rows = [
-    { label: 'Patches', n: c.patches, delta },
-    { label: 'Sequences', n: c.sequences, delta },
-  ];
-  if (c.unknown > 0) rows.push({ label: 'Older app', n: c.unknown, delta });
-  return rows;
+  const line = (label, n) => (INDENT + label.padEnd(11) + n);
+  const lines = [line('Patches', c.patches), line('Sequences', c.sequences)];
+  if (c.unknown > 0) lines.push(line('Older app', c.unknown));
+  return lines;
 }
 
 // model:
-//   prevDate   — last report's date; "" on the first-ever send
-//   daysSince  — whole days since the last report (null on the first send).
-//                Because the email only fires on activity, "last report" IS
-//                "last new downloads", so the heading's span is literally true.
+//   prevDate  — ISO timestamp of the last report; "" on the first-ever send.
+//               Because the email only fires on activity, "since <date>" is
+//               literally "since the last new downloads".
 //   delta:    { macNew, macUpd, pcNew }              GitHub deltas this window
 //   lifetime: { macNew, macUpd, pcNew }              GitHub cumulative
 //   site:     null when the Worker is unreachable, else
-//             { week: byCountry, lifetime: {byCountry} } — raw button clicks:
-//             `week` is the rolling last-7-days query, `lifetime` the
-//             accumulated all-time counters. Their own blocks, never netted
-//             against downloads.
+//             { week, window, lifetime: {byCountry}, stale? } — raw button
+//             presses. Their own blocks, never netted against downloads.
 //   library:  null when the Worker is unreachable, else
 //             { window: {patches, sequences, unknown, byCountry},
 //               lifetime: {patches, sequences, unknown} } — lending-library
-//             borrows (site + app), their OWN separate metric, never netted
-//             against the GitHub download counts above.
+//             borrows, their OWN separate metric.
+//
+// SECTION ORDER IS SHARED WITH the Seven's email, same words in the same
+// order, so one person reading both every morning reads one format twice
+// rather than two formats. The one declared difference is JP's library-borrow
+// blocks, which have no counterpart there; a difference that is written down
+// is not drift.
+//
+//   1  ALL DOWNLOADS SINCE <date>
+//   2  ALL DOWNLOADS, LIFETIME
+//   3  MAC AUTO-UPDATES                    only when there was activity
+//   4  STARTED FROM THE WEBSITE — LAST 7 DAYS
+//   5  STARTED FROM THE WEBSITE — TOTAL
+//   6  library borrows                     JP only, the declared exception
+//   7  HOW THIS IS COUNTED
+//
+// NEVER call the relay number "downloads". It counts presses, not
+// completions. Never sum, difference or percentage the two.
 export function renderBody(model) {
-  const { prevDate, daysSince, delta, lifetime, site, library } = model;
-  const weekClicks = site ? site.week : null;
-  const lifeClicks = site ? site.lifetime.byCountry : null;
+  const { prevDate, delta, lifetime, site, library } = model;
+  const sections = [];
+  const sinceLabel = prevDate ? ` SINCE ${formatDate(prevDate).toUpperCase()}` : '';
 
-  const out = [];
-  // The top block is GitHub's counted downloads since the last report — the
-  // real activity, no click numbers near it. The by-country blocks below use
-  // DIFFERENT, explicitly-labelled windows (rolling 7 days / all time): geo
-  // only exists for site clicks, and GitHub's counter lags by hours, so a
-  // same-window click column would routinely disagree with this block and
-  // invite a reconciliation that can't hold. Distinct windows, no comparison.
-  const sinceLabel = prevDate
-    ? ` SINCE LAST REPORT (${daysSince} day${daysSince === 1 ? '' : 's'} ago)`
-    : '';
-
-  // Click countries for this window, per platform — appended as a
-  // parenthetical on the matching delta line, e.g. "Mac  +1 (United States)".
-  // These are jx-3p.com CLICK countries (downloads have no geography), so
-  // they're a rough "where from" signal, not an attribution: shown only when
-  // the platform's delta > 0 AND the window had clicks for it; the counts may
-  // not line up 1:1 with the delta (the footer explains why).
+  // Press countries for this window, appended as a parenthetical on the
+  // matching delta line, e.g. "Mac   1   (United States)". A rough "where
+  // from" signal, not an attribution — presses and downloads are different
+  // events and may not line up 1:1. JP-local detail; the Seven's rows carry
+  // an off-latest-version note here instead.
   const clickNote = (p) => {
     if (!site || !site.window) return '';
     return countryRows(site.window)
@@ -391,124 +407,104 @@ export function renderBody(model) {
       .sort((a, b) => (b[p] - a[p]) || a.name.localeCompare(b.name))
       .map((r) => r.name).join(', ');
   };
-  out.push(...metricBlock(`NEW DOWNLOADS${sinceLabel}`, [
-    { label: 'Mac', n: delta.macNew, delta: true, note: delta.macNew > 0 ? clickNote('mac') : '' },
-    { label: 'PC', n: delta.pcNew, delta: true, note: delta.pcNew > 0 ? clickNote('pc') : '' },
-  ]));
-  out.push('');
 
-  // Rolling 7 calendar days of site presses, straight from the Worker's
-  // day-granular keys — no snapshot baseline, and overlap between consecutive
-  // emails is fine because the label says exactly what the window is.
-  // Each press table states its population under the heading: two country-ish
-  // numbers from two sources read as one number contradicting itself unless
-  // each says who it counts (the Seven's lesson).
-  const PRESS_POP = `${INDENT}(download button presses on the site — includes presses that never finished)`;
-  out.push('STARTED FROM THE WEBSITE — LAST 7 DAYS');
-  out.push(PRESS_POP);
-  out.push(...(weekClicks ? countryTableSplit(weekClicks) : [`${INDENT}none`]));
-  out.push('');
+  sections.push([
+    header(`ALL DOWNLOADS${sinceLabel}`, delta.macNew + delta.pcNew),
+    '',
+    row('Mac', delta.macNew, delta.macNew > 0 ? clickNote('mac') : ''),
+    row('PC', delta.pcNew, delta.pcNew > 0 ? clickNote('pc') : ''),
+  ]);
 
-  out.push('STARTED FROM THE WEBSITE — TOTAL');
-  out.push(PRESS_POP);
-  // stale = the live press fetch failed and these totals come from the last
-  // report's snapshot. Say so plainly, first, so a stored total is never
-  // mistaken for a current one. Only a totally absent snapshot renders none.
-  const lifeStale = !!(site && site.stale);
-  if (lifeStale) {
-    out.push(`${INDENT}(live press data unavailable — totals below are from the last report)`);
-  }
-  out.push(...(lifeClicks ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
-  // No "Direct from GitHub" residual here: that line was GitHub downloads
-  // MINUS site presses, and the two are different populations (completions vs
-  // presses) — the difference has no meaning. Rule: never sum, difference, or
-  // percentage the two.
-  out.push('');
+  sections.push([
+    header('ALL DOWNLOADS, LIFETIME', lifetime.macNew + lifetime.pcNew),
+    '',
+    row('Mac', lifetime.macNew),
+    row('PC', lifetime.pcNew),
+  ]);
 
-  out.push(...metricBlock('ALL DOWNLOADS', [
-    { label: 'Mac', n: lifetime.macNew, delta: false },
-    { label: 'PC', n: lifetime.pcNew, delta: false },
-  ]));
-  out.push(`${INDENT}(every copy that left GitHub, from any route — installers only)`);
-  out.push('');
-
-  // Mac auto-updates appear only when this window HAD one — they're rare, and
-  // a quiet +0 block is noise next to the always-moving download sections.
+  // Only when there were some: a permanent "0" beside numbers that actually
+  // move is noise, and auto-updates are rare. The count sits on the header
+  // like every other section.
   if (delta.macUpd > 0) {
-    out.push(...metricBlock('MAC UPDATES', [
-      { label: 'New', n: delta.macUpd, delta: true },
-      { label: 'Lifetime', n: lifetime.macUpd, delta: false },
-    ]));
-    out.push('');
+    sections.push([header('MAC AUTO-UPDATES', delta.macUpd)]);
   }
 
-  // Lending-library borrows — a SEPARATE metric from the downloads above (a
-  // borrow is a shared C/D bank or sequence taken from the site or the app,
-  // not an app install). Borrows are rare, so the WHOLE section appears only
-  // when there was a borrow in this window — a download-only report stays
-  // uncluttered. (A borrow also triggers a send, so any borrow day surfaces.)
+  // ── THE RELAY'S HALF ──────────────────────────────────────────────
+  // A HEADER FIGURE IS A CLAIM, so an unread source gets an em dash and not
+  // a zero. Zero means the relay answered and nobody pressed anything;
+  // anything else says so in words.
+  const weekClicks = site ? site.week : null;
+  const weekTotal = weekClicks
+    ? countryRows(weekClicks).reduce((n, r) => n + r.total, 0)
+    : null;
+  const weekBlock = [header('STARTED FROM THE WEBSITE — LAST 7 DAYS', weekTotal ?? '—'), PRESS_POP];
+  weekBlock.push(...(weekClicks ? countryTableSplit(weekClicks) : [`${INDENT}none`]));
+  sections.push(weekBlock);
+
+  // stale = the live press fetch failed and these totals come from the last
+  // report's snapshot. The notice leads so the number underneath is never
+  // mistaken for a current one.
+  const lifeClicks = site ? site.lifetime.byCountry : null;
+  const lifeRows = lifeClicks ? countryRows(lifeClicks) : null;
+  const lifeBlock = [
+    header('STARTED FROM THE WEBSITE — TOTAL',
+      lifeRows ? lifeRows.reduce((n, r) => n + r.total, 0) : '—'),
+    PRESS_POP,
+  ];
+  if (site && site.stale) {
+    lifeBlock.push(`${INDENT}(live press data unavailable — totals below are from the last report)`);
+  }
+  lifeBlock.push(...(lifeRows && lifeRows.length ? countryTableCount(lifeClicks) : [`${INDENT}none`]));
+  sections.push(lifeBlock);
+
+  // ── LIBRARY BORROWS — JP only, the declared exception ─────────────
+  // Rare, so the whole trio appears only when this window had a borrow (a
+  // borrow also triggers a send, so any borrow day surfaces). Headers carry
+  // right-aligned totals like every other section.
   const wb = library ? kinds(library.window) : null;
   const hasBorrows = wb ? wb.patches + wb.sequences + wb.unknown > 0 : false;
   if (hasBorrows) {
-    out.push(...metricBlock('NEW LIBRARY BORROWS', borrowRows(library.window, true)));
-    out.push('');
-
-    out.push('LIBRARY BORROWS BY COUNTRY');
-    out.push(...borrowCountryTable(library.window.byCountry));
-    out.push('');
-
-    out.push(...metricBlock('TOTAL LIBRARY BORROWS', borrowRows(library.lifetime, false)));
-    out.push('');
+    const lb = kinds(library.lifetime);
+    sections.push([
+      header('NEW LIBRARY BORROWS', kindSum(wb)),
+      '',
+      ...borrowRows(library.window),
+    ]);
+    sections.push([
+      header('LIBRARY BORROWS BY COUNTRY', kindSum(wb)),
+      ...borrowCountryTable(library.window.byCountry),
+    ]);
+    sections.push([
+      header('TOTAL LIBRARY BORROWS', kindSum(lb)),
+      '',
+      ...borrowRows(library.lifetime),
+    ]);
   }
 
-  // Static — deliberately not templated. Bulleted; the middle two lines are
-  // why the Country and Downloads numbers never tie out. The borrow lines only
-  // join when the borrow section is shown (nothing to explain otherwise).
-  out.push('HOW THIS IS COUNTED');
-  out.push('  • All downloads = every copy that left GitHub, from any route —');
-  out.push('    the website, the releases page, a direct link, a forum post.');
-  out.push('  • Started from the website = download button presses on the site,');
-  out.push('    counted at the relay. Presses, not completions — and country');
-  out.push('    exists only here.');
-  out.push('  • Separate populations: never summed, differenced, or percentaged.');
-  out.push('  • PC has no auto-updater yet.');
-  if (hasBorrows) {
-    out.push('  • Borrows = a lending-library file taken via jx-3p.com or the app.');
-    out.push('  • Borrows are their own metric — not part of the downloads above.');
-  }
+  // TWO LINES, shared with the Seven verbatim. The long bullet list explained
+  // answers to questions nobody asks daily; what survives is the one caveat
+  // that changes how a number is READ. The press population lines above make
+  // this footer possible at this length. Daniel's wording; do not expand it.
+  sections.push([
+    'HOW THIS IS COUNTED',
+    '',
+    '    Mac counts new downloads',
+    "    PC combines new downloads + updates (GitHub can't distinguish)",
+  ]);
 
-  return out.join('\n') + '\n';
+  return `${sections.map((sec) => sec.join('\n')).join('\n\n')}\n`;
 }
 
-// Footer CTA bullets — the durable, graphed history the daily email can't
-// show. Two lines: the site's own metrics page first, then the GoatCounter
-// dashboard (linked as before). Only each link TEXT is anchored in HTML.
-export const METRICS_URL = 'https://jx-3p.com/metrics';
-export const GOATCOUNTER_URL = 'https://jx-3p.goatcounter.com';
-const CTAS = [
-  { prefix: 'Historical metrics at ', link: 'JX-3P.com/metrics', url: METRICS_URL },
-  { prefix: 'more metrics: ', link: 'GoatCounter', url: GOATCOUNTER_URL },
-];
-
-// The plain-text bullets: phrase plus the URL, since plain text can't
-// hyperlink (the URL auto-links in most clients). Appended by the driver.
-export function ctaBullet() {
-  return CTAS.map((c) => `  • ${c.prefix}${c.link}: ${c.url}`).join('\n');
-}
-
-// The HTML alternative part: the report, HTML-escaped (& < > only, & first)
-// and dropped verbatim into one inline-styled <pre> — no reflow, no markdown,
-// no <head>/<style> (clients strip those), no <div>/<table>/<br>. The one
-// exception is the CTA bullets appended last: an inline <a> around each link
-// text (inline elements are fine inside <pre>), so only those words link and
-// no raw URL shows. charset=utf-8 keeps the "·" separator intact.
+// The HTML half of the multipart email: the same text, escaped, in one
+// inline-styled <pre>. No reflow and no markdown — the alignment above IS the
+// layout. (The old CTA-anchor appendix left with the CTA bullets: the shared
+// format ends at HOW THIS IS COUNTED on both sites.)
 export function htmlBody(report) {
   const escaped = String(report)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const cta = CTAS.map((c) => `  • ${c.prefix}<a href="${c.url}">${c.link}</a>`).join('\n') + '\n';
-  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
+  return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}</pre>`;
 }
 
 // One append-only history row per report, for charting downloads over time.

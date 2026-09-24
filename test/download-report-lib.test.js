@@ -110,10 +110,10 @@ test('diffSite accumulates lifetime so the Worker 90-day expiry cannot shrink it
 // See scripts/download-report-lib.mjs.
 
 // site.week is the rolling last-7-days byCountry (a plain map, no snapshot
-// diffing); site.lifetime the accumulated all-time counters.
+// diffing); site.lifetime the accumulated all-time counters. prevDate is the
+// RAW ISO timestamp of the last report (renderBody formats it).
 const model = (over = {}) => ({
-  prevDate: 'Jul 22, 2026',
-  daysSince: 4,
+  prevDate: '2026-07-22T14:00:00Z',
   delta: { macNew: 6, macUpd: 1, pcNew: 4 },
   lifetime: { macNew: 41, macUpd: 23, pcNew: 19 },
   site: {
@@ -123,51 +123,43 @@ const model = (over = {}) => ({
   ...over,
 });
 
-test('renderBody opens with the NEW DOWNLOADS heading naming the window', async () => {
+test('renderBody opens with ALL DOWNLOADS SINCE <date>, total right-aligned at column 44', async () => {
   const { renderBody } = await libP;
-  // The window (since last report) is stated once, in the heading — no separate
-  // intro line, and never "YESTERDAY" (the span is routinely >1 day).
-  assert.match(renderBody(model()), /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n/);
-  assert.match(renderBody(model({ daysSince: 1 })), /^NEW DOWNLOADS SINCE LAST REPORT \(1 day ago\)\n/);
-  // First-ever send has no prior report → no window suffix.
-  assert.match(renderBody(model({ prevDate: '', daysSince: null })), /^NEW DOWNLOADS\n/);
-  assert.doesNotMatch(renderBody(model()), /Your last report was|YESTERDAY/);
+  // "ALL DOWNLOADS SINCE 22 JUL" (26) + spaces + "10" ends at column 44.
+  assert.match(renderBody(model()), /^ALL DOWNLOADS SINCE 22 JUL {16}10\n/);
+  // First-ever send has no prior report -> no window suffix, column kept.
+  assert.match(renderBody(model({ prevDate: '' })), /^ALL DOWNLOADS {29}10\n/);
+  assert.doesNotMatch(renderBody(model()), /NEW DOWNLOADS|days ago|YESTERDAY/);
 });
 
-test('renderBody NEW/TOTAL download rows are bare counts, no split', async () => {
+test('renderBody download rows are bare counts under a blank line, no split, no plus signs', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  assert.match(body, /^NEW DOWNLOADS SINCE LAST REPORT \(4 days ago\)\n {2}Mac {14}\+6\n {2}PC {15}\+4\n/);
-  assert.match(body, /\nALL DOWNLOADS\n {2}Mac {14}41\n {2}PC {15}19\n {2}\(every copy that left GitHub, from any route — installers only\)\n/);
-  assert.doesNotMatch(body, /site \d|· GitHub/);
+  assert.match(body, /^ALL DOWNLOADS SINCE 22 JUL {16}10\n\n {2}Mac {3}6\n {2}PC {4}4\n/);
+  assert.match(body, /\nALL DOWNLOADS, LIFETIME {19}60\n\n {2}Mac {3}41\n {2}PC {4}19\n/);
+  assert.doesNotMatch(body, /\+\d|site \d|· GitHub/);
 });
 
-test('renderBody MAC UPDATES appears only when the window had an update', async () => {
+test('renderBody MAC AUTO-UPDATES is header-only, shown only when the window had one', async () => {
   const { renderBody } = await libP;
-  // macUpd delta 1 → block shown, +delta aligned with the bare lifetime.
-  assert.match(renderBody(model()), /\nMAC UPDATES\n {2}New {14}\+1\n {2}Lifetime {10}23\n/);
-  // macUpd delta 0 → block gone entirely (lifetime count included).
+  assert.match(renderBody(model()), /\nMAC AUTO-UPDATES {27}1\n/);
   const quiet = renderBody(model({ delta: { macNew: 6, macUpd: 0, pcNew: 4 } }));
-  assert.doesNotMatch(quiet, /MAC UPDATES/);
-  assert.doesNotMatch(quiet, /\n {2}Lifetime {10}23\n/);
+  assert.doesNotMatch(quiet, /MAC AUTO-UPDATES|MAC UPDATES/);
 });
 
-test('renderBody 7-day by-country is a 3-column table, sorted, zero platform omitted', async () => {
+test('renderBody 7-day press table: header total, population line, 3 columns, zero platform omitted', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-
-  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses on the site — includes presses that never finished\)\n/);
-  // SE 4 (2+2) first, then CN 1 (Mac only → no PC cell). Country+count field is
-  // at least 17 wide, so the Mac column lands at column 19 like the rows above.
-  assert.match(body, /\n {2}Sweden 4 {9}Mac 2 {3}PC 2\n {2}China 1 {10}Mac 1\n/);
+  // Heading is 38 chars; the total (SE 4 + CN 1 = 5) still ends at column 44.
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS {5}5\n {2}\(download button presses on the site — includes presses that never finished\)\n/);
+  assert.match(body, /\n {2}Sweden 4 {2}Mac 2 {3}PC 2\n {2}China 1 {3}Mac 1\n/);
   assert.doesNotMatch(body, /PC 0/);
 });
 
-test('renderBody TOTAL by-country aligns counts in the value column (19)', async () => {
+test('renderBody TOTAL press table: header total, population line, one count per country', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model());
-  // US 10 (6+4) outranks SE 8 (3+5); name padded to 17 → count at column 19.
-  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL\n {2}\(download button presses[^\n]*\n {2}United States {4}10\n {2}Sweden {11}8\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL {10}18\n {2}\(download button presses[^\n]*\n {2}United States {2}10\n {2}Sweden {9}8\n/);
 });
 
 test('renderBody sorts countries by count desc then full name', async () => {
@@ -179,39 +171,38 @@ test('renderBody sorts countries by count desc then full name', async () => {
     },
   }));
   const life = body.slice(body.indexOf('STARTED FROM THE WEBSITE — TOTAL'));
-  // US 5 first; then the two 1s alphabetically: Singapore before South Korea.
   assert.ok(life.indexOf('United States') < life.indexOf('Singapore'));
   assert.ok(life.indexOf('Singapore') < life.indexOf('South Korea'));
 });
 
-test('renderBody prints "none" for an empty by-country table', async () => {
+test('renderBody prints a ZERO header and "none" when the relay answered with an empty week', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model({
     site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 0 } } } },
   }));
-  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
+  // The relay ANSWERED and had nothing: zero is earned, none is truthful.
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS {5}0\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
-test('renderBody shows "none" for both country tables when the Worker is unreachable', async () => {
+test('renderBody prints an EM DASH, not 0, when the relay could not be read', async () => {
   const { renderBody } = await libP;
   const body = renderBody(model({ site: null }));
   // Downloads still render (GitHub, not the Worker).
-  assert.match(body, /^ {2}Mac {14}\+6$/m);
-  assert.match(body, /^ {2}Mac {14}41$/m);
-  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
-  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL\n {2}\(download button presses[^\n]*\n {2}none\n/);
+  assert.match(body, /^ {2}Mac {3}6$/m);
+  assert.match(body, /^ {2}Mac {3}41$/m);
+  // A header figure is a claim: an unread source is "—", never a zero.
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — LAST 7 DAYS {5}—\n {2}\(download button presses[^\n]*\n {2}none\n/);
+  assert.match(body, /\nSTARTED FROM THE WEBSITE — TOTAL {11}—\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
-test('HOW THIS IS COUNTED: 4 bullets when no borrows this window; borrow bullets only with borrows', async () => {
+test('HOW THIS IS COUNTED is the shared two-line footer, verbatim, and ends the email', async () => {
   const { renderBody } = await libP;
-  // Download-only report (no borrows this window) → the two borrow bullets are absent.
-  const plain = renderBody(model());
-  assert.match(plain, /\nHOW THIS IS COUNTED\n {2}• All downloads = every copy that left GitHub, from any route —\n {4}the website, the releases page, a direct link, a forum post\.\n {2}• Started from the website = download button presses on the site,\n {4}counted at the relay\. Presses, not completions — and country\n {4}exists only here\.\n {2}• Separate populations: never summed, differenced, or percentaged\.\n {2}• PC has no auto-updater yet\.\n$/);
-  assert.doesNotMatch(plain, /Borrows =|Click here|goatcounter/);
-
-  // A borrow this window → the two borrow bullets join the footer.
-  const withBorrows = renderBody(libModel());
-  assert.match(withBorrows, /• PC has no auto-updater yet\.\n {2}• Borrows = a lending-library file taken via jx-3p\.com or the app\.\n {2}• Borrows are their own metric — not part of the downloads above\.\n$/);
+  const footer = '\nHOW THIS IS COUNTED\n\n'
+    + '    Mac counts new downloads\n'
+    + "    PC combines new downloads + updates (GitHub can't distinguish)\n";
+  assert.ok(renderBody(model()).endsWith(footer));
+  assert.ok(renderBody(libModel()).endsWith(footer));
+  assert.doesNotMatch(renderBody(model()), /• |bullets|goatcounter|metrics:/i);
 });
 
 test('renderBody never claims a per-line site/GitHub split', async () => {
@@ -219,46 +210,42 @@ test('renderBody never claims a per-line site/GitHub split', async () => {
   assert.doesNotMatch(renderBody(model()), /· GitHub|site \d|estimated/);
 });
 
-test('renderBody emits the section headings in order', async () => {
+test('renderBody emits the shared section order (borrows between presses and the footer)', async () => {
   const { renderBody } = await libP;
-  // Borrow sections join only when there was a borrow this window, so the
-  // full ordering is asserted on a model WITH borrows. MAC UPDATES and the
-  // borrow blocks are both activity-gated and sit near the bottom, keeping
-  // the download sections grouped together at the top.
   const body = renderBody(libModel());
   const order = [
-    'NEW DOWNLOADS SINCE LAST REPORT (4 days ago)',
-    'STARTED FROM THE WEBSITE — LAST 7 DAYS', 'STARTED FROM THE WEBSITE — TOTAL',
-    'ALL DOWNLOADS', 'MAC UPDATES',
+    'ALL DOWNLOADS SINCE 22 JUL',
+    'ALL DOWNLOADS, LIFETIME',
+    'MAC AUTO-UPDATES',
+    'STARTED FROM THE WEBSITE — LAST 7 DAYS',
+    'STARTED FROM THE WEBSITE — TOTAL',
     'NEW LIBRARY BORROWS', 'LIBRARY BORROWS BY COUNTRY', 'TOTAL LIBRARY BORROWS',
     'HOW THIS IS COUNTED',
   ];
-  const search = `\n${body}`;   // the first heading opens the body (no leading \n)
   let last = -1;
   for (const h of order) {
-    const at = search.indexOf(`\n${h}\n`);
+    const at = body.indexOf(h);
     assert.ok(at > last, `${h} missing or out of order`);
     last = at;
   }
 });
 
-test('countryName resolves any ISO code via Intl, XX → Unknown', async () => {
+test('countryName resolves any ISO code via Intl, XX -> Unknown, T1 -> Tor network', async () => {
   const { countryName } = await libP;
-  assert.equal(countryName('IQ'), 'Iraq');            // was missing from the map
+  assert.equal(countryName('IQ'), 'Iraq');
   assert.equal(countryName('US'), 'United States');
   assert.equal(countryName('CO'), 'Colombia');
   assert.equal(countryName('KR'), 'South Korea');
   assert.equal(countryName('XX'), 'Unknown');         // our own sentinel
-  assert.equal(countryName('zzz'), 'zzz');            // invalid → raw code, no throw
+  // Cloudflare's Tor-exit marker arrives shaped exactly like a country code;
+  // Intl does not know it, so the manual map must.
+  assert.equal(countryName('T1'), 'Tor network');
+  assert.equal(countryName('zzz'), 'zzz');            // invalid -> raw code, no throw
 });
 
 test('the Direct-from-GitHub residual never renders (downloads minus presses is meaningless)', async () => {
   const { renderBody } = await libP;
-  // Downloads well above presses (the old residual would have been 42) …
   assert.doesNotMatch(renderBody(model()), /Direct from GitHub/);
-  // … and presses above downloads: gone either way. The two are different
-  // populations (completions vs presses) — never summed, differenced, or
-  // percentaged.
   const body = renderBody(model({
     lifetime: { macNew: 1, macUpd: 0, pcNew: 0 },
     site: { week: {}, lifetime: { byCountry: { US: { mac: 5, pc: 5 } } } },
@@ -266,32 +253,19 @@ test('the Direct-from-GitHub residual never renders (downloads minus presses is 
   assert.doesNotMatch(body, /Direct from GitHub/);
 });
 
-test('ctaBullet: two plain footer bullets — site metrics page, then GoatCounter', async () => {
-  const { ctaBullet, METRICS_URL, GOATCOUNTER_URL } = await libP;
-  assert.equal(
-    ctaBullet(),
-    `  • Historical metrics at JX-3P.com/metrics: ${METRICS_URL}\n` +
-      `  • more metrics: GoatCounter: ${GOATCOUNTER_URL}`
-  );
-});
-
-test('delta lines carry click countries only when delta > 0 and clicks exist', async () => {
+test('delta lines carry press countries only when delta > 0 and presses exist', async () => {
   const { renderBody } = await libP;
   const m = model();
-  // window clicks: US mac-only, SE both — Mac note lists both (by mac count),
-  // PC delta is 0 so its line gets NO note even though PC clicks exist.
   m.delta.macNew = 2; m.delta.pcNew = 0;
   m.site.window = { US: { mac: 2, pc: 0 }, SE: { mac: 1, pc: 3 } };
   const body = renderBody(m);
-  assert.match(body, /\n {2}Mac {14}\+2 \(United States, Sweden\)\n/);
-  assert.match(body, /\n {2}PC {15}\+0\n/);
+  assert.match(body, /\n {2}Mac {3}2 {3}\(United States, Sweden\)\n/);
+  assert.match(body, /\n {2}PC {4}0\n/);
 });
 
-test('stale site: TOTAL renders the snapshot table + notice, no residual; 7-day stays none', async () => {
+test('stale site: TOTAL renders the snapshot table + notice; 7-day header is an em dash', async () => {
   const { renderBody } = await libP;
   const m = model();
-  // Simulate a failed live fetch degraded to the snapshot's stored lifetime:
-  // no window, no week, stale flag set.
   m.site = {
     week: null,
     window: null,
@@ -300,13 +274,14 @@ test('stale site: TOTAL renders the snapshot table + notice, no residual; 7-day 
   };
   const body = renderBody(m);
   const total = body.slice(body.indexOf('STARTED FROM THE WEBSITE — TOTAL'));
+  assert.match(total, /^STARTED FROM THE WEBSITE — TOTAL {10}10\n/);
   assert.match(total, /\n {2}\(live press data unavailable — totals below are from the last report\)\n/);
-  assert.match(total, /Sweden {11}6/);
-  assert.match(total, /United States {4}4/);
-  // Residual is suppressed when stale (current GitHub minus stale clicks lies).
+  assert.match(total, /Sweden {9}6/);
+  assert.match(total, /United States {2}4/);
   assert.doesNotMatch(total, /Direct from GitHub/);
-  // The rolling window has no snapshot equivalent — none is truthful there.
-  assert.match(body, /STARTED FROM THE WEBSITE — LAST 7 DAYS\n {2}\(download button presses[^\n]*\n {2}none\n/);
+  // The rolling window has no snapshot equivalent — an unread window is a
+  // dash over none, not a zero.
+  assert.match(body, /STARTED FROM THE WEBSITE — LAST 7 DAYS {5}—\n {2}\(download button presses[^\n]*\n {2}none\n/);
 });
 
 test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async () => {
@@ -325,23 +300,15 @@ test('historyRow is one flat JSON line: date, deltas (d_*), cumulative', async (
   });
 });
 
-test('htmlBody wraps the report in one <pre> and appends the CTA bullets', async () => {
-  const { htmlBody, METRICS_URL, GOATCOUNTER_URL } = await libP;
-  const report = 'NEW DOWNLOADS\n  Mac              +6\n';
-  const html = htmlBody(report);
-
-  const STYLE = "font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "
-    + "'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; "
-    + 'white-space: pre; margin: 0;';
-  const cta = `  • Historical metrics at <a href="${METRICS_URL}">JX-3P.com/metrics</a>\n`
-    + `  • more metrics: <a href="${GOATCOUNTER_URL}">GoatCounter</a>\n`;
-  assert.equal(html, `<pre style="${STYLE}">${report}${cta}</pre>`);
-  // Report is emitted byte-for-byte; the ONLY markup is the inline CTA anchors.
-  assert.ok(html.includes(report));
-  assert.doesNotMatch(html, /<br|<div|<table|<head|<style|<p[ >]/);
-  // Only the link texts are anchored — the preceding words sit outside them.
-  assert.match(html, /Historical metrics at <a href="[^"]+">JX-3P\.com\/metrics<\/a>\n/);
-  assert.match(html, /more metrics: <a href="[^"]+">GoatCounter<\/a>\n/);
+test('htmlBody wraps the escaped report in one <pre>, no CTA anchors', async () => {
+  const { htmlBody } = await libP;
+  const html = htmlBody('ALL DOWNLOADS\n  Mac   1 <&>');
+  assert.ok(html.startsWith('<pre style='));
+  assert.ok(html.endsWith('</pre>'));
+  assert.match(html, /ALL DOWNLOADS\n {2}Mac {3}1 &lt;&amp;&gt;/);
+  // The shared format ends at HOW THIS IS COUNTED on both sites — the old
+  // CTA-link appendix is gone from both parts.
+  assert.doesNotMatch(html, /<a href|goatcounter|metrics/i);
 });
 
 test('htmlBody escapes & < > only in the report, leaving the · separator intact', async () => {
@@ -358,10 +325,14 @@ test('htmlBody escapes ampersand before the angle brackets', async () => {
   assert.ok(!html.includes('&amp;lt;'));
 });
 
-test('formatDate renders UTC, not the runner local time', async () => {
+test('formatDate: shared day-first wording, pinned to UTC, optional year', async () => {
   const { formatDate } = await libP;
-  assert.equal(formatDate('2026-06-12T01:14:12Z'), 'Jun 12, 2026');
-  assert.equal(formatDate('2026-07-22T23:59:00Z'), 'Jul 22, 2026');
+  assert.equal(formatDate('2026-06-12T01:14:12Z'), '12 Jun');
+  // 00:10 UTC is still the previous day in every US timezone — this is the
+  // line that fails if someone drops the timeZone pin (the Seven formats in
+  // runner-local time; JP deliberately does not).
+  assert.equal(formatDate('2026-07-23T00:10:00Z'), '23 Jul');
+  assert.equal(formatDate('2026-06-12T01:14:12Z', { year: true }), '12 Jun 2026');
   assert.equal(formatDate('nonsense'), '');
 });
 
@@ -454,18 +425,18 @@ const libModel = (over = {}) => ({
   ...over,
 });
 
-test('renderBody LIBRARY BORROWS rows split Patches/Sequences, delta then bare lifetime', async () => {
+test('renderBody borrow blocks: header totals at column 44, padded kind rows', async () => {
   const { renderBody } = await libP;
   const body = renderBody(libModel());
-  assert.match(body, /\nNEW LIBRARY BORROWS\n {2}Patches {10}\+6\n {2}Sequences {8}\+4\n/);
-  assert.match(body, /\nTOTAL LIBRARY BORROWS\n {2}Patches {10}41\n {2}Sequences {8}19\n/);
+  assert.match(body, /\nNEW LIBRARY BORROWS {23}10\n\n {2}Patches {4}6\n {2}Sequences {2}4\n/);
+  assert.match(body, /\nTOTAL LIBRARY BORROWS {21}60\n\n {2}Patches {4}41\n {2}Sequences {2}19\n/);
 });
 
-test('renderBody borrow by-country is a single-total table, summed across kinds, sorted', async () => {
+test('renderBody borrow by-country: header total, single-total rows summed across kinds, sorted', async () => {
   const { renderBody } = await libP;
   const body = renderBody(libModel());
-  // SE 4 (2+2) outranks CN 1 (1+0); name padded to 17 → count at column 19.
-  assert.match(body, /\nLIBRARY BORROWS BY COUNTRY\n {2}Sweden {11}4\n {2}China {12}1\n/);
+  // SE 4 (2+2) outranks CN 1 (1+0); window total 10 on the header.
+  assert.match(body, /\nLIBRARY BORROWS BY COUNTRY {16}10\n {2}Sweden {2}4\n {2}China {3}1\n/);
 });
 
 test('renderBody shows the Older-app row only while the unknown bucket is non-zero', async () => {
@@ -477,8 +448,8 @@ test('renderBody shows the Older-app row only while the unknown bucket is non-ze
       lifetime: { patches: 1, sequences: 0, unknown: 7 },
     },
   }));
-  assert.match(withUnknown, /\nNEW LIBRARY BORROWS\n {2}Patches {10}\+1\n {2}Sequences {8}\+0\n {2}Older app {8}\+2\n/);
-  assert.match(withUnknown, /\nTOTAL LIBRARY BORROWS\n {2}Patches {10}1\n {2}Sequences {8}0\n {2}Older app {8}7\n/);
+  assert.match(withUnknown, /\nNEW LIBRARY BORROWS {24}3\n\n {2}Patches {4}1\n {2}Sequences {2}0\n {2}Older app {2}2\n/);
+  assert.match(withUnknown, /\nTOTAL LIBRARY BORROWS {22}8\n\n {2}Patches {4}1\n {2}Sequences {2}0\n {2}Older app {2}7\n/);
 });
 
 test('renderBody omits the borrow section entirely when there are no borrows this window', async () => {

@@ -17,8 +17,8 @@
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
-  ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody, ctaBullet,
-  formatDate, historyRow,
+  ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody,
+  historyRow,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -117,17 +117,11 @@ const libCur = await relay('/borrow/stats');
 const libFallback = sinceDay ? await relay(`/borrow/stats?since=${sinceDay}`) : libCur;
 const library = libCur ? diffLibrary(snap?.library, libCur, libFallback || libCur) : null;
 
-// Whole days since the last report. We only email on activity, so the last
-// report is also the last time there were new downloads — the heading's span
-// leans on that. Floor at 1 so a same-day resend never says "0 days ago".
-const snapMs = snap?.updated ? Date.parse(snap.updated) : NaN;
-const daysSince = Number.isNaN(snapMs)
-  ? null
-  : Math.max(1, Math.round((Date.now() - snapMs) / 86_400_000));
-
 const report = renderBody({
-  prevDate: snap?.updated ? formatDate(snap.updated) : '',
-  daysSince,
+  // Raw ISO — renderBody formats it into the "SINCE 17 AUG" header itself.
+  // We only email on activity, so "since the last report" is literally
+  // "since the last new downloads".
+  prevDate: snap?.updated || '',
   delta,
   lifetime: now,
   // When the live /download/stats fetch fails but the snapshot already holds
@@ -145,10 +139,9 @@ const report = renderBody({
   library: library ? { window: library.window, lifetime: library.lifetime } : null,
 });
 
-// The two multipart/alternative parts. The footer CTAs (site metrics page,
-// then GoatCounter) follow HOW THIS IS COUNTED: plain appends phrase + URL
-// lines; htmlBody appends inline anchors around the link texts in the <pre>.
-const body = `${report}${ctaBullet()}\n`;
+// The two multipart/alternative parts — the same text; the shared format
+// ends at HOW THIS IS COUNTED (the CTA appendix left with it).
+const body = report;
 const html = htmlBody(report);
 
 process.stdout.write(body);
