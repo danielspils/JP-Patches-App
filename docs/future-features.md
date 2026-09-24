@@ -32,6 +32,18 @@ Single source of truth for features that aren't on the formal roadmap (`library-
 
 - **Multi-capture reliability mode for Record** (design ready, build only if real-world failures appear). The 10-of-10 KT bit-perfect test showed Record is deterministic with current software, so not needed for v1 — but fully designed. Do 3 (or N) back-to-back captures, merge at the page level (keep the first checksum-valid copy of each page across captures). Merged success after N captures = 1 − (1−p)^N. Toggle in Settings, default off; half-day build, mostly the modal state machine. Ship only if a user reports persistent flakiness on hardware we can't access.
 
+- **Memory-Protect check-in after a send** (Daniel, 2026-09-24). Tape has no
+  return channel, so the app CANNOT detect the JX's Memory Protect switch —
+  protect-ON fails *silently* (the JX accepts the whole load, reports nothing,
+  saves nothing; trap #21). A live warning is therefore impossible over tape;
+  what's buildable is copy at the moment of confusion: when the transfer
+  completes, the Send modal's done-state adds one line — "If the JX accepted
+  the load but your patches didn't change, check Memory Protect — the JX
+  saves nothing while it's on, and reports nothing." Rejected alternative: a
+  must-tick "Protect is off" gate before Play (friction on every send; gets
+  ticked blind). MIDI (Phase 3) removes the problem entirely — writes stop
+  going over tape. Copy above needs Daniel's approval before shipping.
+
 ## User manual content
 
 When JP Patches gets a real user manual (README, in-app help, or `USER_MANUAL.md`), document these sequencer-visualizer nuances so users aren't surprised:
