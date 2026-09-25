@@ -1,5 +1,5 @@
 ---
-title: "For fuck's sake"
+title: "For fuck's sake!"
 date: 2026-09-24
 ---
 
