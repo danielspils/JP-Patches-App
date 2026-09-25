@@ -18,3 +18,8 @@ So I cranked up the output and transfers from JP>JX worked again.
 This got me to thinking: has anyone else had this issue? Have you found any bugs? I haven't heard a peep since releasing JP Patches. Hopefully that means it's running smoothly, but [send me an email](/feedback/) if you have bugs or suggestions. I want JP Patches to be reliable, useful, and fun to use.
 
 — Daniel in Seattle
+
+<video controls playsinline preload="metadata" style="max-width:100%;width:420px;border-radius:6px;">
+  <source src="/assets/video/synth-at-kevins.mp4" type="video/mp4">
+  Your browser doesn't play this video — <a href="/assets/video/synth-at-kevins.mp4">download it</a> instead.
+</video>
