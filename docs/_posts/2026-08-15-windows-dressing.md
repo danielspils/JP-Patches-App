@@ -1,5 +1,5 @@
 ---
-title: "Windows Dressing!"
+title: "Windows Dressing"
 date: 2026-08-15
 ---
 
