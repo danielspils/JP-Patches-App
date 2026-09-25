@@ -11,7 +11,7 @@ Turns out that level for the KT cable's output was set too low (-6.5 dB) in the 
 
 Audio MIDI Setup (Cmd+Space, type "Audio MIDI Setup") → select KT USB Audio in the left list → Output tab
 
-![Audio MIDI Setup showing KT USB Audio 2's Output tab with Front Left and Front Right sliders at 0.757, −6.5 dB.](/assets/img/audio-midi-kt-output.png)
+![Audio MIDI Setup showing KT USB Audio 2's Output tab with both sliders at −6.5 dB, annotated "Low Output!" with arrows pointing at the sliders and "(crank it to 0db)".](/assets/img/audio-midi-kt-output.png)
 
 So I cranked up the output and transfers from JP>JX worked again.
 
