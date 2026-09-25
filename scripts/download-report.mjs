@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
   ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody, ctaBullet,
-  historyRow,
+  historyRow, mergePressHistory,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -31,6 +31,7 @@ const has = (name) => args.includes(`--${name}`);
 const REPO = flag('repo', process.env.GITHUB_REPOSITORY || 'danielspils/JP-Patches-App');
 const SNAP = flag('snapshot', '.github/download-stats.json');
 const HISTORY = flag('history', '.github/download-history.jsonl');
+const PRESS_HISTORY = flag('press-history', '.github/press-history.jsonl');
 const RELAY = flag('relay', 'https://lend.jx-3p.com');
 const DRY = has('dry-run');
 
@@ -193,6 +194,29 @@ if (!DRY && commit) {
       lifetime: now,
       borrow: library ? { window: library.window, lifetime: library.lifetime } : null,
     })}\n`);
+}
+
+// ── daily press archive ───────────────────────────────────────────────
+// The Worker's dl: day keys expire after 90 days; this file is the permanent
+// per-day, per-country press record (backfilled 2026-09-24 from the keys
+// still in KV — counting began 2026-07-15, nothing had expired). Runs every
+// non-dry run, report day or not: presses move on quiet days too, and the
+// merge is idempotent (complete days only, never rewritten). A day with no
+// presses gets NO line — absence means zero, not missing.
+if (!DRY) {
+  const seriesRes = await relay('/download/series');
+  if (seriesRes && seriesRes.days) {
+    let existing = [];
+    try { existing = readFileSync(PRESS_HISTORY, 'utf8').trim().split('\n'); } catch { /* first run */ }
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const { lines, added } = mergePressHistory(existing, seriesRes.days, todayKey);
+    if (added > 0) {
+      writeFileSync(PRESS_HISTORY, `${lines.join('\n')}\n`);
+      console.error(`press archive: +${added} day${added === 1 ? '' : 's'} (${lines.length} total)`);
+    }
+  } else {
+    console.error('press archive: /download/series unreachable — nothing appended (next run self-heals)');
+  }
 }
 
 if (process.env.GITHUB_OUTPUT) {

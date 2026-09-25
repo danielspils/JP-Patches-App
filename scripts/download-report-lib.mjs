@@ -526,6 +526,42 @@ export function htmlBody(report) {
   return `<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.45; white-space: pre; margin: 0;">${escaped}${cta}</pre>`;
 }
 
+// ── daily press archive ───────────────────────────────────────────────
+// The Worker's dl: day keys expire after 90 days; the dlm: monthly rollups
+// are permanent but lose day resolution. This file keeps the daily detail:
+// .github/press-history.jsonl, one line per UTC day —
+//   {"date":"2026-07-15","countries":{"US":{"mac":1,"pc":0}}}
+// merge(existing lines, /download/series days, today) returns the lines to
+// write plus how many days were added. Idempotent and self-healing: every
+// run appends any COMPLETE day (before today UTC) that KV still holds and
+// the file lacks, so the first run is the backfill and a missed cron
+// repairs itself from KV's 90-day buffer. A day already in the file is
+// never rewritten (append-only history), and today is never written — it
+// is still accruing, and freezing a partial day would archive a wrong one.
+export function mergePressHistory(lines, seriesDays, todayKey) {
+  const rows = (lines || [])
+    .filter(Boolean)
+    .map((l) => (typeof l === 'string' ? JSON.parse(l) : l));
+  const have = new Set(rows.map((r) => r.date));
+  let added = 0;
+  for (const day of Object.keys(seriesDays || {}).sort()) {
+    if (day >= todayKey) continue;                 // still accruing
+    const date = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
+    if (have.has(date)) continue;
+    const countries = {};
+    for (const [cc, v] of Object.entries(seriesDays[day] || {})) {
+      const mac = Number(v?.mac) || 0;
+      const pc = Number(v?.pc) || 0;
+      if (mac + pc > 0) countries[cc] = { mac, pc };
+    }
+    if (!Object.keys(countries).length) continue;  // an all-zero day earns no line
+    rows.push({ date, countries });
+    added += 1;
+  }
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { lines: rows.map((r) => JSON.stringify(r)), added };
+}
+
 // One append-only history row per report, for charting downloads over time.
 // The daily snapshot is overwritten each run (single point); this accumulates.
 // Flat keys so it drops straight into a spreadsheet or plotting tool: the

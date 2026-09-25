@@ -206,13 +206,46 @@ sitemap: false
     if (base) {
       let prev = base; const perMac = [], perPc = [];
       for (const p of s) { perMac.push(p.mac - prev.mac); perPc.push(p.pc - prev.pc); prev = p; }
+      // Per-bar press countries for the tooltip, from the archived daily
+      // press file (data.json presses.series — survives the relay's 90-day
+      // key expiry). A bar covers (previous point, this point], so its
+      // presses aggregate the same span its download delta does. Windowed
+      // views only: on All time a partial list would lie by omission.
+      const ps = (D.presses && D.presses.series) || null;
+      let sPrev = base.date || (cutoff || '');
+      const pressPerBar = s.map((p) => {
+        const agg = {};
+        if (ps) {
+          for (const rec of ps) {
+            if (rec.date <= sPrev || rec.date > p.date) continue;
+            for (const [cc, v] of Object.entries(rec.countries)) {
+              agg[cc] = (agg[cc] || 0) + (v.mac || 0) + (v.pc || 0);
+            }
+          }
+        }
+        sPrev = p.date;
+        return Object.entries(agg).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+      });
+      // A SEPARATE block under the Mac/PC rows, in the page's own press
+      // vocabulary. Presses and downloads observe different events and will
+      // frequently disagree — the blank line and the label keep them from
+      // reading as one number that should match. Zero presses is a normal
+      // day, not missing data, and says so in words.
+      const pressBlock = ps ? (items) => {
+        const rows = pressPerBar[items[0].dataIndex] || [];
+        if (!rows.length) return ['', 'Button presses on the site: none'];
+        return ['', 'Button presses on the site:',
+          rows.map(([cc, n]) => `${NAMES[cc] || cc} ${n}`).join(', ')];
+      } : () => [];
       swatches([[MAC, 'Mac', 1], [PC, 'PC', 0]]);
       curve = new Chart(el('m-curve'), {
         type: 'bar',
         data: { labels: s.map((p) => fmtDate(p.date)), datasets: [
           { label: 'PC', data: perPc, backgroundColor: PC, borderColor: PC, borderWidth: 1 },
           { label: 'Mac', data: perMac, backgroundColor: MAC, borderColor: MAC, borderWidth: 1 }] },
-        options: { ...opts(true, true), plugins: { legend: { display: false }, tooltip: { itemSort: (a, b) => b.datasetIndex - a.datasetIndex } } },
+        options: { ...opts(true, true), plugins: { legend: { display: false },
+          tooltip: { itemSort: (a, b) => b.datasetIndex - a.datasetIndex,
+            callbacks: { afterBody: pressBlock } } } },
       });
       return;
     }

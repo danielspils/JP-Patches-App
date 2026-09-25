@@ -508,3 +508,34 @@ test('historyRow stays the exact download-only shape when borrow is omitted', as
   assert.doesNotMatch(row, /borrow/);
 });
 
+
+// ── daily press archive ───────────────────────────────────────────────
+
+test('mergePressHistory appends only complete missing days, sorted, and is idempotent', async () => {
+  const { mergePressHistory } = await libP;
+  const existing = ['{"date":"2026-07-15","countries":{"US":{"mac":1,"pc":0}}}'];
+  const days = {
+    20260715: { US: { mac: 9, pc: 9 } },            // already archived — NEVER rewritten
+    20260717: { SE: { mac: 2, pc: 1 }, XX: { mac: 0, pc: 0 } },
+    20260716: { DE: { mac: 0, pc: 1 } },
+    20260718: {},                                    // zero-press day — no line (absence = zero)
+    20260720: { US: { mac: 1, pc: 0 } },             // today — still accruing, excluded
+  };
+  const { lines, added } = mergePressHistory(existing, days, '20260720');
+  assert.equal(added, 2);
+  assert.deepEqual(lines.map((l) => JSON.parse(l).date),
+    ['2026-07-15', '2026-07-16', '2026-07-17']);
+  // The archived Jul 15 kept its original counts, not KV's.
+  assert.deepEqual(JSON.parse(lines[0]).countries, { US: { mac: 1, pc: 0 } });
+  // Zero-count countries are dropped from a day's map.
+  assert.deepEqual(JSON.parse(lines[2]).countries, { SE: { mac: 2, pc: 1 } });
+  // Second run over the same inputs adds nothing.
+  assert.equal(mergePressHistory(lines, days, '20260720').added, 0);
+});
+
+test('mergePressHistory backfills everything on a first run with no file', async () => {
+  const { mergePressHistory } = await libP;
+  const { lines, added } = mergePressHistory([], { 20260715: { US: { mac: 1, pc: 0 } } }, '20260924');
+  assert.equal(added, 1);
+  assert.equal(JSON.parse(lines[0]).date, '2026-07-15');
+});

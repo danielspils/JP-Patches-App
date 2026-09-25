@@ -109,6 +109,9 @@ jobs:
             # locally — restore it so the un-emailed delta isn't burned.
             git checkout -- .github/download-stats.json
           fi
-          git add docs/metrics/data.json
+          # press-history commits EVERY run, like data.json: presses move on
+          # no-email days too, and the file is the permanent daily record
+          # (the Worker's dl: keys expire after 90 days).
+          git add docs/metrics/data.json .github/press-history.jsonl
           git commit -m "chore: download snapshot [skip ci]" || { echo "no change"; exit 0; }
           git push

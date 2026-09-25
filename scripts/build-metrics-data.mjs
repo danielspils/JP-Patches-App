@@ -73,6 +73,17 @@ if (snap?.site?.lifetime) {
   }
   presses = { total: t.mac + t.pc, mac: t.mac, pc: t.pc, byCountry };
 }
+// Daily per-country press detail from the archive file (.github/
+// press-history.jsonl — permanent, unlike the Worker's 90-day dl: keys).
+// Feeds the downloads chart's per-day press tooltip block. A date absent
+// from the file means zero presses that day, not missing data.
+let pressSeries = [];
+try {
+  pressSeries = readFileSync(flag('press-history', '.github/press-history.jsonl'), 'utf8')
+    .trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+} catch { /* no archive yet */ }
+if (presses && pressSeries.length) presses.series = pressSeries;
+
 let borrows = null;
 if (snap?.library?.lifetime) {
   const k = snap.library.lifetime;
