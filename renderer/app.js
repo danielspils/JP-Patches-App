@@ -6969,6 +6969,18 @@ function showSendToJxFlow(opts) {
   outputVolumeWarn.className = 'send-jx-volume-warn';
   outputVolumeWarn.hidden = true;
   outputDeviceSection.appendChild(outputVolumeWarn);
+  // Windows has no probe (CoreAudio is Mac-only; a real Windows detector is
+  // future work, tracked in future-features.md) — checkOutputVolume() below
+  // is a no-op there (window.api.outputVolumes returns unsupported:true).
+  // Rather than ship nothing, a static always-on hint stands in: same risk
+  // (trap #39), no live reading. Daniel's wording (2026-09-26).
+  if (IS_WIN_APPSOUND) {
+    const winHint = document.createElement('div');
+    winHint.className = 'send-jx-volume-warn';
+    winHint.textContent = 'Sends fail if your output is low — increase your device output '
+      + 'in Settings → System → Sound.';
+    outputDeviceSection.appendChild(winHint);
+  }
   modal.appendChild(outputDeviceSection);
 
   // v0.7.0 safety net: if the current cable routing resolves to the
