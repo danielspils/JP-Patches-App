@@ -6960,6 +6960,15 @@ function showSendToJxFlow(opts) {
   outputDeviceDisplay.textContent = 'checking…';
   outputDeviceSection.appendChild(outputDeviceLabel);
   outputDeviceSection.appendChild(outputDeviceDisplay);
+  // Low-output warning (trap #39): filled by checkOutputVolume() from the
+  // vendored CoreAudio probe when the picked cable's OS-level output volume
+  // is turned down or muted — the one thing that halves the FSK while the
+  // app's own element volume sits innocently at 1.0. Hidden otherwise.
+  const outputVolumeWarn = document.createElement('div');
+  outputVolumeWarn.id = 'send-jx-output-volume-warn';
+  outputVolumeWarn.className = 'send-jx-volume-warn';
+  outputVolumeWarn.hidden = true;
+  outputDeviceSection.appendChild(outputVolumeWarn);
   modal.appendChild(outputDeviceSection);
 
   // v0.7.0 safety net: if the current cable routing resolves to the
@@ -7339,8 +7348,32 @@ function showSendToJxFlow(opts) {
         cableDeviceId = (realDefault && realDefault.deviceId) || (def && def.deviceId) || null;
       }
       applySafetyCheck();
+      // Trap #39: the effective output device's OS-LEVEL volume scales the
+      // FSK even with the element at 1.0 (-6.5 dB on the KT rejected every
+      // send while capture worked). Ask the vendored CoreAudio probe and
+      // warn in Roland red; advisory only — probe missing / non-mac /
+      // no match / full volume all leave the line hidden. The label we
+      // match with is the device the transfer will ACTUALLY use: the saved
+      // cable when present, else the resolved system default.
+      checkOutputVolume(savedDev ? savedDev.label
+        : (def && def.label) || '');
     } catch {}
   };
+
+  async function checkOutputVolume(effectiveLabel) {
+    const warnEl = document.getElementById('send-jx-output-volume-warn');
+    if (!warnEl) return;
+    warnEl.hidden = true;
+    if (!effectiveLabel || !window.api || typeof window.api.outputVolumes !== 'function') return;
+    if (typeof pickOutputDevice !== 'function' || typeof describeLowOutput !== 'function') return;
+    let res;
+    try { res = await window.api.outputVolumes(); } catch { return; }
+    if (!res || !res.ok) return;
+    const warning = describeLowOutput(pickOutputDevice(res.devices, effectiveLabel));
+    if (!warning) return;
+    warnEl.textContent = warning.text;
+    warnEl.hidden = false;
+  }
 
   const startPlayback = async () => {
     primaryBtn.disabled = true;

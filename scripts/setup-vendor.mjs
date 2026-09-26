@@ -113,9 +113,30 @@ function setupJx3p() {
   });
 }
 
+// macOS only: compile the CoreAudio volume probe (native/volume-probe.swift
+// — reads each output device's OS-level volume so the Send modal can warn
+// when the cable is turned down; trap #39). swiftc ships with the Xcode CLT
+// Daniel's build machine already has. Skipped on Windows/Linux (the probe is
+// Mac-only) and skipped with a warning if swiftc is missing, so a fresh
+// checkout still vendors uv/jx3p. -suppress-warnings: the generic
+// GetPropertyData bridge trips a pointer warning that is fine for the
+// scalar/CFString property types the probe reads.
+function setupVolumeProbe() {
+  if (process.platform !== 'darwin') return;
+  const out = path.join(VENDOR, 'volume-probe');
+  try {
+    execFileSync('swiftc', ['-O', '-suppress-warnings', '-o', out,
+      path.join(ROOT, 'native', 'volume-probe.swift')], { stdio: 'inherit' });
+    console.log('Compiled volume-probe.');
+  } catch (err) {
+    console.warn(`volume-probe compile skipped (${err.message.split('\n')[0]}) — sends work, the low-volume warning won't appear.`);
+  }
+}
+
 async function main() {
   await setupUv();
   setupJx3p();
+  setupVolumeProbe();
   console.log('vendor/ ready:');
   for (const sub of ['uv', 'jx3p']) {
     console.log(`  vendor/${sub} — ${fs.existsSync(path.join(VENDOR, sub)) ? 'ok' : 'MISSING'}`);

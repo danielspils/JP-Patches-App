@@ -34,6 +34,13 @@ const UV_EXE = process.platform === 'win32' ? 'uv.exe' : 'uv';
 const UV_BIN = app.isPackaged
   ? path.join(process.resourcesPath, 'uv', UV_EXE)
   : UV_EXE;
+// CoreAudio output-volume probe (macOS only; native/volume-probe.swift,
+// compiled by setup-vendor). Lets the Send modal warn when the cable's
+// OS-level output volume is turned down — a -6.5 dB slider halved the FSK
+// amplitude and every send failed while capture worked (trap #39).
+const VOLUME_PROBE = app.isPackaged
+  ? path.join(process.resourcesPath, 'volume-probe')
+  : path.join(__dirname, 'vendor', 'volume-probe');
 
 // All jx3p codec invocations route through here. Using execFile (argv array)
 // instead of a shell command string avoids cmd.exe-vs-/bin/sh quoting
@@ -745,6 +752,22 @@ ipcMain.handle('load-panel-svg', () => {
 // deviceId picker labels by substring (Chromium prepends "Default - " and
 // appends VID:PID, e.g. "Default - KT USB Audio (31b2:2024)"; system_profiler
 // returns the bare name "KT USB Audio").
+// Output-device volumes via the vendored CoreAudio probe. macOS only; on
+// any failure (other platform, probe missing, bad output) returns ok:false
+// and the renderer simply shows no warning — the probe is advisory, never
+// load-bearing for the transfer itself.
+ipcMain.handle('output-volumes', async () => {
+  if (process.platform !== 'darwin') return { ok: false, unsupported: true, devices: [] };
+  try {
+    const { stdout } = await execFileAsync(VOLUME_PROBE, [], { timeout: 5000, maxBuffer: 1024 * 1024 });
+    const devices = JSON.parse(stdout);
+    if (!Array.isArray(devices)) return { ok: false, devices: [] };
+    return { ok: true, devices };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message).slice(0, 200), devices: [] };
+  }
+});
+
 ipcMain.handle('audio-input-rates', async () => {
   // system_profiler is macOS-only. On other platforms report unsupported with
   // an empty device list; the renderer's probeDeviceSampleRate returns early

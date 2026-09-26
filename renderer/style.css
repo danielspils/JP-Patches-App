@@ -1654,6 +1654,16 @@ body.seq-dragging-pitch * {
   letter-spacing: 0.02em;
   margin-bottom: 6px;
 }
+/* Trap #39 low-output warning under the device display — Roland red per
+   the design system (warnings), small and quiet until the probe has
+   something real to say. */
+.send-jx-volume-warn {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #b94a2e;
+}
+
 .send-jx-device-display {
   width: 100%;
   background: #0e0e0e;

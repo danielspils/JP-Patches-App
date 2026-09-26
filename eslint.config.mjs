@@ -135,6 +135,9 @@ export default [
         selectSoundOutputDevice:    'readonly',
         isBuiltInSpeakerOutput:     'readonly',
         maybePlayTapeDumpSound:     'readonly',
+        // output-volume.js (trap #39 low-output warning)
+        pickOutputDevice:           'readonly',
+        describeLowOutput:          'readonly',
         setTapeDumpSoundMuted:      'readonly',
         setTapeDumpSoundVolume:     'readonly',
         startTapeDumpMonitor:       'readonly',

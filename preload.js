@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   // call, via the opt-out pref + once-per-day gate in library.json.
   // Never rejects: a failed ping is a silent no-op.
   telemetryPing:       ()        => ipcRenderer.invoke('telemetry-ping'),
+  outputVolumes:       ()        => ipcRenderer.invoke('output-volumes'),
   seqTapeEncodeToTemp: (data)    => ipcRenderer.invoke('seq-tape-encode-to-temp', data),
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),
   seqTapeLoad:         (data)    => ipcRenderer.invoke('seq-tape-load', data),
