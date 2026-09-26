@@ -36,6 +36,10 @@ test('describeLowOutput: the real 2026-09-24 reading warns with % and dB', () =>
   // 20*log10(0.757) = -2.4 (the scalar-to-dB curve is device-specific).
   assert.match(w.text, /-6\.5 dB/);
   assert.match(w.text, /Audio MIDI Setup/);
+  // Daniel's approved copy (2026-09-26), pinned verbatim.
+  assert.equal(w.text,
+    'The cable’s output volume is turned down in macOS (76%, -6.5 dB) '
+    + '— your JX may reject the send. Increase to 0 dB in Audio MIDI Setup (Output tab).');
 });
 
 test('describeLowOutput: full, no-control, and missing devices warn about nothing', () => {

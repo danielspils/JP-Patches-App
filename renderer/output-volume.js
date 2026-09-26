@@ -53,9 +53,10 @@
       : v > 0 ? (20 * Math.log10(v)).toFixed(1) : '−∞';
     return {
       level: 'low',
+      // Daniel's wording (2026-09-26) — don't reword without asking.
       text: `The cable’s output volume is turned down in macOS (${Math.round(v * 100)}%, `
-        + `${db} dB) — the JX may reject the send. Set it to 0 dB in Audio MIDI Setup `
-        + '(Output tab), then send.',
+        + `${db} dB) — your JX may reject the send. Increase to 0 dB in Audio MIDI Setup `
+        + '(Output tab).',
     };
   }
 
