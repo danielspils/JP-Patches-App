@@ -61,3 +61,4 @@
 {"date":"2026-09-28","countries":{"SE":{"mac":1,"pc":1},"US":{"mac":2,"pc":2}}}
 {"date":"2026-09-29","countries":{"US":{"mac":0,"pc":1}}}
 {"date":"2026-10-01","countries":{"SE":{"mac":1,"pc":1},"SG":{"mac":1,"pc":0}}}
+{"date":"2026-10-02","countries":{"GB":{"mac":4,"pc":0},"SE":{"mac":1,"pc":1}}}
