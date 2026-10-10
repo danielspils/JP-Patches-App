@@ -66,3 +66,4 @@
 {"date":"2026-10-06","countries":{"GB":{"mac":1,"pc":1},"US":{"mac":0,"pc":1}}}
 {"date":"2026-10-07","countries":{"CA":{"mac":1,"pc":1},"US":{"mac":4,"pc":2},"CN":{"mac":0,"pc":1}}}
 {"date":"2026-10-08","countries":{"ID":{"mac":1,"pc":0},"IN":{"mac":1,"pc":0},"SE":{"mac":1,"pc":1},"US":{"mac":4,"pc":4}}}
+{"date":"2026-10-09","countries":{"SE":{"mac":1,"pc":1},"GB":{"mac":0,"pc":3},"KR":{"mac":0,"pc":1}}}
