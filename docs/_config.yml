@@ -45,6 +45,11 @@ exclude:
   # INCORRECTLY. If it is worth publishing later it gets updated and promoted
   # deliberately (Daniel, 2026-08-18).
   - record-from-jx.md
+  # Internal maintainer playbook (decode-failure triage). It was published as
+  # /troubleshooting/ on 2026-08-18 but is written for the person debugging the
+  # app, not for users; unpublished 2026-10-17 (Daniel). CLAUDE.md links the
+  # file path, which still works.
+  - record-troubleshooting.md
   # The SOURCE of the GitHub release bodies (RELEASE.md pipes them to
   # `gh release edit --notes-file`), so this text is already public and
   # canonical there. Two copies split search results, and the site's copy goes
