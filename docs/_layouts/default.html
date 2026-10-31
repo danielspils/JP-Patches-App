@@ -43,13 +43,20 @@
   }
   </script>
 
-  <!-- Favicon set, all generated from assets/img/jp-logo.png via sips
-       center-crop (1026×1026 square) → 32 / 180 / 192. Total ~83KB
-       across all three sizes (vs. the 800KB original being downloaded
-       every browser tab). -->
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/img/favicon-32.png' | relative_url }}">
-  <link rel="icon" type="image/png" sizes="192x192" href="{{ '/assets/img/favicon-192.png' | relative_url }}">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ '/assets/img/apple-touch-icon.png' | relative_url }}">
+  <!-- Favicon set, built by scripts/make-favicons.py: the JP monogram alone
+       (the PATCHES wordmark is illegible at 16px and muddies the icon),
+       traced from jp-logo.png, cream on an OPAQUE dark square (cream on
+       transparent disappears against a light tab bar). favicon.svg is the
+       source; every PNG is rendered from it. The earlier set was a sips
+       center-crop of the full logo, which is why it read "ATCHE" at 32px.
+       ?v=2 because browsers cache a favicon against its URL and keep the
+       old one until the address changes. -->
+  <link rel="icon" type="image/svg+xml" sizes="any" href="{{ '/assets/img/favicon.svg' | relative_url }}?v=2">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ '/assets/img/favicon-16.png' | relative_url }}?v=2">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/img/favicon-32.png' | relative_url }}?v=2">
+  <link rel="icon" type="image/png" sizes="48x48" href="{{ '/assets/img/favicon-48.png' | relative_url }}?v=2">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ '/assets/img/favicon-192.png' | relative_url }}?v=2">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ '/assets/img/apple-touch-icon.png' | relative_url }}?v=2">
   <!-- ?v=<build-time> busts the browser cache on every deploy, so CSS/JS
        changes show up immediately instead of waiting out the 10-min
        max-age on GitHub Pages assets. -->

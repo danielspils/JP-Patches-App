@@ -189,7 +189,7 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
 
 ### Lending / site / release
 8. **Loop suppression matters in Phase 3 (MIDI)** — inbound CC must not trigger outbound CC. Spec §3.5.1.
-19. **The logo lives in TWO files** — `renderer/assets/jp-logo.png` (panel) and `docs/assets/img/jp-logo.png` (site). Update both + regenerate favicons via `sips`.
+19. **The logo lives in TWO files** — `renderer/assets/jp-logo.png` (panel) and `docs/assets/img/jp-logo.png` (site). Update both, then regenerate the favicons with `uv run scripts/make-favicons.py` — they are the monogram TRACED from `jp-logo.png` (cream on an opaque dark square; the script gates the trace against the source), not a `sips` crop of the full logo. The old sips crop is why the favicon read "ATCHE" at 32px and vanished on light tab bars. **After changing them, OPEN the served files and look** — matching local/served hashes proved nothing the one time the local files never changed.
 20. **The site's download CTAs all point at `/releases/latest`** — never hardcode a version. The PC (beta) button is the one exception (points at the current `vX.Y.Z-win-preview` tag).
 23. **Relay-filed lending issues are authored by Daniel's own PAT** — GitHub never notifies you of your own activity, so `lending-notify.yml` @mentions him (a mention from another actor *does* email). Don't remove it. The Worker PAT (`jp-patches-lend-relay`, Issues-only) expires ~June 2027 → renew + `wrangler secret put GITHUB_TOKEN`.
 37. **NEVER write a secret into an issue body — and re-read any comment that
