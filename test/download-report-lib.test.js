@@ -253,14 +253,19 @@ test('the Direct-from-GitHub residual never renders (downloads minus presses is 
   assert.doesNotMatch(body, /Direct from GitHub/);
 });
 
-test('delta lines carry press countries only when delta > 0 and presses exist', async () => {
+test('download rows never carry a country (downloads have no geography)', async () => {
   const { renderBody } = await libP;
   const m = model();
-  m.delta.macNew = 2; m.delta.pcNew = 0;
+  m.delta.macNew = 2; m.delta.pcNew = 3;
   m.site.window = { US: { mac: 2, pc: 0 }, SE: { mac: 1, pc: 3 } };
   const body = renderBody(m);
-  assert.match(body, /\n {2}Mac {3}2 {3}\(United States, Sweden\)\n/);
-  assert.match(body, /\n {2}PC {4}0\n/);
+  const block = body.slice(0, body.indexOf('STARTED FROM THE WEBSITE'));
+  // Bare counts, nothing in parentheses, in both the delta and lifetime rows.
+  assert.match(block, /\n {2}Mac {3}2\n/);
+  assert.match(block, /\n {2}PC {4}3\n/);
+  assert.doesNotMatch(block, /\(/);
+  // Country names must not leak into the download block in any form.
+  assert.doesNotMatch(block, /United States|Sweden|Tor network/);
 });
 
 test('stale site: TOTAL renders the snapshot table + notice; 7-day header is an em dash', async () => {

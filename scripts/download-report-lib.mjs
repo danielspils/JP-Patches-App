@@ -395,24 +395,15 @@ export function renderBody(model) {
   const sections = [];
   const sinceLabel = prevDate ? ` SINCE ${formatDate(prevDate).toUpperCase()}` : '';
 
-  // Press countries for this window, appended as a parenthetical on the
-  // matching delta line, e.g. "Mac   1   (United States)". A rough "where
-  // from" signal, not an attribution — presses and downloads are different
-  // events and may not line up 1:1. JP-local detail; the Seven's rows carry
-  // an off-latest-version note here instead.
-  const clickNote = (p) => {
-    if (!site || !site.window) return '';
-    return countryRows(site.window)
-      .filter((r) => r[p] > 0)
-      .sort((a, b) => (b[p] - a[p]) || a.name.localeCompare(b.name))
-      .map((r) => r.name).join(', ');
-  };
-
+  // Download rows carry NO country. Downloads are GitHub's counter and have
+  // no geography; countries come from site presses. Pairing them mixes the
+  // two populations, which this report forbids. Geography lives in the
+  // STARTED FROM THE WEBSITE sections, labelled as presses.
   sections.push([
     header(`ALL DOWNLOADS${sinceLabel}`, delta.macNew + delta.pcNew),
     '',
-    row('Mac', delta.macNew, delta.macNew > 0 ? clickNote('mac') : ''),
-    row('PC', delta.pcNew, delta.pcNew > 0 ? clickNote('pc') : ''),
+    row('Mac', delta.macNew),
+    row('PC', delta.pcNew),
   ]);
 
   sections.push([
