@@ -268,6 +268,25 @@ test('download rows never carry a country (downloads have no geography)', async 
   assert.doesNotMatch(block, /United States|Sweden|Tor network/);
 });
 
+test('download rows stay bare when there are presses but no downloads, and downloads but no presses', async () => {
+  const { renderBody } = await libP;
+  const upTo = (b) => b.slice(0, b.indexOf('STARTED FROM THE WEBSITE'));
+
+  const pressOnly = model();
+  pressOnly.delta.macNew = 0; pressOnly.delta.pcNew = 0;
+  pressOnly.site.window = { US: { mac: 4, pc: 4 } };
+  const a = upTo(renderBody(pressOnly));
+  assert.match(a, /\n {2}Mac {3}0\n {2}PC {4}0\n/);
+  assert.doesNotMatch(a, /\(|United States/);
+
+  const downloadsOnly = model();
+  downloadsOnly.delta.macNew = 2; downloadsOnly.delta.pcNew = 2;
+  downloadsOnly.site = null;
+  const b = upTo(renderBody(downloadsOnly));
+  assert.match(b, /\n {2}Mac {3}2\n {2}PC {4}2\n/);
+  assert.doesNotMatch(b, /\(/);
+});
+
 test('stale site: TOTAL renders the snapshot table + notice; 7-day header is an em dash', async () => {
   const { renderBody } = await libP;
   const m = model();
