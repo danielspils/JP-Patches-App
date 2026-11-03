@@ -576,3 +576,24 @@ test('mergePressHistory backfills everything on a first run with no file', async
   assert.equal(added, 1);
   assert.equal(JSON.parse(lines[0]).date, '2026-07-15');
 });
+
+test('the retry run stands down once a report has gone out today', async () => {
+  const { shouldStandDown } = await libP;
+  const now = new Date('2026-11-03T15:12:00Z');
+  assert.equal(shouldStandDown({ retry: true, lastSent: '2026-11-03T07:12:04Z', now }), true);
+});
+
+test('a dropped morning run still gets its email', async () => {
+  // The only reason the second cron exists.
+  const { shouldStandDown } = await libP;
+  const now = new Date('2026-11-03T15:12:00Z');
+  assert.equal(shouldStandDown({ retry: true, lastSent: '2026-11-02T07:12:04Z', now }), false);
+  assert.equal(shouldStandDown({ retry: true, lastSent: null, now }), false);
+});
+
+test('the morning run and a manual run never stand down', async () => {
+  const { shouldStandDown } = await libP;
+  const now = new Date('2026-11-03T15:12:00Z');
+  assert.equal(shouldStandDown({ retry: false, lastSent: '2026-11-03T07:12:04Z', now }), false);
+  assert.equal(shouldStandDown({ lastSent: '2026-11-03T07:12:04Z', now }), false);
+});

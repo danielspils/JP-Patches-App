@@ -59,7 +59,10 @@ jobs:
         id: calc
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/download-report.mjs
+        # --retry ONLY on the afternoon schedule. It stands the run down if a
+        # report already went out today, so the inbox gets one email a day.
+        # Empty on workflow_dispatch, so a manual run always reports.
+        run: node scripts/download-report.mjs ${{ github.event.schedule == '12 15 * * *' && '--retry' || '' }}
 
       - name: Email the report
         if: steps.calc.outputs.send == 'true'

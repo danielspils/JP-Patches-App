@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import {
   ASSET_RE, tallyAssets, diffSite, diffLibrary, renderBody, htmlBody, ctaBullet,
-  historyRow, mergePressHistory,
+  historyRow, mergePressHistory, shouldStandDown,
 } from './download-report-lib.mjs';
 
 const args = process.argv.slice(2);
@@ -34,6 +34,23 @@ const HISTORY = flag('history', '.github/download-history.jsonl');
 const PRESS_HISTORY = flag('press-history', '.github/press-history.jsonl');
 const RELAY = flag('relay', 'https://lend.jx-3p.com');
 const DRY = has('dry-run');
+
+// READ THE SNAPSHOT AND DECIDE WHETHER TO STAND DOWN BEFORE TOUCHING THE
+// NETWORK. A run that is not going to report should not call the GitHub API
+// or the Worker at all, and keeping the gate here means it can be proved
+// without either of them being reachable.
+let snap = null;
+try { snap = JSON.parse(readFileSync(SNAP, 'utf8')); } catch { /* first run */ }
+
+// NOTHING IS WRITTEN ON THIS PATH. Advancing the baseline here would fold
+// today's later downloads into a delta nobody ever reads, and they would never
+// appear in a "since" block again.
+if (shouldStandDown({ retry: has('retry'), lastSent: snap?.lastSent })) {
+  console.log(`A report already went out today (${snap.lastSent}). Retry run standing down.`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'send=false\n');
+  process.exit(0);
+}
+
 
 // ── GitHub ────────────────────────────────────────────────────────────
 
@@ -80,8 +97,6 @@ const now = {
   pcNew: tallyAssets(rows, ASSET_RE.pcNew),
 };
 
-let snap = null;
-try { snap = JSON.parse(readFileSync(SNAP, 'utf8')); } catch { /* first run */ }
 const first = !snap;
 
 const prev = {
@@ -177,6 +192,10 @@ if (!DRY && commit) {
     mac_upd: now.macUpd,
     pc_new: now.pcNew,
     updated: reportDate,
+    // The date an email actually went out, which is NOT `updated` — the first
+    // run and a library-seeding run both write a snapshot and send nothing.
+    // --retry reads this and only this.
+    lastSent: send ? reportDate : (snap?.lastSent || null),
     // Worker counters as of this report. Absent when the Worker was
     // unreachable — keep the old block so the next run still has a baseline.
     site: site ? site.nextSite : snap?.site,
