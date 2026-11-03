@@ -90,3 +90,4 @@
 {"date":"2026-10-30","countries":{"SE":{"mac":2,"pc":2},"SG":{"mac":1,"pc":0}}}
 {"date":"2026-10-31","countries":{"CL":{"mac":1,"pc":0},"T1":{"mac":1,"pc":1},"CA":{"mac":0,"pc":1},"PK":{"mac":0,"pc":1},"VN":{"mac":0,"pc":1}}}
 {"date":"2026-11-01","countries":{"GB":{"mac":1,"pc":1},"T1":{"mac":1,"pc":1},"US":{"mac":1,"pc":1}}}
+{"date":"2026-11-02","countries":{"BD":{"mac":1,"pc":0},"T1":{"mac":4,"pc":4},"AR":{"mac":0,"pc":1}}}
