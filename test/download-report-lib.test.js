@@ -241,6 +241,19 @@ test('countryName resolves any ISO code via Intl, XX -> Unknown, T1 -> Tor netwo
   // Intl does not know it, so the manual map must.
   assert.equal(countryName('T1'), 'Tor network');
   assert.equal(countryName('zzz'), 'zzz');            // invalid -> raw code, no throw
+  // Not hand-listed anywhere. It reached a real Seven email as "BD 1" before
+  // the fallback existed. Delete the Intl branch and this line fails.
+  assert.equal(countryName('BD'), 'Bangladesh');
+});
+
+test('the hand-written names win over Intl, so both projects agree', async () => {
+  const { countryName } = await libP;
+  // The chosen vocabulary, shared with This Seven Goes to Eleven. Asked first,
+  // Intl says "United Kingdom" and "Hong Kong SAR China" and the two projects
+  // start naming the same visitor differently. Reorder countryName and these
+  // fail.
+  assert.equal(countryName('GB'), 'Great Britain');
+  assert.equal(countryName('HK'), 'Hong Kong');
 });
 
 test('the Direct-from-GitHub residual never renders (downloads minus presses is meaningless)', async () => {

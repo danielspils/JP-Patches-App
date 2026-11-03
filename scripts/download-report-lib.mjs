@@ -25,7 +25,7 @@
 export const MIN_VER = 800;              // major*10000 + minor*100 + patch
 
 export const COUNTRY_NAMES = {
-  US: 'United States', GB: 'United Kingdom', DE: 'Germany', JP: 'Japan',
+  US: 'United States', GB: 'Great Britain', DE: 'Germany', JP: 'Japan',
   CA: 'Canada', AU: 'Australia', FR: 'France', NL: 'Netherlands',
   SE: 'Sweden', IT: 'Italy', ES: 'Spain', BR: 'Brazil', MX: 'Mexico',
   PL: 'Poland', NO: 'Norway', DK: 'Denmark', FI: 'Finland', BE: 'Belgium',
@@ -41,25 +41,26 @@ export const COUNTRY_NAMES = {
   LU: 'Luxembourg', T1: 'Tor network', XX: 'Unknown',
 };
 
-// Resolve an ISO 3166-1 alpha-2 code to a full English name via Intl (the CI
-// runner has full ICU), so ANY code lands — not just the hand-listed ones (IQ
-// slipped through the map). XX is our own "unknown country" sentinel. Falls
-// back to the manual map, then the raw code, if Intl is missing or doesn't
-// recognise the code.
+// COUNTRY_NAMES is the chosen vocabulary and wins. Intl is the FALLBACK, so
+// any ISO code nobody hand-listed still gets a name rather than printing as
+// two letters (BD reached a real Seven email as "BD 1"). The order matters:
+// asked first, Intl says "United Kingdom" and "Hong Kong SAR China", which
+// disagrees with This Seven Goes to Eleven. The same map and the same order
+// live in both projects so one visitor reads the same way in each.
 const REGION_NAMES = (() => {
   try { return new Intl.DisplayNames(['en'], { type: 'region' }); }
   catch { return null; }
 })();
 
 export function countryName(code) {
-  if (code === 'XX') return 'Unknown';
+  if (COUNTRY_NAMES[code]) return COUNTRY_NAMES[code];
   if (REGION_NAMES) {
     try {
       const name = REGION_NAMES.of(code);
       if (name && name !== code) return name;
-    } catch { /* invalid code → fall through */ }
+    } catch { /* not a region code → fall through */ }
   }
-  return COUNTRY_NAMES[code] || code;
+  return String(code || '?');
 }
 
 // ── GitHub asset tallies ──────────────────────────────────────────────
