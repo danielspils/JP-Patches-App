@@ -245,9 +245,37 @@ async function bumpMonthly(env, kind, platform, country) {
   await env.HEARTS.put(key, String(next));              // no expirationTtl → permanent
 }
 
+// Press counts show Mac and PC exactly equal on 95 of 101 country-days with
+// both platforms (Sweden's lifetime totals were 58/58). A human presses one
+// button; something is pressing both. DL_BOT_RE only catches agents that
+// announce themselves, and the UA was tested and then discarded, so there was
+// no way to see what. This records a coarse UA fingerprint per day so the
+// agent can be identified and filtered properly.
+//
+// KV: ua:<YYYYMMDD>:<counted|filtered>:<platform>:<slug> → count, 90-day TTL.
+// The slug is the UA lowercased, non-alphanumerics collapsed to '_' and capped
+// at 60 chars: readable enough to name the agent, bounded enough that a hostile
+// UA cannot blow up the keyspace. No IP, no raw header, nothing per-visitor.
+const UA_TTL_SECONDS = 90 * 24 * 3600;
+
+function uaSlug(ua) {
+  const s = String(ua || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60);
+  return s.replace(/^_+|_+$/g, '') || 'empty';
+}
+
+async function recordAgent(env, platform, ua, counted) {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const key = `ua:${day}:${counted ? 'counted' : 'filtered'}:${platform}:${uaSlug(ua)}`;
+  const next = (Number(await env.HEARTS.get(key)) || 0) + 1;
+  await env.HEARTS.put(key, String(next), { expirationTtl: UA_TTL_SECONDS });
+}
+
 async function handleDownload(request, env, ctx, platform) {
   const target = platform === 'mac' ? DL_MAC_URL : await latestWinExeUrl(env);
   const ua = request.headers.get('user-agent') || '';
+  // Diagnostic only — never gates the redirect, and failure is swallowed so a
+  // KV hiccup can never cost someone their download.
+  if (ctx) ctx.waitUntil(recordAgent(env, platform, ua, !DL_BOT_RE.test(ua)).catch(() => {}));
   if (!DL_BOT_RE.test(ua)) {
     const country = (request.cf && request.cf.country) || 'XX';
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -392,6 +420,25 @@ async function handleDownloadStats(url, env) {
     byCountry[country][platform] = (byCountry[country][platform] || 0) + n;
   }
   return json({ ok: true, since: since || null, totals, byCountry });
+}
+
+// GET /download/agents[?since=YYYYMMDD] — the UA fingerprints behind the press
+// counts, so an automated presser can be named and then filtered. Shape:
+// { counted: { slug: { mac, pc } }, filtered: { slug: { mac, pc } } }.
+// Aggregate counts only, same public-by-design reasoning as /download/stats.
+async function handleDownloadAgents(url, env) {
+  const since = (url.searchParams.get('since') || '').replace(/[^0-9]/g, '');
+  const out = { counted: {}, filtered: {} };
+  for (const [name, n] of await kvCounts(env, 'ua:')) {
+    const parts = name.split(':');            // ua:<day>:<bucket>:<platform>:<slug>
+    if (parts.length !== 5) continue;
+    const [, day, bucket, platform, slug] = parts;
+    if (since && day < since) continue;
+    if (!n || !out[bucket]) continue;
+    out[bucket][slug] = out[bucket][slug] || { mac: 0, pc: 0 };
+    out[bucket][slug][platform] = (out[bucket][slug][platform] || 0) + n;
+  }
+  return json({ ok: true, since: since || null, ...out });
 }
 
 // ── Active-install ping ─────────────────────────────────────────────
@@ -549,6 +596,9 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/download/pc') {
       return handleDownload(request, env, ctx, 'pc');
+    }
+    if (request.method === 'GET' && url.pathname === '/download/agents') {
+      return handleDownloadAgents(url, env);
     }
     if (request.method === 'GET' && url.pathname === '/download/stats') {
       return handleDownloadStats(url, env);
