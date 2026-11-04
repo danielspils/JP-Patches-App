@@ -87,6 +87,20 @@ When JP Patches gets a real user manual (README, in-app help, or `USER_MANUAL.md
 
 - **MIDI integration (v2).** Full bidirectional CC sync with the JX-3P. Blocked on installing the Series Circuits JX-3P MIDI Upgrade Kit. CC map + architecture in `library-and-midi-spec.md` §Phase 3.
 
+## Setlists
+
+- **Setlists, as JUNO-Xtra has them** (Daniel, 2026-11-04). A gigging musician saves a named list and loads it before a show. Carried over from [[crumar-seven-editor]] via JUNO-Xtra, where it reorders scenes inside the instrument's own bank memory.
+
+  **Read this before building it: JP Patches may already have the feature under a different name.** A saved library *package* IS a named 32-patch C/D arrangement, and the Custom Bank Builder already assembles one by cherry-picking across packages. README.md:120 literally calls that "a setlist for a gig." The JUNO-X needed a separate setlist concept because its scenes live in instrument memory and have to be reordered in place; the JX-3P takes a whole bank as one tape dump, so a package already is the unit a setlist would be.
+
+  So the honest question is not "build setlists" but "what does a setlist do that a package doesn't?" Three candidate gaps, in order of how real they look:
+
+  1. **Only one staging area exists.** `library.customBuckets` is a single `{ active, C[16], D[16] }` object (app.js ~2765). You cannot keep two part-built banks going at once — starting a second wipes the first. Named, multiple buckets would be a genuine addition.
+  2. **No gig-shaped framing.** Packages are presented as library snapshots, not as "tonight's show". Same data, different verb. A setlist view would be a filter plus a Send-to-JX button, not new storage.
+  3. **No ordering intent.** A setlist implies the order matters because you play down it. A package's slot order is already the bank order, so this may be nothing.
+
+  Decide which of those three is the actual want before writing code. If it is only (2), it is a label and a button, not a feature.
+
 ## Library metadata
 
 - **Per-patch event log (Patch History v2).** The Patch History modal today shows static provenance rows (Name / Library / Created / Created by / Hometown / Lent-to-library / Origin — polished v0.8.x). A richer version would carry a chronological event trail per patch (created / renamed / copied / edited) as dated rows. Sketch: each slotMeta entry grows an `events: []`; saves diff against prior state and append `{ when, kind, detail }`; edits log at save time only. Migration seeds existing patches with one synthetic snapshot entry. ~2–3 hr. *Nice-to-have, not a gap — the static modal covers the common need well.*
