@@ -232,6 +232,26 @@ const DL_MAC_URL = `https://github.com/${REPO}/releases/latest/download/JP-Patch
 const DL_TTL_SECONDS = 90 * 24 * 3600;
 // Obvious crawlers/prefetchers shouldn't count as humans downloading.
 const DL_BOT_RE = /bot|crawl|spider|slurp|curl|wget|python-requests|headless|preview|monitor|scan|fetch/i;
+// MOBILE IS EXCLUDED, and this is not a guess about bots. The download is a
+// desktop installer — a .dmg or an .exe — so a phone pressing either one can
+// never become an install. The fingerprints below showed every mobile agent
+// pressing BOTH buttons exactly once (Android 4.4.2, Android 9 on two
+// handsets, Android 10, an iPhone); the only uneven splits were desktop.
+// Nobody takes a Mac disk image and a Windows installer on the same phone.
+// This is what the recordAgent diagnostic was added to find.
+const DL_MOBILE_RE = /android|iphone|ipad|ipod|windows phone|iemobile|opera mini|\bmobi\b/i;
+
+// The redirect is NEVER gated by this. Anyone who asks still gets the file;
+// this decides what goes in the counter, nothing else.
+// Identical to countsAsPress in this-seven-goes-to-eleven. Change both.
+export function countsAsPress(ua) {
+  const s = String(ua || '');
+  if (!s) return false;                 // no UA at all is not a person
+  if (DL_BOT_RE.test(s)) return false;
+  if (DL_MOBILE_RE.test(s)) return false;
+
+  return true;
+}
 
 // Durable (no-TTL) monthly rollup. `kind` is a short prefix ('dlm' downloads,
 // 'pgm' pings). Key: <kind>:<YYYY-MM>:<platform>:<country>. These never expire,
@@ -275,8 +295,9 @@ async function handleDownload(request, env, ctx, platform) {
   const ua = request.headers.get('user-agent') || '';
   // Diagnostic only — never gates the redirect, and failure is swallowed so a
   // KV hiccup can never cost someone their download.
-  if (ctx) ctx.waitUntil(recordAgent(env, platform, ua, !DL_BOT_RE.test(ua)).catch(() => {}));
-  if (!DL_BOT_RE.test(ua)) {
+  const human = countsAsPress(ua);
+  if (ctx) ctx.waitUntil(recordAgent(env, platform, ua, human).catch(() => {}));
+  if (human) {
     const country = (request.cf && request.cf.country) || 'XX';
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const key = `dl:${day}:${platform}:${country}`;
