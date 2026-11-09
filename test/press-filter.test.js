@@ -40,6 +40,15 @@ test('a phone is never a press — the installer does not run there', async () =
   for (const ua of MOBILE) assert.equal(countsAsPress(ua), false, ua);
 });
 
+test('anything without a Mozilla/ token is a program, named or not', async () => {
+  // Found 9 Nov 2026 in this relay's own fingerprints: MSH PDFMIN/1 pressing
+  // both buttons on both sites, announcing nothing DL_BOT_RE could match.
+  const { countsAsPress } = await libP;
+  for (const ua of ['MSH PDFMIN/1', 'riverbot/1.0 (https://river.ai/bot)', 'SomeAgent/3.1']) {
+    assert.equal(countsAsPress(ua), false, ua);
+  }
+});
+
 test('a desktop browser is a press', async () => {
   const { countsAsPress } = await libP;
   for (const ua of DESKTOP) assert.equal(countsAsPress(ua), true, ua);

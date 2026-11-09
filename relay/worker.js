@@ -247,6 +247,13 @@ const DL_MOBILE_RE = /android|iphone|ipad|ipod|windows phone|iemobile|opera mini
 export function countsAsPress(ua) {
   const s = String(ua || '');
   if (!s) return false;                 // no UA at all is not a person
+  // EVERY REAL BROWSER SENDS A Mozilla/ TOKEN — Chrome, Safari, Firefox and
+  // Edge all still do, for reasons going back to 1994. Anything that does not
+  // is a program, whether or not it says so. Default-deny, and it is what
+  // caught `MSH PDFMIN/1`, pressing both buttons on BOTH sites and announcing
+  // nothing DL_BOT_RE could match.
+
+  if (!/^Mozilla\//.test(s)) return false;
   if (DL_BOT_RE.test(s)) return false;
   if (DL_MOBILE_RE.test(s)) return false;
 
