@@ -123,3 +123,8 @@ jobs:
             dist/*.exe.blockmap
             dist/latest.yml
           if-no-files-found: error
+          # Actions storage on this account hit 100% and started billing; the
+          # cause was test installers sitting at the default 90-day retention.
+          # Shipped versions live on GitHub Releases, which don't count against
+          # Actions storage, so a week is plenty to pull a build for testing.
+          retention-days: 7
