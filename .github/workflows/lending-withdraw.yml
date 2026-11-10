@@ -31,7 +31,7 @@ jobs:
           ref: main
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - run: npm install --no-save js-yaml
       - run: node scripts/withdraw-lend.mjs
         env:

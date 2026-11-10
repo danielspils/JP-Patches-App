@@ -54,7 +54,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: '20'        # current LTS, matches the Test workflow
+          node-version: '22'        # matches the Test workflow
           cache: 'npm'
 
       - name: Install dependencies
