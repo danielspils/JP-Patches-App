@@ -42,17 +42,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout jx3p fork (danielspils/JP-Patches)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: danielspils/JP-Patches
           ref: master
           path: jx3p-src
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'        # current LTS, matches the Test workflow
           cache: 'npm'
@@ -115,7 +115,7 @@ jobs:
         run: npx electron-builder --win --x64 --publish never
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: jp-patches-windows-installer
           path: |

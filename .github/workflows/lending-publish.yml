@@ -30,10 +30,10 @@ jobs:
     if: contains(join(github.event.issue.labels.*.name, ','), 'community-')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
       # Only js-yaml (for the catalog consistency test) — a full npm ci
