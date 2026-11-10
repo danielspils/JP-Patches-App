@@ -115,7 +115,7 @@ jobs:
         run: npx electron-builder --win --x64 --publish never
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: jp-patches-windows-installer
           path: |
