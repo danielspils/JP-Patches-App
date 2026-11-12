@@ -72,3 +72,46 @@ test('desktop Safari is not caught by the mobile pattern', async () => {
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15',
   ), true);
 });
+
+// ── The wiring, not just the rule ─────────────────────────────────────
+// Filtered requests must never reach an asset URL: GitHub counts every asset
+// fetch with no filter, which is how bots inflated "All downloads". Same
+// tests as this-seven-goes-to-eleven/scripts/press-filter.test.mjs.
+
+const fakeEnv = () => {
+  const store = new Map();
+  return {
+    HEARTS: {
+      get: async (k) => (store.has(k) ? store.get(k) : null),
+      put: async (k, v) => { store.set(k, v); },
+      list: async () => ({ keys: [], list_complete: true }),
+    },
+    _store: store,
+  };
+};
+const fakeCtx = () => ({ waitUntil: () => {} });
+const req = (ua) => ({
+  headers: { get: (h) => (h.toLowerCase() === 'user-agent' ? ua : null) },
+  cf: { country: 'SE' },
+});
+const dlKeys = (env) => [...env._store.keys()].filter((k) => k.startsWith('dl:') || k.startsWith('dlm:'));
+
+for (const ua of [MOBILE[1], 'MSH PDFMIN/1', '', ANNOUNCED_BOTS[0]]) {
+  test(`a filtered agent gets the releases page, never the installer: ${JSON.stringify(ua)}`, async () => {
+    const { handleDownload } = await libP;
+    const env = fakeEnv();
+    const res = await handleDownload(req(ua), env, fakeCtx(), 'mac');
+    assert.equal(res.status, 302, 'nobody is refused');
+    assert.match(res.headers.get('location'), /\/releases\/latest$/);
+    assert.deepEqual(dlKeys(env), [], 'nothing was counted');
+  });
+}
+
+test('a desktop press gets the Mac installer and is counted', async () => {
+  const { handleDownload } = await libP;
+  const env = fakeEnv();
+  const res = await handleDownload(req(DESKTOP[0]), env, fakeCtx(), 'mac');
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get('location'), /\/releases\/latest\/download\/JP-Patches\.dmg$/);
+  assert.ok(dlKeys(env).some((k) => k.startsWith('dl:') && k.endsWith(':mac:SE')), 'counted');
+});
