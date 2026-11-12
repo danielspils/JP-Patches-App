@@ -10,6 +10,8 @@ I've always wanted a way to easily save patches to my computer. But the JX relie
 
 [JP Patches for Mac](https://lend.jx-3p.com/download/mac){:.btn-green} [JP Patches for PC](https://lend.jx-3p.com/download/pc){:.btn-blue}
 
+<p class="mobile-note" hidden>This is a Mac and PC desktop app. Open this page on your computer to download.</p>
+
 Free, but [donations](https://ko-fi.com/danielspils) help cover code signing and hosting fees. Synth-cerely, Daniel!
 {: .donate-line}
 
@@ -59,6 +61,8 @@ Fast forward a month and I have JP Patches, my JX-3P companion app. It works on 
 </div>
 
 [JP Patches for Mac](https://lend.jx-3p.com/download/mac){:.btn-green} [JP Patches for PC](https://lend.jx-3p.com/download/pc){:.btn-blue}
+
+<p class="mobile-note" hidden>This is a Mac and PC desktop app. Open this page on your computer to download.</p>
 
 Free, but [donations](https://ko-fi.com/danielspils) help cover code signing and hosting fees. Synth-cerely, Daniel!
 {: .donate-line}

@@ -1313,6 +1313,15 @@ body {
   color: var(--body-text-mid);
 }
 
+/* Phone/tablet only, revealed by site.js. Same quiet voice as the donation
+   line: information, not a warning. */
+.site-content .mobile-note {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--body-text-mid);
+}
+.site-content .mobile-note[hidden] { display: none; }
+
 /* Notes email-subscribe form (Buttondown embed). Same parallelogram CTA
    language as the download buttons; input styled to sit beside it. */
 .notes-subscribe {
