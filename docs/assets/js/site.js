@@ -9,6 +9,21 @@
 // the site-header logo and other layout images are excluded.
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ── On a phone or tablet, say it's a desktop app (2026-11-12) ──
+  // Shown, never blocking: the buttons stay live, and the relay sends a
+  // phone to the releases page rather than a file it cannot open. Same
+  // mobile pattern as relay/worker.js DL_MOBILE_RE, plus the iPad, which
+  // calls itself a Mac and only gives itself away by having a touchscreen.
+  {
+    const ua = navigator.userAgent || '';
+    const isPhoneOrTablet =
+      /android|iphone|ipad|ipod|windows phone|iemobile|opera mini|\bmobi\b/i.test(ua) ||
+      (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    if (isPhoneOrTablet) {
+      document.querySelectorAll('.mobile-note').forEach((n) => { n.hidden = false; });
+    }
+  }
+
   // ── Strip tracking params from the address bar ────────────────
   // Facebook (fbclid), Google (gclid), Mailchimp (mc_eid), and the
   // utm_* family are all click-attribution tags that get appended
