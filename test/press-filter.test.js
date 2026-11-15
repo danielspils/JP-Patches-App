@@ -115,3 +115,12 @@ test('a desktop press gets the Mac installer and is counted', async () => {
   assert.match(res.headers.get('location'), /\/releases\/latest\/download\/JP-Patches\.dmg$/);
   assert.ok(dlKeys(env).some((k) => k.startsWith('dl:') && k.endsWith(':mac:SE')), 'counted');
 });
+
+test('a desktop browser on Tor is treated as filtered: releases page, not counted', async () => {
+  const { handleDownload } = await libP;
+  const env = fakeEnv();
+  const torReq = { ...req('Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0'), cf: { country: 'T1' } };
+  const res = await handleDownload(torReq, env, fakeCtx(), 'mac');
+  assert.match(res.headers.get('location'), /\/releases\/latest$/);
+  assert.deepEqual(dlKeys(env), [], 'nothing was counted');
+});

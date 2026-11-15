@@ -306,7 +306,14 @@ async function recordAgent(env, platform, ua, counted) {
 
 export async function handleDownload(request, env, ctx, platform) {
   const ua = request.headers.get('user-agent') || '';
-  const human = countsAsPress(ua);
+  const country = (request.cf && request.cf.country) || 'XX';
+  // TOR IS TREATED AS FILTERED (2026-11-15). Tor Browser looks exactly like
+  // desktop Firefox, so the agent rule passes it, and Tor presses have run
+  // Mac=PC in lockstep on both sites for weeks; a counted Tor 2/2 on 14 Nov
+  // matched the next day's 2/2 downloads exactly. Cloudflare marks Tor as
+  // country "T1". A real Tor user lands on the releases page, one click from
+  // the installer. Same rule in this-seven-goes-to-eleven.
+  const human = countsAsPress(ua) && country !== 'T1';
   // Only a counted press is resolved to the installer. See "WHAT A FILTERED
   // REQUEST GETS" above countsAsPress.
   const target = !human ? DL_RELEASES_URL
@@ -315,7 +322,6 @@ export async function handleDownload(request, env, ctx, platform) {
   // hiccup can never cost someone their download.
   if (ctx) ctx.waitUntil(recordAgent(env, platform, ua, human).catch(() => {}));
   if (human) {
-    const country = (request.cf && request.cf.country) || 'XX';
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const key = `dl:${day}:${platform}:${country}`;
     // Non-atomic increment — same trade-off as hearts, fine at this scale.
