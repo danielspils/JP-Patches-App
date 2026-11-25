@@ -133,7 +133,13 @@ const libCur = await relay('/borrow/stats');
 const libFallback = sinceDay ? await relay(`/borrow/stats?since=${sinceDay}`) : libCur;
 const library = libCur ? diffLibrary(snap?.library, libCur, libFallback || libCur) : null;
 
+// New installs, from first-launch pings. Absent or unreadable → null, and
+// the section simply does not print.
+const pingWeek = await relay(`/ping/stats?since=${weekDay}`);
+const installs = pingWeek && pingWeek.installs ? pingWeek.installs : null;
+
 const report = renderBody({
+  installs,
   // Raw ISO — renderBody formats it into the "SINCE 17 AUG" header itself.
   // We only email on activity, so "since the last report" is literally
   // "since the last new downloads".

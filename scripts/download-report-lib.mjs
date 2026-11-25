@@ -409,9 +409,25 @@ function borrowRows(counts) {
 // NEVER call the relay number "downloads". It counts presses, not
 // completions. Never sum, difference or percentage the two.
 export function renderBody(model) {
-  const { prevDate, delta, lifetime, site, library } = model;
+  const { prevDate, delta, lifetime, site, library, installs = null } = model;
   const sections = [];
   const sinceLabel = prevDate ? ` SINCE ${formatDate(prevDate).toUpperCase()}` : '';
+
+  // NEW INSTALLS LEAD (2026-11-21). Counted from the app's first-launch ping,
+  // so a bot that downloads an installer cannot reach it: this is the number
+  // that means a person. Printed only once there is one, because until the
+  // release that sends the flag a permanent "0" would read as nobody
+  // installing. Window: the last 7 days, from the relay's /ping/stats.
+  // Same section as this-seven-goes-to-eleven.
+  if (installs && installs.total > 0) {
+    const p = installs.byPlatform || {};
+    sections.push([
+      header('NEW INSTALLS — LAST 7 DAYS', installs.total),
+      '',
+      row('Mac', p.mac || 0),
+      row('PC', p.win || 0),
+    ]);
+  }
 
   // Download rows carry NO country. Downloads are GitHub's counter and have
   // no geography; countries come from site presses. Pairing them mixes the
