@@ -251,6 +251,18 @@ const DL_MOBILE_RE = /android|iphone|ipad|ipod|windows phone|iemobile|opera mini
 // does not click never touches an asset counter.
 const DL_RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 // Identical to countsAsPress in this-seven-goes-to-eleven. Change both.
+// A REAL CLICK (2026-11-21). Every current browser marks a navigation the
+// person started (a click, or a typed or pasted link) with
+// Sec-Fetch-Mode: navigate. Scripts that fake a desktop Chrome agent do not
+// send it: on 21 Nov the counted presses on 7/11 (GB 4, SE 4) matched that
+// day's 4/4 downloads exactly, and JP showed the same GB/SE pairs. Without it
+// the request is treated as filtered and lands on the releases page. Browsers
+// too old to send it (Safari before 16.4) get the same page, one click away.
+// Same rule in this-seven-goes-to-eleven.
+export function isRealNavigation(request) {
+  return request.headers.get('sec-fetch-mode') === 'navigate';
+}
+
 export function countsAsPress(ua) {
   const s = String(ua || '');
   if (!s) return false;                 // no UA at all is not a person
@@ -313,7 +325,7 @@ export async function handleDownload(request, env, ctx, platform) {
   // matched the next day's 2/2 downloads exactly. Cloudflare marks Tor as
   // country "T1". A real Tor user lands on the releases page, one click from
   // the installer. Same rule in this-seven-goes-to-eleven.
-  const human = countsAsPress(ua) && country !== 'T1';
+  const human = countsAsPress(ua) && country !== 'T1' && isRealNavigation(request);
   // Only a counted press is resolved to the installer. See "WHAT A FILTERED
   // REQUEST GETS" above countsAsPress.
   const target = !human ? DL_RELEASES_URL
@@ -523,7 +535,7 @@ async function notePingReject(env, ctx, reason) {
   if (ctx) ctx.waitUntil(bump); else await bump;
 }
 
-async function handlePing(request, env, ctx) {
+export async function handlePing(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch {
     await notePingReject(env, ctx, 'json');
@@ -547,6 +559,17 @@ async function handlePing(request, env, ctx) {
   // version is intentionally dropped here (it churns; the 90-day pg: keys keep
   // per-version detail). This is the permanent active-install geo aggregate.
   await bumpMonthly(env, 'pgm', platform, country);
+  // NEW INSTALLS (2026-11-21). The app sends first: true on the first ping it
+  // ever sends. A bot can download an installer; it does not install and open
+  // the app, so this is the one count downloads cannot inflate. Only the
+  // literal boolean true counts. Keys: in:<day>:<platform>:<country> (90 days)
+  // and inm:<YYYY-MM>:<platform>:<country> (permanent). Same as 7/11.
+  if (body.first === true) {
+    const ik = `in:${day}:${platform}:${country}`;
+    await env.HEARTS.put(ik, String((Number(await env.HEARTS.get(ik)) || 0) + 1),
+      { expirationTtl: PING_TTL_SECONDS });
+    await bumpMonthly(env, 'inm', platform, country);
+  }
 
   // Mirror into GoatCounter alongside the downloads (best-effort). Pass the
   // version as ref so expanding active-mac/active-win in GoatCounter shows a
@@ -585,10 +608,22 @@ async function handlePingStats(url, env) {
   // means active installs. Summing days would double-count the same install.
   const days = Object.keys(byDay).sort();
   const latest = days.length ? days[days.length - 1] : null;
+  // New installs from first-launch pings (in:<day>:<platform>:<country>).
+  const installs = { total: 0, byDay: {}, byCountry: {}, byPlatform: {} };
+  for (const [name, n] of await kvCounts(env, 'in:')) {
+    const parts = name.split(':');
+    if (parts.length !== 4 || !n) continue;
+    const [, d, platform, country] = parts;
+    if (since && d < since) continue;
+    installs.total += n;
+    installs.byDay[d] = (installs.byDay[d] || 0) + n;
+    installs.byCountry[country] = (installs.byCountry[country] || 0) + n;
+    installs.byPlatform[platform] = (installs.byPlatform[platform] || 0) + n;
+  }
   return json({
     ok: true, since: since || null,
     activeLatestDay: latest, activeLatest: latest ? byDay[latest] : 0,
-    byDay, byCountry, byVersion, rejected,
+    byDay, byCountry, byVersion, rejected, installs,
   });
 }
 
