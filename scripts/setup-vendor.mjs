@@ -53,10 +53,12 @@ function extractTarGz(file, destDir) {
 
 function extractZip(file, destDir) {
   // The Windows uv zip has no wrapper dir — uv.exe / uvx.exe land at destDir.
-  execFileSync('powershell', [
-    '-NoProfile', '-NonInteractive', '-Command',
-    `Expand-Archive -LiteralPath ${JSON.stringify(file)} -DestinationPath ${JSON.stringify(destDir)} -Force`,
-  ], { stdio: 'inherit' });
+  // Windows 10+ ships bsdtar in System32, which reads zips. Called by full
+  // path: Git for Windows puts GNU tar first on PATH, and GNU tar can't.
+  // (Expand-Archive broke on the Nov 2026 runner image: "Cannot find an
+  // overload for ExtractToDirectory".)
+  const sysTar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+  execFileSync(sysTar, ['-xf', file, '-C', destDir], { stdio: 'inherit' });
 }
 
 async function setupUv() {
