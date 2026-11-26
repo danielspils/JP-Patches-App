@@ -5,6 +5,9 @@ const fs = require('fs');
 const os = require('os');
 const { exec, execFile } = require('child_process');
 const { promisify } = require('util');
+// Pure, no DOM — shared with the renderer so the ping's `first === true` rule
+// has one definition and one test instead of a copy on each side.
+const { pingBody } = require('./renderer/ping-gate.js');
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
@@ -467,10 +470,15 @@ const LENDING_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;  // payloads are ~15-35KB; 5M
 const PING_URL = 'https://lend.jx-3p.com/ping';
 const PING_TIMEOUT_MS = 5000;
 
-ipcMain.handle('telemetry-ping', async () => {
+ipcMain.handle('telemetry-ping', async (_e, opts) => {
   // Main states the whole payload itself — version and platform both come
   // from here, so the renderer cannot influence what is sent. It only gets
-  // to decide WHETHER to call (opt-out + the once-a-day gate).
+  // to decide WHETHER to call (opt-out + the once-a-day gate) and whether
+  // this is the install's FIRST ping.
+  //
+  // `first` is the one field the renderer supplies. pingBody is what reads it,
+  // and it is shared with the renderer so the `=== true` rule has one
+  // definition and one test rather than a copy on each side.
   const version = app.getVersion();
   if (!/^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/.test(version)) return { ok: false };
   const platform = process.platform === 'win32' ? 'win'
@@ -482,7 +490,7 @@ ipcMain.handle('telemetry-ping', async () => {
     const res = await fetch(PING_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ platform, version }),
+      body: JSON.stringify(pingBody(platform, version, opts)),
       signal: ctrl.signal,
     });
     // res.ok matters: a Worker 400 (rejected ping) used to come back {ok:true},

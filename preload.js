@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   // the renderer can't influence what is sent — it only decides WHETHER to
   // call, via the opt-out pref + once-per-day gate in library.json.
   // Never rejects: a failed ping is a silent no-op.
-  telemetryPing:       ()        => ipcRenderer.invoke('telemetry-ping'),
+  telemetryPing:       (opts)    => ipcRenderer.invoke('telemetry-ping', opts),
   outputVolumes:       ()        => ipcRenderer.invoke('output-volumes'),
   seqTapeEncodeToTemp: (data)    => ipcRenderer.invoke('seq-tape-encode-to-temp', data),
   seqTapeSave:         ()        => ipcRenderer.invoke('seq-tape-save'),

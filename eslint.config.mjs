@@ -135,6 +135,12 @@ export default [
         selectSoundOutputDevice:    'readonly',
         isBuiltInSpeakerOutput:     'readonly',
         maybePlayTapeDumpSound:     'readonly',
+        // ping-gate.js (the usage ping's gate + the new-install flag)
+        isCounted:                  'readonly',
+        planPing:                   'readonly',
+        afterSuccess:               'readonly',
+        pingBody:                   'readonly',
+
         // output-volume.js (trap #39 low-output warning)
         pickOutputDevice:           'readonly',
         describeLowOutput:          'readonly',

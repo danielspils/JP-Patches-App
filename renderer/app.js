@@ -11795,7 +11795,7 @@ function backfillOriginFields() {
 // ── Anonymous usage ping ────────────────────────────────────────────
 // Policy lives here (the renderer owns library.json); main owns the wire.
 //
-// library.telemetry = { enabled, noticeSeen, lastPing }
+// library.telemetry = { enabled, noticeSeen, lastPing, installCounted }
 //   enabled    — the user's choice. Default ON, but nothing is sent until
 //                noticeSeen is true, so nobody is ever counted before
 //                they've been told.
@@ -11804,6 +11804,10 @@ function backfillOriginFields() {
 //                design rests on this: one ping per install per day means
 //                a day's ping COUNT is the active-install count, so no id
 //                is ever needed to answer "how many people use this?".
+//   installCounted — this install has had a first-launch ping accepted, so
+//                it is never reported as new again. Absent on every library
+//                written before this shipped, which is why ping-gate.js
+//                derives it from lastPing rather than migrating it.
 //
 // Why noticeSeen isn't tied to first-run seeding: everyone who already
 // installed JP Patches did so before this existed. Keying on a pref (not
@@ -11820,11 +11824,12 @@ async function maybeSendUsagePing() {
   if (!library.telemetry) library.telemetry = {};
   const t = library.telemetry;
   if (t.enabled === undefined) t.enabled = true;      // default on (disclosed)
-  if (!t.noticeSeen) return;                          // never ping before the notice
-  if (!t.enabled) return;                             // opted out
   const today = todayStamp();
-  if (t.lastPing === today) return;                   // already counted today
-  if (pingInFlight) return;                           // one attempt at a time
+  // The gate itself is pure and lives in ping-gate.js, where it is tested:
+  // notice first, opt-out honoured, once a day, one attempt at a time — plus
+  // whether this install has been counted as new yet.
+  const plan = planPing(t, today, pingInFlight);
+  if (!plan.send) return;
   // Stamp only on a CONFIRMED success: the old stamp-before-await meant a
   // rejected or failed ping was recorded as counted and never retried. This
   // runs once per launch, so a failure retries at the next launch — never a
@@ -11833,9 +11838,9 @@ async function maybeSendUsagePing() {
   // leave it stuck true in library.json, silencing the install for good.
   pingInFlight = true;
   try {
-    const r = await window.api.telemetryPing();
+    const r = await window.api.telemetryPing({ first: plan.first });
     if (r && r.ok) {
-      t.lastPing = today;
+      Object.assign(t, afterSuccess(today));
       saveLibraryDebounced();
     }
   } catch { /* never surface */ } finally {
