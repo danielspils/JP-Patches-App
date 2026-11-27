@@ -187,6 +187,23 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
     stops the transfer with a visible message instead of quietly degrading
     to the system-default route (app.js `startPlayback`).
 
+40. **The Python venv must NEVER be built where the code lives.** `uv run
+    --directory X` makes `X/.venv`, and setup-vendor excludes `.venv` from
+    the bundle, so until 27 Nov 2026 the venv was created inside the app's
+    own install directory on first run. On Windows that is
+    `C:\Program Files`, read-only to a normal user — which is how Chris
+    (UK, Win 11) hit permission errors creating the venv, reported 26 Nov
+    2026. macOS never showed it, because an app bundle in /Applications is
+    writable by an admin user, which is the only kind of account this was
+    ever tested on. The same
+    placement also meant every auto-update wiped the venv and brought the
+    ~30 s first-Send wait back. Fixed by `UV_PROJECT_ENVIRONMENT` pointing
+    at userData (`main.js jx3pVenvPath`); dev and packaged get separate
+    directories because dev runs against the live jx3p clone at
+    `~/JP-Patches`, whose dependency set can differ from the bundled copy's,
+    and one shared venv would make uv re-sync on every alternation.
+    **Anything new that shells out to uv must pass that env var too.**
+
 ### Lending / site / release
 8. **Loop suppression matters in Phase 3 (MIDI)** — inbound CC must not trigger outbound CC. Spec §3.5.1.
 19. **The logo lives in TWO files** — `renderer/assets/jp-logo.png` (panel) and `docs/assets/img/jp-logo.png` (site). Update both, then regenerate the favicons with `uv run scripts/make-favicons.py` — they are the monogram TRACED from `jp-logo.png` (cream on an opaque dark square; the script gates the trace against the source), not a `sips` crop of the full logo. The old sips crop is why the favicon read "ATCHE" at 32px and vanished on light tab bars. **After changing them, OPEN the served files and look** — matching local/served hashes proved nothing the one time the local files never changed.

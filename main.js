@@ -45,6 +45,34 @@ const VOLUME_PROBE = app.isPackaged
   ? path.join(process.resourcesPath, 'volume-probe')
   : path.join(__dirname, 'vendor', 'volume-probe');
 
+// THE PYTHON VENV LIVES IN userData, NOT NEXT TO THE CODE.
+//
+// `uv run --directory X` creates X/.venv by default, and setup-vendor.mjs
+// excludes .venv from the bundle, so the venv was built INSIDE the app's own
+// install directory on first run. Three things fall out of that, and this one
+// line fixes all three:
+//
+//   1. Windows installs under C:\Program Files are read-only to a normal
+//      user, so the first capture failed outright — "'.venv' folder could not
+//      be created" (Chris, UK, 27 Nov 2026, Win 11). Running once as
+//      Administrator created it and masked the bug for every later launch.
+//      macOS never showed this because an app bundle in /Applications is
+//      writable by an admin user, which is how Daniel's own machine is set up.
+//   2. Every auto-update replaces the install directory, so the venv was
+//      rebuilt — and the ~30 s first-Send wait came back after each update.
+//   3. On a locked-down machine it fails closed with no way for the user to
+//      fix it.
+//
+// An ABSOLUTE path is used as-is by uv: no child directory is created for it
+// (docs.astral.sh/uv/concepts/projects/config). uv warns against sharing one
+// absolute environment between projects, which is why dev and packaged get
+// separate directories — dev runs against Bruce's live clone at ~/JP-Patches,
+// whose dependency set can differ from the bundled copy's, and one shared
+// venv would make uv re-sync every time the two alternated.
+function jx3pVenvPath() {
+  return path.join(app.getPath('userData'), app.isPackaged ? 'jx3p-venv' : 'jx3p-venv-dev');
+}
+
 // All jx3p codec invocations route through here. Using execFile (argv array)
 // instead of a shell command string avoids cmd.exe-vs-/bin/sh quoting
 // differences across platforms AND fixes a latent macOS bug where a path
@@ -56,7 +84,11 @@ function runJx3p(args) {
   return execFileAsync(
     UV_BIN,
     ['run', '--directory', JX3P_REPO, 'jx3p', ...args],
-    { maxBuffer: 10 * 1024 * 1024, windowsHide: true }
+    {
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, UV_PROJECT_ENVIRONMENT: jx3pVenvPath() },
+    }
   );
 }
 
