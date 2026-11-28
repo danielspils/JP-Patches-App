@@ -191,11 +191,12 @@ Two JX-3P units: **upstairs** (MacBook, most testing) and **downstairs** (Mac mi
     --directory X` makes `X/.venv`, and setup-vendor excludes `.venv` from
     the bundle, so until 27 Nov 2026 the venv was created inside the app's
     own install directory on first run. On Windows that is
-    `C:\Program Files`, read-only to a normal user — which is how Chris
-    (UK, Win 11) hit permission errors creating the venv, reported 26 Nov
-    2026. macOS never showed it, because an app bundle in /Applications is
-    writable by an admin user, which is the only kind of account this was
-    ever tested on. The same
+    `C:\Program Files`, read-only to a normal user. Chris (UK, Win 11, 26
+    Nov 2026): "'.venv' folder could not be created, CACHEDIR.TAG could not
+    be found" on first run; relaunching once as Administrator created the
+    folders and normal launches worked after that. macOS never showed it,
+    because an app bundle in /Applications is writable by an admin user,
+    which is the only kind of account this was ever tested on. The same
     placement also meant every auto-update wiped the venv and brought the
     ~30 s first-Send wait back. Fixed by `UV_PROJECT_ENVIRONMENT` pointing
     at userData (`main.js jx3pVenvPath`); dev and packaged get separate
